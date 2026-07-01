@@ -21,7 +21,7 @@ export default function Reports() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   
-  const { data: reports, isLoading } = useListReports({}, { query: { queryKey: getListReportsQueryKey() } });
+  const { data: reports, isLoading } = useListReports({ query: { queryKey: getListReportsQueryKey() } });
   const generateReport = useGenerateReport();
 
   const handleGenerate = (e: React.FormEvent) => {

@@ -5,7 +5,7 @@ import { Server, Activity, AlertTriangle, CheckCircle, HelpCircle, Network, Hard
 import { format } from "date-fns";
 
 export default function SystemStatus() {
-  const { data: systems, isLoading } = useGetSystemStatus({}, { query: { queryKey: getGetSystemStatusQueryKey() } });
+  const { data: systems, isLoading } = useGetSystemStatus({ query: { queryKey: getGetSystemStatusQueryKey() } });
 
   const getStatusIcon = (status: string) => {
     switch (status) {

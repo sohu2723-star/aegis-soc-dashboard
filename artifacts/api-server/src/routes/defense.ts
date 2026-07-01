@@ -22,11 +22,11 @@ router.post("/defense/block", async (req, res) => {
     blockedBy: z.enum(["manual", "auto"]).optional(),
   });
   const body = schema.safeParse(req.body);
-  if (!body.success) return res.status(400).json({ error: "Invalid IP or reason" });
+  if (!body.success) { res.status(400).json({ error: "Invalid IP or reason" }); return; }
 
   const existing = await db.select().from(blockedIpsTable)
     .where(and(eq(blockedIpsTable.ip, body.data.ip), eq(blockedIpsTable.isActive, true)));
-  if (existing.length > 0) return res.status(409).json({ error: "IP already blocked" });
+  if (existing.length > 0) { res.status(409).json({ error: "IP already blocked" }); return; }
 
   const [blocked] = await db.insert(blockedIpsTable).values({
     ip: body.data.ip,
@@ -51,7 +51,7 @@ router.delete("/defense/block/:ip", async (req, res) => {
   const ip = req.params.ip;
   const existing = await db.select().from(blockedIpsTable)
     .where(and(eq(blockedIpsTable.ip, ip), eq(blockedIpsTable.isActive, true)));
-  if (existing.length === 0) return res.status(404).json({ error: "IP not found in block list" });
+  if (existing.length === 0) { res.status(404).json({ error: "IP not found in block list" }); return; }
 
   await db.update(blockedIpsTable).set({ isActive: false, unblockedAt: new Date() })
     .where(eq(blockedIpsTable.ip, ip));

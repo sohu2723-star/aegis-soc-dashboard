@@ -24,7 +24,7 @@ export default function Incidents() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   
-  const { data: incidents, isLoading } = useListIncidents({}, { query: { queryKey: getListIncidentsQueryKey() } });
+  const { data: incidents, isLoading } = useListIncidents({ query: { queryKey: getListIncidentsQueryKey() } });
   const createIncident = useCreateIncident();
 
   const handleCreate = (e: React.FormEvent) => {

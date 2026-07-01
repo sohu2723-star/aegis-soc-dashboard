@@ -1,4 +1,4 @@
-import { useGetDashboardSummary, useGetRecentEvents } from "@workspace/api-client-react";
+import { useGetDashboardSummary, useGetRecentEvents, getGetDashboardSummaryQueryKey, getGetRecentEventsQueryKey } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Activity, ShieldAlert, Siren, Server, Zap, Play, Square } from "lucide-react";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, BarChart, Bar, CartesianGrid } from "recharts";
@@ -10,10 +10,10 @@ import { useState, useEffect, useCallback } from "react";
 
 export default function Dashboard() {
   const { data: summary, isLoading: isLoadingSummary } = useGetDashboardSummary({
-    query: { refetchInterval: 8000 },
+    query: { queryKey: getGetDashboardSummaryQueryKey(), refetchInterval: 8000 },
   });
   const { data: recentEvents, isLoading: isLoadingEvents } = useGetRecentEvents({
-    query: { refetchInterval: 5000 },
+    query: { queryKey: getGetRecentEventsQueryKey(), refetchInterval: 5000 },
   });
 
   const { triggerAttack, startAutoSim, stopAutoSim, getStatus } = useSimulation();

@@ -25,7 +25,7 @@ router.post("/network/hosts", async (req, res) => {
     isMonitored: z.boolean().optional(),
   });
   const body = schema.safeParse(req.body);
-  if (!body.success) return res.status(400).json({ error: "Invalid input" });
+  if (!body.success) { res.status(400).json({ error: "Invalid input" }); return; }
 
   const existing = await db.select().from(networkHostsTable).where(eq(networkHostsTable.ip, body.data.ip));
   if (existing.length > 0) {
@@ -33,7 +33,8 @@ router.post("/network/hosts", async (req, res) => {
       .set({ ...body.data, lastSeen: new Date() })
       .where(eq(networkHostsTable.ip, body.data.ip))
       .returning();
-    return res.json({ ...updated, lastSeen: updated.lastSeen.toISOString(), createdAt: updated.createdAt.toISOString() });
+    res.json({ ...updated, lastSeen: updated.lastSeen.toISOString(), createdAt: updated.createdAt.toISOString() });
+    return;
   }
 
   const [created] = await db.insert(networkHostsTable).values({
