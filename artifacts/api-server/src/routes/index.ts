@@ -12,6 +12,7 @@ import networkRouter from "./network";
 import defenseRouter from "./defense";
 import firewallRouter from "./firewall";
 import connectionsRouter from "./connections";
+import defenseRulesRouter from "./defense-rules";
 
 const router: IRouter = Router();
 
@@ -28,5 +29,6 @@ router.use(networkRouter);
 router.use(defenseRouter);
 router.use(firewallRouter);
 router.use(connectionsRouter);
+router.use(defenseRulesRouter);
 
 export default router;

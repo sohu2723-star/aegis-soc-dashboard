@@ -1,0 +1,2 @@
+- [MySQL migration](mysql-migration.md) — Project uses MySQL (not Postgres); `.returning()` is unavailable, use `.$returningId()` + re-select.
+- [Auto-defense engine](auto-defense.md) — Full attack→rule→command→agent pipeline; sanitize all IPs/ports before building shell commands; both AEGIS_INGEST_KEY and AEGIS_ADMIN_KEY must be set (no fallback) or server refuses to start.

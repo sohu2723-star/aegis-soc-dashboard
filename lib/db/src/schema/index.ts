@@ -6,3 +6,4 @@ export * from "./reports";
 export * from "./network_hosts";
 export * from "./defense_actions";
 export * from "./connections";
+export * from "./defense_engine";
