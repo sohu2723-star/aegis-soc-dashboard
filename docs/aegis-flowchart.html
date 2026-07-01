@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AEGIS SOC — System Workflow Flowchart</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    background: #f8fafc;
+    color: #1e293b;
+    padding: 20px;
+  }
+
+  /* Header */
+  .header {
+    text-align: center;
+    margin-bottom: 24px;
+    padding: 20px;
+    background: linear-gradient(135deg, #0f172a, #1e293b);
+    color: white;
+    border-radius: 12px;
+  }
+  .header h1 { font-size: 26px; font-weight: 900; letter-spacing: 3px; color: #22d3ee; }
+  .header p { font-size: 13px; color: #94a3b8; margin-top: 6px; }
+  .header .badge {
+    display: inline-block; margin-top: 10px; padding: 4px 12px;
+    border: 1px solid #22d3ee; border-radius: 20px;
+    font-size: 11px; color: #22d3ee; letter-spacing: 1px;
+  }
+
+  /* Print button */
+  .controls {
+    text-align: center; margin-bottom: 24px;
+  }
+  .btn-print {
+    background: #22d3ee; color: #0f172a; border: none;
+    padding: 12px 32px; border-radius: 8px; font-size: 15px;
+    font-weight: 700; cursor: pointer; letter-spacing: 1px;
+    box-shadow: 0 4px 12px rgba(34,211,238,0.4);
+  }
+  .btn-print:hover { background: #06b6d4; }
+
+  /* Legend */
+  .legend {
+    display: flex; gap: 16px; flex-wrap: wrap;
+    justify-content: center; margin-bottom: 24px;
+  }
+  .legend-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 14px; border-radius: 20px;
+    font-size: 12px; font-weight: 600;
+  }
+  .legend-dot { width: 14px; height: 14px; border-radius: 3px; }
+
+  /* Diagram container */
+  .diagram-section {
+    background: white;
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    border-left: 6px solid;
+    page-break-inside: avoid;
+  }
+  .diagram-section h2 {
+    font-size: 16px; font-weight: 800; letter-spacing: 2px;
+    margin-bottom: 16px; padding-bottom: 8px;
+    border-bottom: 2px solid; display: flex; align-items: center; gap-10px;
+  }
+  .section-red { border-left-color: #ef4444; }
+  .section-red h2 { color: #dc2626; border-bottom-color: #fee2e2; }
+  .section-green { border-left-color: #22c55e; }
+  .section-green h2 { color: #16a34a; border-bottom-color: #dcfce7; }
+  .section-purple { border-left-color: #818cf8; }
+  .section-purple h2 { color: #4f46e5; border-bottom-color: #e0e7ff; }
+  .section-gray { border-left-color: #64748b; }
+  .section-gray h2 { color: #475569; border-bottom-color: #e2e8f0; }
+
+  /* Mermaid diagram */
+  .mermaid {
+    display: flex;
+    justify-content: center;
+    overflow: visible;
+  }
+  .mermaid svg { max-width: 100%; height: auto; }
+
+  /* Full flowchart container */
+  .full-chart {
+    background: white;
+    border-radius: 12px;
+    padding: 30px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    margin-bottom: 20px;
+  }
+  .full-chart h2 {
+    text-align: center; font-size: 18px; font-weight: 800;
+    letter-spacing: 2px; color: #1e293b; margin-bottom: 20px;
+    padding-bottom: 12px; border-bottom: 2px solid #e2e8f0;
+  }
+
+  /* Details table */
+  .details-grid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 16px; margin-top: 20px;
+  }
+  .detail-card {
+    border-radius: 8px; padding: 16px; border: 1px solid;
+  }
+  .detail-card h3 { font-size: 13px; font-weight: 700; letter-spacing: 1px; margin-bottom: 10px; }
+  .detail-card ul { list-style: none; }
+  .detail-card ul li {
+    font-size: 12px; padding: 4px 0; border-bottom: 1px solid rgba(0,0,0,0.05);
+    display: flex; gap: 6px; align-items: flex-start;
+  }
+  .detail-card ul li::before { content: "▸"; font-size: 10px; margin-top: 2px; flex-shrink: 0; }
+
+  .card-red { background: #fff5f5; border-color: #fca5a5; }
+  .card-red h3 { color: #dc2626; }
+  .card-red ul li::before { color: #ef4444; }
+  .card-green { background: #f0fdf4; border-color: #86efac; }
+  .card-green h3 { color: #16a34a; }
+  .card-green ul li::before { color: #22c55e; }
+  .card-purple { background: #f5f3ff; border-color: #c4b5fd; }
+  .card-purple h3 { color: #4f46e5; }
+  .card-purple ul li::before { color: #818cf8; }
+  .card-gray { background: #f8fafc; border-color: #cbd5e1; }
+  .card-gray h3 { color: #475569; }
+  .card-gray ul li::before { color: #64748b; }
+
+  .footer {
+    text-align: center; font-size: 11px; color: #94a3b8;
+    margin-top: 20px; padding: 16px;
+    border-top: 1px solid #e2e8f0;
+  }
+
+  @media print {
+    body { background: white; padding: 0; }
+    .controls { display: none; }
+    .diagram-section { break-inside: avoid; }
+    .full-chart { break-inside: avoid; }
+    @page { margin: 15mm; size: A4; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>⚡ AEGIS SECURITY OPERATIONS CENTER</h1>
+  <p>System Architecture — Detailed Workflow Flowchart</p>
+  <span class="badge">RED TEAM vs BLUE TEAM — INTERNSHIP PROJECT</span>
+</div>
+
+<div class="controls">
+  <button class="btn-print" onclick="window.print()">🖨️ Print / Save as PDF</button>
+</div>
+
+<div class="legend">
+  <div class="legend-item" style="background:#fff5f5;border:1px solid #fca5a5">
+    <div class="legend-dot" style="background:#ef4444"></div> Attacker Zone (Kali)
+  </div>
+  <div class="legend-item" style="background:#f0fdf4;border:1px solid #86efac">
+    <div class="legend-dot" style="background:#22c55e"></div> Defense Perimeter
+  </div>
+  <div class="legend-item" style="background:#f5f3ff;border:1px solid #c4b5fd">
+    <div class="legend-dot" style="background:#818cf8"></div> AEGIS Brain (SOC)
+  </div>
+  <div class="legend-item" style="background:#f8fafc;border:1px solid #cbd5e1">
+    <div class="legend-dot" style="background:#64748b"></div> Output & Intelligence
+  </div>
+</div>
+
+<!-- FULL SYSTEM FLOWCHART -->
+<div class="full-chart">
+  <h2>🔄 COMPLETE SYSTEM WORKFLOW</h2>
+  <div class="mermaid">
+flowchart TD
+    INET([🌐 Internet])
+
+    subgraph ATK ["🔴  ATTACKER ZONE — Kali Linux VM  192.168.56.101"]
+      direction TB
+      A1["⚡ Attacker ရောက်ပြီ\nAttack Type ရွေးချယ်"]
+      A2["🔍 Reconnaissance\nTarget info collect\nnmap -sV -A target"]
+      A3{{"⚔️ Attack Vector\nရွေးချယ်"}}
+      A4["🌐 WEB ATTACK\nNikto / SQLmap run\n→ SQLi, XSS, CSRF\n→ gobuster scan\n→ payload inject"]
+      A5["📡 NETWORK ATTACK\nNmap Port Scan\n→ Open port detect\n→ ARP Spoof / MITM\n→ hping3 DDoS flood"]
+      A6["🎣 SOCIAL ENGINEERING\nGoPhish campaign\n→ fake email send\n→ fake login page\n→ credential harvest"]
+      A7["📦 Payload / Traffic\nTarget ဆီ ပို့"]
+    end
+
+    INET --> A1
+    A1 --> A2
+    A2 --> A3
+    A3 -->|"Web"| A4
+    A3 -->|"Network"| A5
+    A3 -->|"Social"| A6
+    A4 & A5 & A6 --> A7
+
+    A7 -->|"🔴 Attack traffic hits\nNetwork interface"| D1
+
+    subgraph DEF ["🟢  AEGIS DEFENSE PERIMETER — Ubuntu 22.04  pfSense + WAF"]
+      direction TB
+      D1["📥 Incoming Traffic received\nNetwork interface: enp0s8"]
+      D2["🔎 WAF Layer 7 Inspect\nHTTP/HTTPS request analyze\nHeader + Body + Pattern check"]
+      D3{{"❓ Malicious\nPattern?"}}
+      D4["🛡️ Forward to Snort/Suricata IDS\nDeep packet inspection\n30,000+ signature rules"]
+      D5["🚨 SQLi/XSS/CSRF DETECTED\nBlock HTTP request\nLog to eve.json"]
+      D6{{"❓ Network\nAttack Pattern?"}}
+      D7["🍯 Redirect to HONEYPOT\nCowrie Fake SSH/Telnet\nLog attacker commands"]
+      D8["🔒 Port Scan/DDoS/ARP Spoof\nSuricata alert trigger\niptables DROP rule add"]
+      D9["⛔ Fail2ban SSH Protection\n5 failed attempts → Auto ban\n/var/log/auth.log watch"]
+      D10["📤 Forwarder Script\naegis_forwarder.py\nPOST /api/ingest/* + X-AEGIS-Key"]
+    end
+
+    D1 --> D2
+    D2 --> D3
+    D3 -->|"No signature match"| D4
+    D3 -->|"SQLi/XSS/CSRF detected"| D5
+    D4 --> D6
+    D6 -->|"Suspicious unclear"| D7
+    D6 -->|"Port Scan/DDoS/ARP Spoof"| D8
+    D5 & D7 & D8 --> D10
+    D9 --> D10
+
+    D10 -->|"🟢 Logs + Events\nvia API POST"| B1
+
+    subgraph BRAIN ["🟣  AEGIS BRAIN — SOC Engine  Express API + PostgreSQL"]
+      direction TB
+      B1["📨 API Server receives\nPOST /api/ingest/*\nAuthenticate X-AEGIS-Key"]
+      B2["🔄 Parse & Normalize\nSnort/Suricata/Fail2ban/Cowrie\nformat → SecurityEvent object"]
+      B3["💾 Store to PostgreSQL\nINSERT security_events\ntype, severity, sourceIp, description"]
+      B4{{"📊 Severity\nClassify"}}
+      B5["🚨 Critical/High → Auto Alert\nCreate Alert record\nActive Alerts page"]
+      B6["📋 Incident Correlate\nMultiple events same IP/time\n→ Auto Incident create"]
+      B7["📡 SSE Broadcast\nbroadcaster.ts\nAll connected clients notify"]
+    end
+
+    B1 --> B2
+    B2 --> B3
+    B3 --> B4
+    B4 -->|"Critical/High"| B5
+    B4 -->|"Correlated events"| B6
+    B5 & B6 --> B7
+    B4 -->|"All events"| B7
+
+    B7 -->|"⚡ Real-time SSE push"| O1
+
+    subgraph OUT ["⬛  OUTPUT & INTELLIGENCE — Dashboard + Telegram + Reports"]
+      direction TB
+      O1["📊 Live Dashboard update\nCommand Center: counters\nSecurity Events: live feed\nNetwork Monitor: topology"]
+      O2["📱 Telegram Bot Alert\n🚨 Attack IP: 192.168.56.101\nType: Port Scan | Severity: High\nAuto-send to admin phone"]
+      O3["👤 Admin SOC Analyst\nReview alerts\nDecide response action"]
+      O4["🔒 Defense Center\nManual IP Block/Unblock\nDefense action log"]
+      O5["📄 Auto Report Generate\nPDF/HTML summary\nEvent count + Top attackers"]
+    end
+
+    O1 --> O2
+    O2 --> O3
+    O3 --> O4
+    O3 --> O5
+
+    %% Styling
+    classDef attacker fill:#fee2e2,stroke:#ef4444,stroke-width:2px,color:#7f1d1d
+    classDef defense fill:#dcfce7,stroke:#22c55e,stroke-width:2px,color:#14532d
+    classDef brain fill:#ede9fe,stroke:#818cf8,stroke-width:2px,color:#3730a3
+    classDef output fill:#f1f5f9,stroke:#64748b,stroke-width:2px,color:#1e293b
+    classDef decision fill:#fef9c3,stroke:#eab308,stroke-width:2px,color:#713f12
+    classDef internet fill:#dbeafe,stroke:#3b82f6,stroke-width:3px,color:#1e3a8a
+
+    class A1,A2,A4,A5,A6,A7 attacker
+    class A3 decision
+    class D1,D2,D4,D5,D7,D8,D9,D10 defense
+    class D3,D6 decision
+    class B1,B2,B3,B5,B6,B7 brain
+    class B4 decision
+    class O1,O2,O3,O4,O5 output
+    class INET internet
+  </div>
+</div>
+
+<!-- DETAIL CARDS -->
+<div class="details-grid">
+  <div class="detail-card card-red">
+    <h3>💀 ATTACKER ZONE — Kali Linux VM Tools</h3>
+    <ul>
+      <li><strong>Reconnaissance:</strong> nmap -sV -A -p- 192.168.56.102</li>
+      <li><strong>Web Scan:</strong> nikto -h http://target | gobuster dir -u target -w wordlist</li>
+      <li><strong>SQL Injection:</strong> sqlmap -u "http://target/login?id=1" --batch --level=3</li>
+      <li><strong>XSS/CSRF:</strong> Burp Suite intercept → inject script payload</li>
+      <li><strong>SSH Brute:</strong> hydra -l root -P rockyou.txt ssh://192.168.56.102</li>
+      <li><strong>Port Scan:</strong> nmap -sS -T4 --open 192.168.56.0/24</li>
+      <li><strong>DDoS:</strong> hping3 --flood -S --rand-source 192.168.56.102</li>
+      <li><strong>ARP Spoof:</strong> arpspoof -i eth1 -t target gateway</li>
+      <li><strong>MITM:</strong> ettercap -T -q -M arp:remote /target/ /gateway/</li>
+      <li><strong>Phishing:</strong> GoPhish → campaign → credential harvest</li>
+    </ul>
+  </div>
+
+  <div class="detail-card card-green">
+    <h3>🛡️ DEFENSE PERIMETER — Ubuntu VM Tools</h3>
+    <ul>
+      <li><strong>Suricata IDS:</strong> /var/log/suricata/eve.json → real-time alerts</li>
+      <li><strong>Snort IPS:</strong> /var/log/snort/alert → signature matching</li>
+      <li><strong>Fail2ban:</strong> /var/log/auth.log → 5 fails → iptables DROP</li>
+      <li><strong>Cowrie Honeypot:</strong> Port 2222 fake SSH → log all commands</li>
+      <li><strong>WAF (ModSecurity):</strong> HTTP layer 7 SQLi/XSS/CSRF block</li>
+      <li><strong>pfSense Firewall:</strong> Stateful packet filtering + NAT</li>
+      <li><strong>iptables:</strong> Auto-block rules from Fail2ban/Suricata</li>
+      <li><strong>AES-256:</strong> Encrypt sensitive data at rest</li>
+      <li><strong>TLS 1.3:</strong> Encrypt data in transit</li>
+      <li><strong>Forwarder:</strong> aegis_forwarder.py → POST to AEGIS API</li>
+    </ul>
+  </div>
+
+  <div class="detail-card card-purple">
+    <h3>⚡ AEGIS BRAIN — SOC Engine Components</h3>
+    <ul>
+      <li><strong>API Server:</strong> Express 5 + Node.js 24 + TypeScript</li>
+      <li><strong>Database:</strong> PostgreSQL + Drizzle ORM (7 tables)</li>
+      <li><strong>Ingest Auth:</strong> X-AEGIS-Key header validation</li>
+      <li><strong>Event Parse:</strong> Snort/Suricata/Fail2ban/Cowrie normalizer</li>
+      <li><strong>Severity Score:</strong> critical/high/medium/low auto-classify</li>
+      <li><strong>Alert Engine:</strong> Critical/High → auto Alert record create</li>
+      <li><strong>Incident Correlate:</strong> Same IP + 5min window → Incident</li>
+      <li><strong>SSE Broadcast:</strong> Real-time push to all dashboard clients</li>
+      <li><strong>Network Track:</strong> network_hosts table → topology data</li>
+      <li><strong>Defense Log:</strong> blocked_ips + defense_actions tables</li>
+    </ul>
+  </div>
+
+  <div class="detail-card card-gray">
+    <h3>📊 OUTPUT & INTELLIGENCE — Team Visibility</h3>
+    <ul>
+      <li><strong>Command Center:</strong> Live counters — Events, Threats, Alerts</li>
+      <li><strong>Security Events:</strong> Real-time event feed with filter/search</li>
+      <li><strong>Incidents:</strong> Incident management + status tracking</li>
+      <li><strong>Active Alerts:</strong> Acknowledge / Resolve workflow</li>
+      <li><strong>Network Monitor:</strong> Topology map + traffic chart + hosts</li>
+      <li><strong>Defense Center:</strong> Auto-defense log + manual IP block</li>
+      <li><strong>Architecture:</strong> Interactive flowchart (this document)</li>
+      <li><strong>Telegram Bot:</strong> Instant attack alerts to admin phone</li>
+      <li><strong>Reports:</strong> PDF/HTML summary — events, incidents, stats</li>
+      <li><strong>Setup Guide:</strong> Step-by-step VM connection instructions</li>
+    </ul>
+  </div>
+</div>
+
+<!-- DECISION FLOW DETAIL -->
+<div class="diagram-section section-green" style="margin-top:20px">
+  <h2>🟢 DEFENSE PERIMETER — Decision Logic Detail</h2>
+  <div class="mermaid">
+flowchart LR
+    T[Traffic arrives\nenp0s8 interface]
+    W[WAF Inspect\nHTTP/HTTPS\nLayer 7 analysis]
+    M{Malicious\nHTTP Pattern?}
+    S[Snort/Suricata\nPacket Inspection]
+    SB[SQLi/XSS/CSRF\nBlock + Alert]
+    N{Network\nPattern?}
+    H[Honeypot Redirect\nCowrie SSH Trap\nLog Commands]
+    B[Auto IP Block\niptables DROP\nAlert Create]
+    F[Fail2ban Watch\nSSH Auth Log\n5 fails = 1hr ban]
+    FW[Forwarder\nPOST /api/ingest\nX-AEGIS-Key auth]
+
+    T --> W --> M
+    M -->|"No match"| S
+    M -->|"SQLi/XSS/CSRF"| SB
+    S --> N
+    N -->|"Unclear/Probe"| H
+    N -->|"Scan/DDoS/ARP"| B
+    F --> FW
+    SB --> FW
+    H --> FW
+    B --> FW
+
+    classDef block fill:#fee2e2,stroke:#ef4444,color:#7f1d1d
+    classDef allow fill:#dcfce7,stroke:#22c55e,color:#14532d
+    classDef check fill:#fef9c3,stroke:#eab308,color:#713f12
+    classDef send fill:#dbeafe,stroke:#3b82f6,color:#1e3a8a
+    class SB,B,H block
+    class T,W,S allow
+    class M,N check
+    class F,FW send
+  </div>
+</div>
+
+<!-- DB SCHEMA -->
+<div class="diagram-section section-purple" style="margin-top:20px">
+  <h2>🟣 DATABASE SCHEMA — PostgreSQL Tables</h2>
+  <div class="mermaid">
+erDiagram
+    security_events {
+        int id PK
+        text type
+        text subtype
+        text severity
+        text source_ip
+        text target_host
+        text tool_used
+        text description
+        text status
+        text layer
+        timestamp created_at
+    }
+    incidents {
+        int id PK
+        text title
+        text severity
+        text status
+        text assigned_to
+        timestamp created_at
+    }
+    alerts {
+        int id PK
+        text title
+        text severity
+        text status
+        int event_id FK
+        timestamp created_at
+    }
+    blocked_ips {
+        int id PK
+        text ip
+        text reason
+        text blocked_by
+        bool is_active
+        timestamp blocked_at
+    }
+    defense_actions {
+        int id PK
+        text type
+        text action
+        text target_ip
+        text performed_by
+        text status
+        timestamp created_at
+    }
+    network_hosts {
+        int id PK
+        text ip
+        text hostname
+        text role
+        text os
+        text open_ports
+        text status
+        timestamp last_seen
+    }
+    security_events ||--o{ alerts : "triggers"
+    security_events ||--o{ incidents : "correlates"
+  </div>
+</div>
+
+<div class="footer">
+  <strong>AEGIS Security Operations Center Dashboard</strong> — Internship Project 2026<br>
+  GitHub: https://github.com/sohu2723-star/aegis-soc-dashboard<br>
+  Stack: React + Vite + Express 5 + PostgreSQL + Drizzle ORM + TypeScript<br>
+  Generated: <span id="date"></span>
+</div>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'default',
+    flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' },
+    themeVariables: {
+      primaryColor: '#22d3ee',
+      primaryTextColor: '#1e293b',
+      primaryBorderColor: '#0891b2',
+      lineColor: '#475569',
+      secondaryColor: '#f0fdf4',
+      tertiaryColor: '#f5f3ff',
+      fontFamily: 'Segoe UI, Arial, sans-serif',
+      fontSize: '13px',
+    }
+  });
+  document.getElementById('date').textContent = new Date().toLocaleDateString('en-US', {
+    year: 'numeric', month: 'long', day: 'numeric'
+  });
+</script>
+</body>
+</html>
