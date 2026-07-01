@@ -1,0 +1,20 @@
+import { pgTable, serial, text, timestamp, integer } from "drizzle-orm/pg-core";
+import { createInsertSchema } from "drizzle-zod";
+import { z } from "zod/v4";
+
+export const incidentsTable = pgTable("incidents", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  severity: text("severity").notNull(),
+  status: text("status").notNull().default("open"),
+  description: text("description").notNull(),
+  responder: text("responder"),
+  notes: text("notes"),
+  eventCount: integer("event_count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertIncidentSchema = createInsertSchema(incidentsTable).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertIncident = z.infer<typeof insertIncidentSchema>;
+export type Incident = typeof incidentsTable.$inferSelect;

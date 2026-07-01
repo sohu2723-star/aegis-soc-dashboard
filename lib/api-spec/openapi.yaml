@@ -1,0 +1,585 @@
+openapi: 3.1.0
+info:
+  title: Api
+  version: 0.1.0
+  description: AEGIS Security System API
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: events
+    description: Security events
+  - name: incidents
+    description: Incident management
+  - name: alerts
+    description: Alert feed
+  - name: system
+    description: System status
+  - name: reports
+    description: Report generation
+  - name: dashboard
+    description: Dashboard summary
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /dashboard/summary:
+    get:
+      operationId: getDashboardSummary
+      tags: [dashboard]
+      summary: Get dashboard summary statistics
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+
+  /events:
+    get:
+      operationId: listEvents
+      tags: [events]
+      summary: List security events
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+        - name: severity
+          in: query
+          schema:
+            type: string
+            enum: [critical, high, medium, low]
+        - name: type
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of security events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SecurityEvent"
+    post:
+      operationId: createEvent
+      tags: [events]
+      summary: Create a security event (simulate attack)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SecurityEventInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecurityEvent"
+
+  /events/recent:
+    get:
+      operationId: getRecentEvents
+      tags: [events]
+      summary: Get recent security events for live feed
+      responses:
+        "200":
+          description: Recent events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SecurityEvent"
+
+  /incidents:
+    get:
+      operationId: listIncidents
+      tags: [incidents]
+      summary: List all incidents
+      responses:
+        "200":
+          description: List of incidents
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Incident"
+    post:
+      operationId: createIncident
+      tags: [incidents]
+      summary: Create a new incident
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IncidentInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Incident"
+
+  /incidents/{id}:
+    get:
+      operationId: getIncident
+      tags: [incidents]
+      summary: Get incident detail
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Incident detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Incident"
+        "404":
+          description: Not found
+    patch:
+      operationId: updateIncident
+      tags: [incidents]
+      summary: Update incident status or notes
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IncidentUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Incident"
+
+  /alerts:
+    get:
+      operationId: listAlerts
+      tags: [alerts]
+      summary: List alerts
+      parameters:
+        - name: acknowledged
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: List of alerts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Alert"
+
+  /alerts/{id}/acknowledge:
+    patch:
+      operationId: acknowledgeAlert
+      tags: [alerts]
+      summary: Acknowledge an alert
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Acknowledged
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Alert"
+
+  /system/status:
+    get:
+      operationId: getSystemStatus
+      tags: [system]
+      summary: Get all system component statuses
+      responses:
+        "200":
+          description: System statuses
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SystemStatus"
+
+  /reports:
+    get:
+      operationId: listReports
+      tags: [reports]
+      summary: List generated reports
+      responses:
+        "200":
+          description: List of reports
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Report"
+
+  /reports/generate:
+    post:
+      operationId: generateReport
+      tags: [reports]
+      summary: Generate a new security report
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReportInput"
+      responses:
+        "201":
+          description: Report generated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Report"
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+
+    DashboardSummary:
+      type: object
+      properties:
+        totalEvents:
+          type: integer
+        criticalEvents:
+          type: integer
+        openIncidents:
+          type: integer
+        activeAlerts:
+          type: integer
+        blockedIPs:
+          type: integer
+        systemsOnline:
+          type: integer
+        systemsTotal:
+          type: integer
+        attacksByType:
+          type: array
+          items:
+            $ref: "#/components/schemas/AttackTypeStat"
+        eventsTrend:
+          type: array
+          items:
+            $ref: "#/components/schemas/TrendPoint"
+      required:
+        - totalEvents
+        - criticalEvents
+        - openIncidents
+        - activeAlerts
+        - blockedIPs
+        - systemsOnline
+        - systemsTotal
+        - attacksByType
+        - eventsTrend
+
+    AttackTypeStat:
+      type: object
+      properties:
+        type:
+          type: string
+        count:
+          type: integer
+        severity:
+          type: string
+      required:
+        - type
+        - count
+        - severity
+
+    TrendPoint:
+      type: object
+      properties:
+        hour:
+          type: string
+        count:
+          type: integer
+      required:
+        - hour
+        - count
+
+    SecurityEvent:
+      type: object
+      properties:
+        id:
+          type: integer
+        type:
+          type: string
+        subtype:
+          type: string
+        severity:
+          type: string
+          enum: [critical, high, medium, low]
+        sourceIp:
+          type: string
+        targetHost:
+          type: string
+        toolUsed:
+          type: ["string", "null"]
+        description:
+          type: string
+        status:
+          type: string
+          enum: [detected, blocked, investigating, resolved]
+        layer:
+          type: string
+          enum: [perimeter, brain, output]
+        createdAt:
+          type: string
+      required:
+        - id
+        - type
+        - subtype
+        - severity
+        - sourceIp
+        - targetHost
+        - description
+        - status
+        - layer
+        - createdAt
+
+    SecurityEventInput:
+      type: object
+      properties:
+        type:
+          type: string
+        subtype:
+          type: string
+        severity:
+          type: string
+          enum: [critical, high, medium, low]
+        sourceIp:
+          type: string
+        targetHost:
+          type: string
+        toolUsed:
+          type: string
+        description:
+          type: string
+        layer:
+          type: string
+      required:
+        - type
+        - subtype
+        - severity
+        - sourceIp
+        - targetHost
+        - description
+        - layer
+
+    Incident:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        severity:
+          type: string
+          enum: [critical, high, medium, low]
+        status:
+          type: string
+          enum: [open, investigating, contained, resolved]
+        description:
+          type: string
+        responder:
+          type: ["string", "null"]
+        notes:
+          type: ["string", "null"]
+        eventCount:
+          type: integer
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - title
+        - severity
+        - status
+        - description
+        - eventCount
+        - createdAt
+        - updatedAt
+
+    IncidentInput:
+      type: object
+      properties:
+        title:
+          type: string
+        severity:
+          type: string
+          enum: [critical, high, medium, low]
+        description:
+          type: string
+        responder:
+          type: string
+      required:
+        - title
+        - severity
+        - description
+
+    IncidentUpdate:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [open, investigating, contained, resolved]
+        responder:
+          type: string
+        notes:
+          type: string
+
+    Alert:
+      type: object
+      properties:
+        id:
+          type: integer
+        message:
+          type: string
+        severity:
+          type: string
+          enum: [critical, high, medium, low]
+        channel:
+          type: string
+          enum: [telegram, dashboard, email]
+        acknowledged:
+          type: boolean
+        eventId:
+          type: ["integer", "null"]
+        createdAt:
+          type: string
+      required:
+        - id
+        - message
+        - severity
+        - channel
+        - acknowledged
+        - createdAt
+
+    SystemStatus:
+      type: object
+      properties:
+        id:
+          type: integer
+        component:
+          type: string
+        layer:
+          type: string
+          enum: [attacker, perimeter, brain, output]
+        status:
+          type: string
+          enum: [online, offline, warning, unknown]
+        description:
+          type: string
+        metrics:
+          type: ["string", "null"]
+        lastCheck:
+          type: string
+      required:
+        - id
+        - component
+        - layer
+        - status
+        - description
+        - lastCheck
+
+    Report:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        type:
+          type: string
+          enum: [daily, weekly, incident, custom]
+        format:
+          type: string
+          enum: [html, pdf]
+        summary:
+          type: string
+        eventsCount:
+          type: integer
+        incidentsCount:
+          type: integer
+        generatedAt:
+          type: string
+      required:
+        - id
+        - title
+        - type
+        - format
+        - summary
+        - eventsCount
+        - incidentsCount
+        - generatedAt
+
+    ReportInput:
+      type: object
+      properties:
+        title:
+          type: string
+        type:
+          type: string
+          enum: [daily, weekly, incident, custom]
+        format:
+          type: string
+          enum: [html, pdf]
+      required:
+        - title
+        - type
+        - format
