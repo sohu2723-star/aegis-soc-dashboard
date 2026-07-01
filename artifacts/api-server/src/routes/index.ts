@@ -10,6 +10,8 @@ import streamRouter from "./stream";
 import ingestRouter from "./ingest";
 import networkRouter from "./network";
 import defenseRouter from "./defense";
+import firewallRouter from "./firewall";
+import connectionsRouter from "./connections";
 
 const router: IRouter = Router();
 
@@ -24,5 +26,7 @@ router.use(systemRouter);
 router.use(reportsRouter);
 router.use(networkRouter);
 router.use(defenseRouter);
+router.use(firewallRouter);
+router.use(connectionsRouter);
 
 export default router;

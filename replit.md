@@ -10,7 +10,7 @@ A real-time Security Operations Center dashboard that monitors attacks from Kali
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string (auto-provisioned by Replit)
+- Required env: `DATABASE_URL` — MySQL connection string: `mysql://user:password@host:3306/aegis`
 
 ## Stack
 
@@ -29,6 +29,7 @@ A real-time Security Operations Center dashboard that monitors attacks from Kali
 - `artifacts/api-server/` — Express 5 API server
 - `lib/db/src/schema/` — Drizzle ORM schema (source of truth for DB)
 - `lib/api-spec/openapi.yaml` — OpenAPI spec (source of truth for API contract)
+- `lib/db/src/schema/connections.ts` — SSH sessions, FTP sessions, TLS/encrypted traffic, HTTP attacks
 - `lib/api-client-react/` — Generated React Query hooks (from Orval)
 - `lib/api-zod/` — Generated Zod schemas (from Orval)
 - `scripts/src/aegis_forwarder.py` — Python forwarder for Ubuntu VMs
@@ -56,6 +57,34 @@ A real-time Security Operations Center dashboard that monitors attacks from Kali
 ## User preferences
 
 - Using Replit for code editing only — not for running or deploying the app.
+
+## New Ingest Endpoints (v2)
+
+| Endpoint | Source | Description |
+|---|---|---|
+| `POST /api/ingest/event` | Any | Generic security event |
+| `POST /api/ingest/snort` | Snort IDS | Snort alert_fast format |
+| `POST /api/ingest/suricata` | Suricata | EVE JSON alert |
+| `POST /api/ingest/suricata/tls` | Suricata | EVE JSON TLS events (encrypted traffic) |
+| `POST /api/ingest/fail2ban` | Fail2ban | Ban events → auto-blocks IP in DB |
+| `POST /api/ingest/ssh` | auth.log | SSH login success/fail tracking |
+| `POST /api/ingest/ftp` | vsftpd/proftpd | FTP session + file exfil detection |
+| `POST /api/ingest/http` | ModSecurity/Nginx | Web attack (SQLi, XSS, LFI, RFI, DirTraversal) |
+| `POST /api/ingest/cowrie` | Cowrie | Honeypot events |
+
+## New API Endpoints (v2)
+
+| Endpoint | Description |
+|---|---|
+| `GET /api/firewall/rules` | List all firewall rules |
+| `POST /api/firewall/rules` | Add rule (builds iptables command) |
+| `DELETE /api/firewall/rules/:id` | Deactivate a rule |
+| `GET /api/firewall/rules/export` | Export active rules as bash script |
+| `GET /api/connections/ssh` | SSH session history |
+| `GET /api/connections/ftp` | FTP session history |
+| `GET /api/connections/tls` | Encrypted traffic log |
+| `GET /api/connections/tls/suspicious` | Suspicious TLS (weak version, self-signed, expired) |
+| `GET /api/connections/http-attacks` | HTTP attack log |
 
 ## Gotchas
 

@@ -2,16 +2,17 @@
 """
 AEGIS Forwarder — Ubuntu Blue Team Script
 ==========================================
-Run this on your Ubuntu defense server to forward real Snort / Suricata /
-Fail2ban / Cowrie events to the AEGIS dashboard in real-time.
+Runs on Ubuntu defense server. Forwards real events from:
+  Suricata, Snort, Fail2ban, Cowrie, SSH auth.log, FTP, ModSecurity
 
 Usage:
+    python3 aegis_forwarder.py --mode all
     python3 aegis_forwarder.py --mode suricata
-    python3 aegis_forwarder.py --mode snort
-    python3 aegis_forwarder.py --mode cowrie
+    python3 aegis_forwarder.py --mode ssh
+    python3 aegis_forwarder.py --mode http
 
 Requirements:
-    pip3 install requests watchdog
+    pip3 install requests
 """
 
 import argparse
@@ -26,77 +27,89 @@ from pathlib import Path
 from datetime import datetime
 
 # ─── CONFIG ──────────────────────────────────────────────────────────────────
-AEGIS_URL  = os.environ.get("AEGIS_URL",  "http://<YOUR_REPLIT_DOMAIN>/api")
-AEGIS_KEY  = os.environ.get("AEGIS_KEY",  "aegis-demo-key-change-me")
+AEGIS_URL = os.environ.get("AEGIS_URL", "http://<YOUR_AEGIS_DOMAIN>/api")
+AEGIS_KEY = os.environ.get("AEGIS_KEY", "aegis-demo-key-change-me")
 
 HEADERS = {
     "Content-Type": "application/json",
     "X-AEGIS-Key": AEGIS_KEY,
 }
 
-# ─── HELPERS ─────────────────────────────────────────────────────────────────
+
 def post(endpoint: str, data: dict):
     try:
-        r = requests.post(f"{AEGIS_URL}/ingest/{endpoint}", json=data,
-                          headers=HEADERS, timeout=5)
+        r = requests.post(
+            f"{AEGIS_URL}/ingest/{endpoint}",
+            json=data,
+            headers=HEADERS,
+            timeout=5,
+        )
+        ts = datetime.now().strftime("%H:%M:%S")
         if r.status_code == 201:
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] ✓ Sent to AEGIS: {endpoint}")
+            print(f"[{ts}] ✓ {endpoint.upper()} → AEGIS")
         else:
-            print(f"[WARN] AEGIS returned {r.status_code}: {r.text[:100]}")
+            print(f"[{ts}] WARN {endpoint}: HTTP {r.status_code} — {r.text[:80]}")
     except Exception as e:
-        print(f"[ERROR] Could not reach AEGIS: {e}")
+        print(f"[ERROR] Cannot reach AEGIS: {e}")
 
 
 def tail_file(path: str):
-    """Generator that yields new lines appended to a file (like tail -f)."""
-    with open(path, "r") as f:
-        f.seek(0, 2)          # Seek to end
-        while True:
-            line = f.readline()
-            if line:
-                yield line.strip()
-            else:
-                time.sleep(0.5)
+    """Yield new lines appended to a file (tail -f)."""
+    try:
+        with open(path, "r") as f:
+            f.seek(0, 2)
+            while True:
+                line = f.readline()
+                if line:
+                    yield line.strip()
+                else:
+                    time.sleep(0.3)
+    except FileNotFoundError:
+        print(f"[WARN] File not found: {path} — retrying in 10s")
+        time.sleep(10)
 
 
-# ─── SURICATA (eve.json) ─────────────────────────────────────────────────────
+# ─── SURICATA (eve.json) ──────────────────────────────────────────────────────
 SURICATA_LOG = "/var/log/suricata/eve.json"
 
+
 def watch_suricata():
-    print(f"[SURICATA] Watching {SURICATA_LOG} ...")
+    print(f"[SURICATA] Watching {SURICATA_LOG}")
     for line in tail_file(SURICATA_LOG):
         try:
             evt = json.loads(line)
-            if evt.get("event_type") != "alert":
-                continue
-            post("suricata", evt)
+            etype = evt.get("event_type")
+
+            if etype == "alert":
+                post("suricata", evt)
+
+            elif etype == "tls":
+                # Encrypted traffic logging
+                post("suricata/tls", {
+                    "src_ip":    evt.get("src_ip"),
+                    "dest_ip":   evt.get("dest_ip"),
+                    "dest_port": evt.get("dest_port"),
+                    "tls":       evt.get("tls", {}),
+                })
+
         except json.JSONDecodeError:
             pass
 
 
-# ─── SNORT (alert_fast.txt) ──────────────────────────────────────────────────
+# ─── SNORT (alert_fast) ───────────────────────────────────────────────────────
 SNORT_LOG = "/var/log/snort/alert"
 
-# Example line:
-# [**] [1:1000001:1] SQL Injection Attempt [**] [Priority: 1] {TCP} 192.168.1.5:54321 -> 10.0.0.5:80
-SNORT_RE = re.compile(
-    r"\[Priority: (\d+)\]\s+.*?\]\s+(.*?)\s+\[.*?\]\s+\{(\w+)\}\s+([\d.]+):\d+\s+->\s+([\d.]+)"
-)
 
 def watch_snort():
-    print(f"[SNORT] Watching {SNORT_LOG} ...")
+    print(f"[SNORT] Watching {SNORT_LOG}")
     for line in tail_file(SNORT_LOG):
-        # Parse the [**] signature line
         if "[**]" not in line:
             continue
-        # Pull signature name between second pair of [**]
         sig_match = re.findall(r"\[\*\*\] \[\S+\] (.*?) \[\*\*\]", line)
         prio_match = re.search(r"\[Priority: (\d+)\]", line)
         net_match  = re.search(r"\{(\w+)\}\s+([\d.]+):\d+\s+->\s+([\d.]+)", line)
-
         if not sig_match or not net_match:
             continue
-
         post("snort", {
             "msg":      sig_match[0],
             "priority": prio_match.group(1) if prio_match else "3",
@@ -106,14 +119,13 @@ def watch_snort():
         })
 
 
-# ─── FAIL2BAN ────────────────────────────────────────────────────────────────
+# ─── FAIL2BAN ─────────────────────────────────────────────────────────────────
 FAIL2BAN_LOG = "/var/log/fail2ban.log"
+FAIL2BAN_RE  = re.compile(r"NOTICE\s+\[(\S+)\] Ban ([\d.]+)")
 
-# Example: 2026-06-30 07:12:34,567 fail2ban.actions [1234]: NOTICE  [sshd] Ban 192.168.1.88
-FAIL2BAN_RE = re.compile(r"NOTICE\s+\[(\S+)\] Ban ([\d.]+)")
 
 def watch_fail2ban():
-    print(f"[FAIL2BAN] Watching {FAIL2BAN_LOG} ...")
+    print(f"[FAIL2BAN] Watching {FAIL2BAN_LOG}")
     for line in tail_file(FAIL2BAN_LOG):
         m = FAIL2BAN_RE.search(line)
         if not m:
@@ -125,55 +137,168 @@ def watch_fail2ban():
         })
 
 
-# ─── COWRIE ──────────────────────────────────────────────────────────────────
+# ─── SSH auth.log ─────────────────────────────────────────────────────────────
+# /var/log/auth.log on Ubuntu
+SSH_LOG = "/var/log/auth.log"
+
+# "Failed password for root from 192.168.1.5 port 54321 ssh2"
+SSH_FAIL_RE    = re.compile(r"Failed password for (\S+) from ([\d.]+)")
+# "Accepted password for ubuntu from 192.168.1.10 port 22 ssh2"
+SSH_SUCCESS_RE = re.compile(r"Accepted (password|publickey) for (\S+) from ([\d.]+)")
+
+
+def watch_ssh():
+    print(f"[SSH] Watching {SSH_LOG}")
+    fail_counts: dict[str, int] = {}
+
+    for line in tail_file(SSH_LOG):
+        m_fail = SSH_FAIL_RE.search(line)
+        if m_fail:
+            user, ip = m_fail.group(1), m_fail.group(2)
+            fail_counts[ip] = fail_counts.get(ip, 0) + 1
+            post("ssh", {
+                "src_ip":   ip,
+                "username": user,
+                "status":   "failed",
+                "failures": fail_counts[ip],
+            })
+
+        m_ok = SSH_SUCCESS_RE.search(line)
+        if m_ok:
+            auth, user, ip = m_ok.group(1), m_ok.group(2), m_ok.group(3)
+            fail_counts.pop(ip, None)
+            post("ssh", {
+                "src_ip":      ip,
+                "username":    user,
+                "status":      "success",
+                "auth_method": auth,
+            })
+
+
+# ─── FTP (vsftpd / proftpd) ───────────────────────────────────────────────────
+FTP_LOG = "/var/log/vsftpd.log"
+
+# vsftpd: "OK UPLOAD: Client "192.168.1.5", "/etc/passwd", 1024 bytes"
+FTP_RE = re.compile(
+    r"(OK|FAIL) (UPLOAD|DOWNLOAD|LOGIN|MKDIR|DELETE): Client \"([\d.]+)\",? \"?([^\",]*)\"?,?\s*(\d+)?"
+)
+
+
+def watch_ftp():
+    print(f"[FTP] Watching {FTP_LOG}")
+    for line in tail_file(FTP_LOG):
+        m = FTP_RE.search(line)
+        if not m:
+            continue
+        status_str, cmd, ip, path, size = m.groups()
+        cmd_map = {"UPLOAD": "STOR", "DOWNLOAD": "RETR", "LOGIN": "USER",
+                   "MKDIR": "MKD", "DELETE": "DELE"}
+        post("ftp", {
+            "src_ip":    ip,
+            "command":   cmd_map.get(cmd, cmd),
+            "file_path": path or None,
+            "file_size": int(size) if size else None,
+            "status":    "success" if status_str == "OK" else "failed",
+        })
+
+
+# ─── HTTP / ModSecurity ───────────────────────────────────────────────────────
+# ModSecurity audit log: /var/log/apache2/modsec_audit.log
+# or parse Nginx access log with custom format
+MODSEC_LOG = "/var/log/apache2/modsec_audit.log"
+
+# ModSecurity message line:
+# [id "981243"] [msg "XSS Attack"] [severity "CRITICAL"] [tag "attack-xss"]
+MODSEC_MSG_RE = re.compile(r'\[id "(\d+)"\].*\[msg "([^"]+)"\].*\[severity "([^"]+)"\]')
+MODSEC_IP_RE  = re.compile(r"^\[.*?\] .* (\d+\.\d+\.\d+\.\d+) \d+ (\w+) (.*?) HTTP")
+
+
+def watch_modsecurity():
+    print(f"[MODSECURITY] Watching {MODSEC_LOG}")
+    current_ip = None
+    current_method = None
+    current_url = None
+
+    for line in tail_file(MODSEC_LOG):
+        ip_m = MODSEC_IP_RE.search(line)
+        if ip_m:
+            current_ip     = ip_m.group(1)
+            current_method = ip_m.group(2)
+            current_url    = ip_m.group(3)
+
+        msg_m = MODSEC_MSG_RE.search(line)
+        if msg_m and current_ip:
+            rule_id, msg, severity = msg_m.groups()
+
+            # Map message to attack type
+            msg_lower = msg.lower()
+            if   "sql"       in msg_lower: atype = "SQLi"
+            elif "xss"       in msg_lower: atype = "XSS"
+            elif "traversal" in msg_lower or "lfi" in msg_lower: atype = "LFI"
+            elif "rfi"       in msg_lower: atype = "RFI"
+            elif "csrf"      in msg_lower: atype = "CSRF"
+            elif "brute"     in msg_lower: atype = "Brute"
+            else:                          atype = "HTTP Attack"
+
+            post("http", {
+                "src_ip":      current_ip,
+                "url":         current_url or "/",
+                "method":      current_method or "GET",
+                "attack_type": atype,
+                "payload":     msg,
+                "rule_id":     rule_id,
+                "blocked":     severity.upper() in ("CRITICAL", "ERROR"),
+            })
+            current_ip = None
+
+
+# ─── COWRIE ───────────────────────────────────────────────────────────────────
 COWRIE_LOG = "/home/cowrie/cowrie/var/log/cowrie/cowrie.json"
-COWRIE_EVENTS = {
-    "cowrie.login.failed",
-    "cowrie.login.success",
-    "cowrie.command.input",
-    "cowrie.session.connect",
-}
+COWRIE_EVENTS = {"cowrie.login.failed", "cowrie.login.success", "cowrie.command.input", "cowrie.session.connect"}
+
 
 def watch_cowrie():
-    print(f"[COWRIE] Watching {COWRIE_LOG} ...")
+    print(f"[COWRIE] Watching {COWRIE_LOG}")
     for line in tail_file(COWRIE_LOG):
         try:
             evt = json.loads(line)
-            if evt.get("eventid") not in COWRIE_EVENTS:
-                continue
-            post("cowrie", evt)
+            if evt.get("eventid") in COWRIE_EVENTS:
+                post("cowrie", evt)
         except json.JSONDecodeError:
             pass
 
 
 # ─── MAIN ────────────────────────────────────────────────────────────────────
 MODES = {
-    "suricata": watch_suricata,
-    "snort":    watch_snort,
-    "fail2ban": watch_fail2ban,
-    "cowrie":   watch_cowrie,
+    "suricata":    watch_suricata,
+    "snort":       watch_snort,
+    "fail2ban":    watch_fail2ban,
+    "ssh":         watch_ssh,
+    "ftp":         watch_ftp,
+    "http":        watch_modsecurity,
+    "cowrie":      watch_cowrie,
 }
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="AEGIS Forwarder")
-    parser.add_argument("--mode", choices=list(MODES.keys()) + ["all"],
-                        default="all", help="Which sensor to watch")
-    parser.add_argument("--url",  help="AEGIS API URL override")
-    parser.add_argument("--key",  help="AEGIS API key override")
+    parser.add_argument("--mode", choices=list(MODES.keys()) + ["all"], default="all")
+    parser.add_argument("--url", help="AEGIS API URL override")
+    parser.add_argument("--key", help="AEGIS API key override")
     args = parser.parse_args()
 
     if args.url:
         AEGIS_URL = args.url
     if args.key:
-        AEGIS_KEY  = args.key
+        AEGIS_KEY = args.key
         HEADERS["X-AEGIS-Key"] = args.key
 
     print(f"""
-╔══════════════════════════════════════════╗
-║        AEGIS Forwarder — Blue Team       ║
-╚══════════════════════════════════════════╝
-  Target: {AEGIS_URL}
-  Mode  : {args.mode}
+╔══════════════════════════════════════════════════╗
+║         AEGIS Forwarder — Blue Team v2           ║
+╚══════════════════════════════════════════════════╝
+  Target : {AEGIS_URL}
+  Mode   : {args.mode}
+  Sensors: Suricata, Snort, Fail2ban, SSH, FTP, HTTP, Cowrie
 """)
 
     if args.mode == "all":
@@ -182,6 +307,8 @@ if __name__ == "__main__":
             t = threading.Thread(target=fn, daemon=True, name=name)
             t.start()
             threads.append(t)
+            print(f"  ► {name} thread started")
+        print()
         try:
             while True:
                 time.sleep(1)

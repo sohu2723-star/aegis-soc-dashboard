@@ -7,79 +7,53 @@ import { z } from "zod";
 const router = Router();
 
 router.get("/events", async (req, res) => {
-  const limit = Number(req.query.limit) || 50;
+  const limit  = Math.min(Number(req.query.limit) || 50, 500);
   const offset = Number(req.query.offset) || 0;
   const severity = req.query.severity as string | undefined;
-  const type = req.query.type as string | undefined;
+  const type     = req.query.type     as string | undefined;
 
   const conditions = [];
   if (severity) conditions.push(eq(securityEventsTable.severity, severity));
-  if (type) conditions.push(eq(securityEventsTable.type, type));
+  if (type)     conditions.push(eq(securityEventsTable.type, type));
 
   const events = await db
-    .select()
-    .from(securityEventsTable)
+    .select().from(securityEventsTable)
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(securityEventsTable.createdAt))
-    .limit(limit)
-    .offset(offset);
+    .limit(limit).offset(offset);
 
-  res.json(events.map(e => ({
-    ...e,
-    sourceIp: e.sourceIp,
-    targetHost: e.targetHost,
-    toolUsed: e.toolUsed,
-    createdAt: e.createdAt.toISOString(),
-  })));
+  res.json(events.map(e => ({ ...e, createdAt: e.createdAt.toISOString() })));
 });
 
-router.get("/events/recent", async (req, res) => {
+router.get("/events/recent", async (_req, res) => {
   const events = await db
-    .select()
-    .from(securityEventsTable)
+    .select().from(securityEventsTable)
     .orderBy(desc(securityEventsTable.createdAt))
     .limit(20);
-
-  res.json(events.map(e => ({
-    ...e,
-    sourceIp: e.sourceIp,
-    targetHost: e.targetHost,
-    toolUsed: e.toolUsed,
-    createdAt: e.createdAt.toISOString(),
-  })));
+  res.json(events.map(e => ({ ...e, createdAt: e.createdAt.toISOString() })));
 });
 
 const createEventSchema = z.object({
-  type: z.string(),
-  subtype: z.string(),
-  severity: z.enum(["critical", "high", "medium", "low"]),
-  sourceIp: z.string(),
+  type:       z.string(),
+  subtype:    z.string(),
+  severity:   z.enum(["critical", "high", "medium", "low"]),
+  sourceIp:   z.string(),
   targetHost: z.string(),
-  toolUsed: z.string().optional(),
+  toolUsed:   z.string().optional(),
   description: z.string(),
-  layer: z.string(),
+  layer:      z.string(),
 });
 
 router.post("/events", async (req, res) => {
   const body = createEventSchema.parse(req.body);
-  const [event] = await db.insert(securityEventsTable).values({
-    type: body.type,
-    subtype: body.subtype,
-    severity: body.severity,
-    sourceIp: body.sourceIp,
-    targetHost: body.targetHost,
+  const [row] = await db.insert(securityEventsTable).values({
+    ...body,
     toolUsed: body.toolUsed ?? null,
-    description: body.description,
-    layer: body.layer,
-    status: "detected",
-  }).returning();
-  res.status(201).json({
-    ...event,
-    sourceIp: event.sourceIp,
-    targetHost: event.targetHost,
-    toolUsed: event.toolUsed,
-    createdAt: event.createdAt.toISOString(),
-  });
+    status:   "detected",
+  }).$returningId();
+
+  const [event] = await db.select().from(securityEventsTable).where(eq(securityEventsTable.id, row.id));
+  res.status(201).json({ ...event, createdAt: event.createdAt.toISOString() });
 });
 
 export default router;
