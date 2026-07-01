@@ -11,6 +11,7 @@ import {
   TerminalSquare,
   Network,
   Shield,
+  GitBranch,
 } from "lucide-react";
 import {
   Sidebar,
@@ -39,6 +40,7 @@ const networkItems = [
 ];
 
 const reportItems = [
+  { title: "Architecture", url: "/architecture", icon: GitBranch },
   { title: "Reports", url: "/reports", icon: FileText },
   { title: "Setup Guide", url: "/setup", icon: BookOpen },
 ];
