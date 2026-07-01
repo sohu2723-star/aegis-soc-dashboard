@@ -55,7 +55,7 @@ A real-time Security Operations Center dashboard that monitors attacks from Kali
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+- Using Replit for code editing only — not for running or deploying the app.
 
 ## Gotchas
 
