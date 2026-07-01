@@ -16,6 +16,7 @@ import Reports from "@/pages/reports";
 import SetupGuide from "@/pages/setup";
 import Network from "@/pages/network";
 import Defense from "@/pages/defense";
+import Architecture from "@/pages/architecture";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -39,6 +40,7 @@ function Router() {
         <Route path="/system" component={SystemStatus} />
         <Route path="/network" component={Network} />
         <Route path="/defense" component={Defense} />
+        <Route path="/architecture" component={Architecture} />
         <Route path="/reports" component={Reports} />
         <Route path="/setup" component={SetupGuide} />
         <Route component={NotFound} />
