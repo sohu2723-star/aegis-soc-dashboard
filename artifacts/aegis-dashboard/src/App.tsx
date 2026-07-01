@@ -5,6 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import { Layout } from "@/components/layout";
 import { useSSE } from "@/hooks/use-sse";
+import { useKeepAlive } from "@/hooks/use-keep-alive";
 
 import Dashboard from "@/pages/dashboard";
 import Events from "@/pages/events";
@@ -29,6 +30,7 @@ const queryClient = new QueryClient({
 
 function Router() {
   useSSE();
+  useKeepAlive();
   return (
     <Layout>
       <Switch>
