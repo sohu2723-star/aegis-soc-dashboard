@@ -19,6 +19,7 @@ import argparse
 import json
 import os
 import re
+import socket
 import sys
 import time
 import threading
@@ -34,6 +35,61 @@ HEADERS = {
     "Content-Type": "application/json",
     "X-AEGIS-Key": AEGIS_KEY,
 }
+
+
+def get_local_ip() -> str:
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
+
+
+def register_host():
+    """Register this Ubuntu VM as a connected host in AEGIS Network Monitor."""
+    ip = get_local_ip()
+    hostname = socket.gethostname()
+    try:
+        r = requests.post(
+            f"{AEGIS_URL}/network/hosts",
+            json={
+                "ip":          ip,
+                "hostname":    hostname,
+                "role":        "ubuntu",
+                "os":          "Ubuntu 22.04",
+                "status":      "online",
+                "isMonitored": True,
+            },
+            headers=HEADERS,
+            timeout=10,
+        )
+        if r.status_code in (200, 201):
+            print(f"  ✓ Host registered: {hostname} ({ip})")
+        else:
+            print(f"  WARN Host registration: HTTP {r.status_code}")
+    except Exception as e:
+        print(f"  WARN Host registration failed: {e}")
+
+
+def heartbeat_loop():
+    """Send periodic heartbeat every 60s to keep host status ONLINE."""
+    ip = get_local_ip()
+    hostname = socket.gethostname()
+    while True:
+        time.sleep(60)
+        try:
+            requests.post(
+                f"{AEGIS_URL}/network/hosts",
+                json={"ip": ip, "hostname": hostname, "role": "ubuntu",
+                      "os": "Ubuntu 22.04", "status": "online", "isMonitored": True},
+                headers=HEADERS,
+                timeout=5,
+            )
+        except Exception:
+            pass
 
 
 def post(endpoint: str, data: dict):
@@ -300,6 +356,14 @@ if __name__ == "__main__":
   Mode   : {args.mode}
   Sensors: Suricata, Snort, Fail2ban, SSH, FTP, HTTP, Cowrie
 """)
+
+    # Register this VM in AEGIS Network Monitor on startup
+    print("  [*] Registering host with AEGIS...")
+    register_host()
+
+    # Start heartbeat to keep host ONLINE every 60s
+    hb = threading.Thread(target=heartbeat_loop, daemon=True, name="heartbeat")
+    hb.start()
 
     if args.mode == "all":
         threads = []
