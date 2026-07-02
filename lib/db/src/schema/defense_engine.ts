@@ -1,31 +1,31 @@
-import { pgTable, serial, varchar, text, timestamp, boolean, integer } from "drizzle-orm/pg-core";
+import { mysqlTable, int, varchar, text, timestamp, boolean } from "drizzle-orm/mysql-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
-export const defenseRulesTable = pgTable("defense_rules", {
-  id:               serial("id").primaryKey(),
+export const defenseRulesTable = mysqlTable("defense_rules", {
+  id:               int("id").primaryKey().autoincrement(),
   name:             varchar("name", { length: 128 }).notNull(),
   description:      text("description"),
 
   triggerAttackType: varchar("trigger_attack_type", { length: 64 }).notNull().default("any"),
   triggerSeverity:  varchar("trigger_severity", { length: 16 }).notNull().default("any"),
-  triggerThreshold: integer("trigger_threshold").notNull().default(1),
-  triggerWindowSecs: integer("trigger_window_secs").notNull().default(60),
+  triggerThreshold: int("trigger_threshold").notNull().default(1),
+  triggerWindowSecs: int("trigger_window_secs").notNull().default(60),
 
   actionType:    varchar("action_type", { length: 16 }).notNull().default("auto"),
   defenseType:   varchar("defense_type", { length: 32 }).notNull(),
   actionParams:  text("action_params"),
 
   targetVm:    varchar("target_vm", { length: 32 }).notNull().default("ubuntu"),
-  priority:    integer("priority").notNull().default(100),
+  priority:    int("priority").notNull().default(100),
   isActive:    boolean("is_active").notNull().default(true),
   createdAt:   timestamp("created_at").defaultNow().notNull(),
 });
 
-export const defenseCommandsTable = pgTable("defense_commands", {
-  id:          serial("id").primaryKey(),
-  ruleId:      integer("rule_id"),
-  eventId:     integer("event_id"),
+export const defenseCommandsTable = mysqlTable("defense_commands", {
+  id:          int("id").primaryKey().autoincrement(),
+  ruleId:      int("rule_id"),
+  eventId:     int("event_id"),
   targetVm:    varchar("target_vm", { length: 32 }).notNull().default("ubuntu"),
   commandType: varchar("command_type", { length: 32 }).notNull(),
   commandText: text("command_text").notNull(),
@@ -37,11 +37,11 @@ export const defenseCommandsTable = pgTable("defense_commands", {
   executedAt:  timestamp("executed_at"),
 });
 
-export const attackCountersTable = pgTable("attack_counters", {
-  id:          serial("id").primaryKey(),
+export const attackCountersTable = mysqlTable("attack_counters", {
+  id:          int("id").primaryKey().autoincrement(),
   sourceIp:    varchar("source_ip", { length: 45 }).notNull(),
   attackType:  varchar("attack_type", { length: 64 }).notNull(),
-  count:       integer("count").notNull().default(1),
+  count:       int("count").notNull().default(1),
   windowStart: timestamp("window_start").defaultNow().notNull(),
   updatedAt:   timestamp("updated_at").defaultNow().notNull(),
 });

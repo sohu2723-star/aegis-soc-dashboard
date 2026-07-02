@@ -1,9 +1,9 @@
-import { pgTable, serial, varchar, text, timestamp, boolean } from "drizzle-orm/pg-core";
+import { mysqlTable, int, varchar, text, timestamp, boolean } from "drizzle-orm/mysql-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
-export const networkHostsTable = pgTable("network_hosts", {
-  id:          serial("id").primaryKey(),
+export const networkHostsTable = mysqlTable("network_hosts", {
+  id:          int("id").primaryKey().autoincrement(),
   ip:          varchar("ip", { length: 45 }).notNull(),
   hostname:    varchar("hostname", { length: 128 }).notNull(),
   role:        varchar("role", { length: 32 }).notNull().default("unknown"),

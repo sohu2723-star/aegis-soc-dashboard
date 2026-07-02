@@ -1,9 +1,9 @@
-import { pgTable, serial, varchar, text, timestamp } from "drizzle-orm/pg-core";
+import { mysqlTable, int, varchar, text, timestamp } from "drizzle-orm/mysql-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
-export const systemStatusTable = pgTable("system_status", {
-  id:          serial("id").primaryKey(),
+export const systemStatusTable = mysqlTable("system_status", {
+  id:          int("id").primaryKey().autoincrement(),
   component:   varchar("component", { length: 64 }).notNull(),
   layer:       varchar("layer", { length: 32 }).notNull(),
   status:      varchar("status", { length: 16 }).notNull().default("unknown"),

@@ -1,16 +1,16 @@
-import { pgTable, serial, varchar, text, timestamp, integer } from "drizzle-orm/pg-core";
+import { mysqlTable, int, varchar, text, timestamp } from "drizzle-orm/mysql-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
-export const incidentsTable = pgTable("incidents", {
-  id:          serial("id").primaryKey(),
+export const incidentsTable = mysqlTable("incidents", {
+  id:          int("id").primaryKey().autoincrement(),
   title:       varchar("title", { length: 255 }).notNull(),
   severity:    varchar("severity", { length: 16 }).notNull(),
   status:      varchar("status", { length: 32 }).notNull().default("open"),
   description: text("description").notNull(),
   responder:   varchar("responder", { length: 128 }),
   notes:       text("notes"),
-  eventCount:  integer("event_count").notNull().default(0),
+  eventCount:  int("event_count").notNull().default(0),
   createdAt:   timestamp("created_at").defaultNow().notNull(),
   updatedAt:   timestamp("updated_at").defaultNow().notNull(),
 });
