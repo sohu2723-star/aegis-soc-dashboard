@@ -2,9 +2,9 @@ import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { RefreshCcw, Wifi, Monitor, Shield, Activity, X, ChevronRight, Terminal, AlertTriangle } from "lucide-react";
+import { RefreshCcw, Wifi, Monitor, Shield, Activity, X, ChevronRight, Terminal, AlertTriangle, Trash2, WifiOff } from "lucide-react";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar } from "recharts";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 
 interface NetworkHost {
@@ -278,6 +278,26 @@ export default function Network() {
   const { data: hosts = [], isLoading: hostsLoading, refetch } = useNetworkHosts();
   const { data: traffic = [] } = useNetworkTraffic();
   const [selectedHost, setSelectedHost] = useState<NetworkHost | null>(null);
+  const [removingId, setRemovingId] = useState<number | null>(null);
+  const qc = useQueryClient();
+
+  async function removeHost(e: React.MouseEvent, id: number) {
+    e.stopPropagation();
+    if (!confirm("Host ကို list ကနေ ဖြုတ်မလား?")) return;
+    setRemovingId(id);
+    await fetch(`/api/network/hosts/${id}`, { method: "DELETE" });
+    qc.invalidateQueries({ queryKey: ["network-hosts"] });
+    setRemovingId(null);
+    if (selectedHost?.id === id) setSelectedHost(null);
+  }
+
+  async function markOffline(e: React.MouseEvent, id: number) {
+    e.stopPropagation();
+    setRemovingId(id);
+    await fetch(`/api/network/hosts/${id}/offline`, { method: "PATCH" });
+    qc.invalidateQueries({ queryKey: ["network-hosts"] });
+    setRemovingId(null);
+  }
 
   const onlineCount    = hosts.filter(h => h.status === "online").length;
   const monitoredCount = hosts.filter(h => h.isMonitored).length;
@@ -430,8 +450,30 @@ python3 /opt/aegis_forwarder.py --mode all`}</pre>
                       <td className="py-2 px-3 text-xs text-muted-foreground">
                         {format(new Date(h.lastSeen), "MM/dd HH:mm:ss")}
                       </td>
-                      <td className="py-2 px-3 text-muted-foreground group-hover:text-primary transition-colors">
-                        <ChevronRight className="w-4 h-4" />
+                      <td className="py-2 px-3" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          {h.status === "online" && (
+                            <Button
+                              variant="ghost" size="icon"
+                              className="h-6 w-6 text-yellow-500 hover:text-yellow-400 hover:bg-yellow-500/10"
+                              title="Disconnect (mark offline)"
+                              disabled={removingId === h.id}
+                              onClick={e => markOffline(e, h.id)}
+                            >
+                              <WifiOff className="w-3.5 h-3.5" />
+                            </Button>
+                          )}
+                          <Button
+                            variant="ghost" size="icon"
+                            className="h-6 w-6 text-red-500 hover:text-red-400 hover:bg-red-500/10"
+                            title="Remove from list"
+                            disabled={removingId === h.id}
+                            onClick={e => removeHost(e, h.id)}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                          <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                        </div>
                       </td>
                     </tr>
                   ))}

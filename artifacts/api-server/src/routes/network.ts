@@ -51,6 +51,22 @@ router.post("/network/hosts", async (req, res) => {
   res.json({ ...created, lastSeen: created.lastSeen.toISOString(), createdAt: created.createdAt.toISOString() });
 });
 
+router.delete("/network/hosts/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  await db.delete(networkHostsTable).where(eq(networkHostsTable.id, id));
+  res.json({ success: true });
+});
+
+router.patch("/network/hosts/:id/offline", async (req, res) => {
+  const id = Number(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  await db.update(networkHostsTable).set({ status: "offline" }).where(eq(networkHostsTable.id, id));
+  const [updated] = await db.select().from(networkHostsTable).where(eq(networkHostsTable.id, id));
+  if (!updated) { res.status(404).json({ error: "Not found" }); return; }
+  res.json({ ...updated, lastSeen: updated.lastSeen.toISOString(), createdAt: updated.createdAt.toISOString() });
+});
+
 router.get("/network/hosts/:ip/events", async (req, res) => {
   const ip = req.params.ip;
   const limit = Math.min(Number(req.query.limit) || 100, 500);
