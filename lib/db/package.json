@@ -11,7 +11,8 @@
     "push": "drizzle-kit push --config ./drizzle.config.ts",
     "push-force": "drizzle-kit push --force --config ./drizzle.config.ts",
     "create-db": "node ./scripts/create-db.mjs",
-    "check-db": "node ./scripts/check-db.mjs"
+    "check-db": "node ./scripts/check-db.mjs",
+    "clear-data": "node ./scripts/clear-all-data.mjs"
   },
   "dependencies": {
     "drizzle-orm": "catalog:",
