@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { RefreshCcw, Wifi, Monitor, Shield, Activity, X, Terminal, AlertTriangle, Trash2, WifiOff, WifiIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar } from "recharts";
@@ -312,6 +313,7 @@ export default function Network() {
   const [selectedHost, setSelectedHost] = useState<NetworkHost | null>(null);
   const [loadingId, setLoadingId] = useState<number | null>(null);
   const [flashedIds, setFlashedIds] = useState<Set<number>>(new Set());
+  const [deleteTarget, setDeleteTarget] = useState<NetworkHost | null>(null);
   const prevHostsRef = useRef<NetworkHost[]>([]);
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -337,15 +339,21 @@ export default function Network() {
     qc.invalidateQueries({ queryKey: ["network-traffic"] });
   }
 
-  async function removeHost(e: React.MouseEvent, id: number) {
+  function removeHost(e: React.MouseEvent, host: NetworkHost) {
     e.stopPropagation();
-    if (!confirm("Host ကို list ကနေ ဖြုတ်မလား?")) return;
-    setLoadingId(id);
+    setDeleteTarget(host);
+  }
+
+  async function confirmRemoveHost() {
+    if (!deleteTarget) return;
+    const host = deleteTarget;
+    setDeleteTarget(null);
+    setLoadingId(host.id);
     try {
-      const res = await fetch(`${BASE}/api/network/hosts/${id}`, { method: "DELETE" });
+      const res = await fetch(`${BASE}/api/network/hosts/${host.id}`, { method: "DELETE" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      toast({ title: "Host Removed", description: "Connected device list ကနေ ဖြုတ်ပြီးပြီ။" });
-      if (selectedHost?.id === id) setSelectedHost(null);
+      toast({ title: "Host Removed", description: `${host.ip} (${host.hostname}) ကို list ကနေ ဖြုတ်ပြီးပြီ။` });
+      if (selectedHost?.id === host.id) setSelectedHost(null);
     } catch (err: any) {
       toast({ title: "Delete Failed", description: err.message, variant: "destructive" });
     } finally {
@@ -396,6 +404,27 @@ export default function Network() {
   }));
 
   return (
+    <>
+    <AlertDialog open={!!deleteTarget} onOpenChange={open => { if (!open) setDeleteTarget(null); }}>
+      <AlertDialogContent className="bg-card border-border">
+        <AlertDialogHeader>
+          <AlertDialogTitle className="text-red-400 uppercase tracking-widest">Device ဖြုတ်မည်</AlertDialogTitle>
+          <AlertDialogDescription>
+            <span className="font-bold text-foreground">{deleteTarget?.hostname}</span> ({deleteTarget?.ip}) ကို list ကနေ ဖြုတ်မည်။{" "}
+            Forwarder script ပြန် run ရင် ပြန်ပေါ်လာမည်။
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel className="border-border">Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-red-600 hover:bg-red-700 text-white"
+            onClick={confirmRemoveHost}
+          >
+            Remove
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
     <div className="space-y-6">
       {selectedHost && (
         <HostDetailPanel
@@ -577,7 +606,7 @@ python3 /opt/aegis_forwarder.py --mode all`}</pre>
                             className="h-7 w-7 text-red-500 hover:text-red-400 hover:bg-red-500/10"
                             title="Remove from list"
                             disabled={loadingId === h.id}
-                            onClick={e => removeHost(e, h.id)}
+                            onClick={e => removeHost(e, h)}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </Button>
@@ -602,5 +631,6 @@ python3 /opt/aegis_forwarder.py --mode all`}</pre>
         </CardContent>
       </Card>
     </div>
+    </>
   );
 }

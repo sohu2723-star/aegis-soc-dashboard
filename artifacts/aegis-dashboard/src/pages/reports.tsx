@@ -5,10 +5,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { format } from "date-fns";
-import { FileText, Download, Plus, Search, FileBarChart, Trash2 } from "lucide-react";
+import { Download, Plus, Search, FileBarChart, Trash2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 
@@ -21,6 +22,7 @@ export default function Reports() {
   const [formatType, setFormatType] = useState("html");
   const [search, setSearch] = useState("");
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: number; title: string } | null>(null);
 
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -59,22 +61,44 @@ export default function Reports() {
     toast({ title: "Downloading", description: `"${reportTitle}" download ကို စတင်နေပြီ။` });
   }
 
-  async function handleDelete(id: number, reportTitle: string) {
-    if (!confirm(`"${reportTitle}" ကို ဖျက်မလား?`)) return;
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    const { id, title } = deleteTarget;
+    setDeleteTarget(null);
     setDeletingId(id);
     try {
       const res = await fetch(`${BASE}/api/reports/${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Delete failed");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       queryClient.invalidateQueries({ queryKey: getListReportsQueryKey() });
-      toast({ title: "Report Deleted", description: `Report ကို ဖျက်ပြီးပြီ။` });
-    } catch {
-      toast({ title: "Error", description: "Delete မအောင်မြင်ဘူး", variant: "destructive" });
+      toast({ title: "Report Deleted", description: `"${title}" ကို ဖျက်ပြီးပြီ။` });
+    } catch (err: any) {
+      toast({ title: "Delete Failed", description: err.message, variant: "destructive" });
     } finally {
       setDeletingId(null);
     }
   }
 
   return (
+    <>
+    <AlertDialog open={!!deleteTarget} onOpenChange={open => { if (!open) setDeleteTarget(null); }}>
+      <AlertDialogContent className="bg-card border-border">
+        <AlertDialogHeader>
+          <AlertDialogTitle className="text-red-400 uppercase tracking-widest">Report ဖျက်မည်</AlertDialogTitle>
+          <AlertDialogDescription>
+            <span className="font-bold text-foreground">"{deleteTarget?.title}"</span> ကို ဖျက်မည်။ ဤ action ကို ပြန်ဖြည်မရပါ။
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel className="border-border">Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-red-600 hover:bg-red-700 text-white"
+            onClick={confirmDelete}
+          >
+            Delete
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
     <div className="space-y-6 h-full flex flex-col">
       <div className="flex items-center justify-between">
         <div>
@@ -206,7 +230,7 @@ export default function Reports() {
                     size="icon"
                     className="border-border text-red-500 hover:text-red-400 hover:bg-red-500/10 hover:border-red-500/30"
                     disabled={deletingId === report.id}
-                    onClick={() => handleDelete(report.id, report.title)}
+                    onClick={() => setDeleteTarget({ id: report.id, title: report.title })}
                     title="Delete report"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -218,5 +242,6 @@ export default function Reports() {
         </div>
       )}
     </div>
+    </>
   );
 }
