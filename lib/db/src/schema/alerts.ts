@@ -12,6 +12,6 @@ export const alertsTable = pgTable("alerts", {
   createdAt:    timestamp("created_at").defaultNow().notNull(),
 });
 
-export const insertAlertSchema = createInsertSchema(alertsTable).omit({ id: true, createdAt: true });
+export const insertAlertSchema = createInsertSchema(alertsTable).omit({ createdAt: true });
 export type InsertAlert = z.infer<typeof insertAlertSchema>;
 export type Alert = typeof alertsTable.$inferSelect;

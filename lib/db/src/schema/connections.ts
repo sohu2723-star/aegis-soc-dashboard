@@ -56,10 +56,10 @@ export const httpAttacksTable = pgTable("http_attacks", {
   createdAt:   timestamp("created_at").defaultNow().notNull(),
 });
 
-export const insertSshSessionSchema       = createInsertSchema(sshSessionsTable).omit({ id: true, createdAt: true });
-export const insertFtpSessionSchema       = createInsertSchema(ftpSessionsTable).omit({ id: true, createdAt: true });
-export const insertEncryptedTrafficSchema = createInsertSchema(encryptedTrafficTable).omit({ id: true, createdAt: true });
-export const insertHttpAttackSchema       = createInsertSchema(httpAttacksTable).omit({ id: true, createdAt: true });
+export const insertSshSessionSchema       = createInsertSchema(sshSessionsTable).omit({ createdAt: true });
+export const insertFtpSessionSchema       = createInsertSchema(ftpSessionsTable).omit({ createdAt: true });
+export const insertEncryptedTrafficSchema = createInsertSchema(encryptedTrafficTable).omit({ createdAt: true });
+export const insertHttpAttackSchema       = createInsertSchema(httpAttacksTable).omit({ createdAt: true });
 
 export type SshSession        = typeof sshSessionsTable.$inferSelect;
 export type FtpSession        = typeof ftpSessionsTable.$inferSelect;

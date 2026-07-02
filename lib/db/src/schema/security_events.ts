@@ -16,6 +16,6 @@ export const securityEventsTable = pgTable("security_events", {
   createdAt:   timestamp("created_at").defaultNow().notNull(),
 });
 
-export const insertSecurityEventSchema = createInsertSchema(securityEventsTable).omit({ id: true, createdAt: true });
+export const insertSecurityEventSchema = createInsertSchema(securityEventsTable).omit({ createdAt: true });
 export type InsertSecurityEvent = z.infer<typeof insertSecurityEventSchema>;
 export type SecurityEvent = typeof securityEventsTable.$inferSelect;

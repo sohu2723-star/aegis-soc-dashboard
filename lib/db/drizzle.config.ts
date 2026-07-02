@@ -1,14 +1,46 @@
 import { defineConfig } from "drizzle-kit";
 import path from "path";
 
-if (!process.env.SUPABASE_DB_URL) {
-  throw new Error("SUPABASE_DB_URL must be set. Get it from Supabase: Settings → Database → Connection string (URI mode).");
+const raw = process.env.SUPABASE_DB_URL;
+if (!raw) {
+  throw new Error("SUPABASE_DB_URL must be set.");
 }
+
+/** Parse a postgres URL robustly, handling special chars in passwords. */
+function parseConnectionUrl(rawUrl: string) {
+  const noProto = rawUrl.replace(/^postgres(?:ql)?:\/\//, "");
+  const atIdx = noProto.lastIndexOf("@");
+  if (atIdx === -1) throw new Error("Invalid SUPABASE_DB_URL: missing @");
+
+  const credentials = noProto.slice(0, atIdx);
+  const hostPart    = noProto.slice(atIdx + 1);
+
+  const colonIdx = credentials.indexOf(":");
+  const user     = colonIdx === -1 ? credentials : credentials.slice(0, colonIdx);
+  const password = colonIdx === -1 ? ""           : credentials.slice(colonIdx + 1);
+
+  const slashIdx = hostPart.indexOf("/");
+  const hostPort = slashIdx === -1 ? hostPart : hostPart.slice(0, slashIdx);
+  const database = slashIdx === -1 ? "postgres" : hostPart.slice(slashIdx + 1) || "postgres";
+
+  const portColon = hostPort.lastIndexOf(":");
+  const host = portColon === -1 ? hostPort : hostPort.slice(0, portColon);
+  const port = portColon === -1 ? 5432     : parseInt(hostPort.slice(portColon + 1), 10) || 5432;
+
+  return { user, password, host, port, database };
+}
+
+const conn = parseConnectionUrl(raw);
 
 export default defineConfig({
   schema: path.join(__dirname, "./src/schema/index.ts"),
   dialect: "postgresql",
   dbCredentials: {
-    url: process.env.SUPABASE_DB_URL,
+    host:     conn.host,
+    port:     conn.port,
+    user:     conn.user,
+    password: conn.password,
+    database: conn.database,
+    ssl:      true,
   },
 });

@@ -16,6 +16,6 @@ export const networkHostsTable = pgTable("network_hosts", {
   createdAt:   timestamp("created_at").defaultNow().notNull(),
 });
 
-export const insertNetworkHostSchema = createInsertSchema(networkHostsTable).omit({ id: true, createdAt: true, lastSeen: true });
+export const insertNetworkHostSchema = createInsertSchema(networkHostsTable).omit({ createdAt: true, lastSeen: true });
 export type InsertNetworkHost = z.infer<typeof insertNetworkHostSchema>;
 export type NetworkHost = typeof networkHostsTable.$inferSelect;

@@ -46,8 +46,8 @@ export const attackCountersTable = pgTable("attack_counters", {
   updatedAt:   timestamp("updated_at").defaultNow().notNull(),
 });
 
-export const insertDefenseRuleSchema    = createInsertSchema(defenseRulesTable).omit({ id: true, createdAt: true });
-export const insertDefenseCommandSchema = createInsertSchema(defenseCommandsTable).omit({ id: true, createdAt: true });
+export const insertDefenseRuleSchema    = createInsertSchema(defenseRulesTable).omit({ createdAt: true });
+export const insertDefenseCommandSchema = createInsertSchema(defenseCommandsTable).omit({ createdAt: true });
 
 export type DefenseRule    = typeof defenseRulesTable.$inferSelect;
 export type DefenseCommand = typeof defenseCommandsTable.$inferSelect;

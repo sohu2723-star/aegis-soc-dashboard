@@ -15,6 +15,6 @@ export const incidentsTable = pgTable("incidents", {
   updatedAt:   timestamp("updated_at").defaultNow().notNull(),
 });
 
-export const insertIncidentSchema = createInsertSchema(incidentsTable).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertIncidentSchema = createInsertSchema(incidentsTable).omit({ createdAt: true, updatedAt: true });
 export type InsertIncident = z.infer<typeof insertIncidentSchema>;
 export type Incident = typeof incidentsTable.$inferSelect;

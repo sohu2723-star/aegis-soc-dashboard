@@ -40,9 +40,9 @@ export const firewallRulesTable = pgTable("firewall_rules", {
   createdBy:  varchar("created_by", { length: 64 }).notNull().default("admin"),
 });
 
-export const insertDefenseActionSchema  = createInsertSchema(defenseActionsTable).omit({ id: true, createdAt: true });
-export const insertBlockedIpSchema      = createInsertSchema(blockedIpsTable).omit({ id: true, blockedAt: true, unblockedAt: true });
-export const insertFirewallRuleSchema   = createInsertSchema(firewallRulesTable).omit({ id: true, appliedAt: true });
+export const insertDefenseActionSchema  = createInsertSchema(defenseActionsTable).omit({ createdAt: true });
+export const insertBlockedIpSchema      = createInsertSchema(blockedIpsTable).omit({ blockedAt: true, unblockedAt: true });
+export const insertFirewallRuleSchema   = createInsertSchema(firewallRulesTable).omit({ appliedAt: true });
 
 export type InsertDefenseAction = z.infer<typeof insertDefenseActionSchema>;
 export type DefenseAction       = typeof defenseActionsTable.$inferSelect;

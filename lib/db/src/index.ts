@@ -8,9 +8,42 @@ if (!process.env.SUPABASE_DB_URL) {
   );
 }
 
-const client = postgres(process.env.SUPABASE_DB_URL, {
-  ssl: "require",
-  max: 10,
+/**
+ * Parse a postgres/postgresql URL robustly, handling special characters
+ * (including @, %, etc.) in the password without URL-encoding assumptions.
+ */
+function parseConnectionUrl(rawUrl: string) {
+  const noProto = rawUrl.replace(/^postgres(?:ql)?:\/\//, "");
+  // Use lastIndexOf('@') so passwords containing '@' are handled correctly
+  const atIdx = noProto.lastIndexOf("@");
+  if (atIdx === -1) throw new Error("Invalid SUPABASE_DB_URL: missing @ separator");
+
+  const credentials = noProto.slice(0, atIdx);
+  const hostPart    = noProto.slice(atIdx + 1);
+
+  const colonIdx = credentials.indexOf(":");
+  const user     = colonIdx === -1 ? credentials : credentials.slice(0, colonIdx);
+  const password = colonIdx === -1 ? ""           : credentials.slice(colonIdx + 1);
+
+  const slashIdx = hostPart.indexOf("/");
+  const hostPort = slashIdx === -1 ? hostPart : hostPart.slice(0, slashIdx);
+  const database = slashIdx === -1 ? "postgres" : hostPart.slice(slashIdx + 1) || "postgres";
+
+  const portColon = hostPort.lastIndexOf(":");
+  const host = portColon === -1 ? hostPort : hostPort.slice(0, portColon);
+  const port = portColon === -1 ? 5432     : parseInt(hostPort.slice(portColon + 1), 10) || 5432;
+
+  return { user, password, host, port, database };
+}
+
+const conn = parseConnectionUrl(process.env.SUPABASE_DB_URL);
+
+const client = postgres({
+  ...conn,
+  ssl:  "require",
+  max:  10,
+  idle_timeout: 20,
+  connect_timeout: 10,
 });
 
 export const db = drizzle(client, { schema });

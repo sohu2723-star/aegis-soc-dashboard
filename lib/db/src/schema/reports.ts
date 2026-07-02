@@ -13,6 +13,6 @@ export const reportsTable = pgTable("reports", {
   generatedAt:    timestamp("generated_at").defaultNow().notNull(),
 });
 
-export const insertReportSchema = createInsertSchema(reportsTable).omit({ id: true, generatedAt: true });
+export const insertReportSchema = createInsertSchema(reportsTable).omit({ generatedAt: true });
 export type InsertReport = z.infer<typeof insertReportSchema>;
 export type Report = typeof reportsTable.$inferSelect;

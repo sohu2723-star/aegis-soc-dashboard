@@ -12,6 +12,6 @@ export const systemStatusTable = pgTable("system_status", {
   lastCheck:   timestamp("last_check").defaultNow().notNull(),
 });
 
-export const insertSystemStatusSchema = createInsertSchema(systemStatusTable).omit({ id: true, lastCheck: true });
+export const insertSystemStatusSchema = createInsertSchema(systemStatusTable).omit({ lastCheck: true });
 export type InsertSystemStatus = z.infer<typeof insertSystemStatusSchema>;
 export type SystemStatus = typeof systemStatusTable.$inferSelect;
