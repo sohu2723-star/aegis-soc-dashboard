@@ -1,12 +1,9 @@
 import { useGetDashboardSummary, useGetRecentEvents, getGetDashboardSummaryQueryKey, getGetRecentEventsQueryKey } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Activity, ShieldAlert, Siren, Server, Zap, Play, Square } from "lucide-react";
+import { Activity, ShieldAlert, Siren, Server } from "lucide-react";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, BarChart, Bar, CartesianGrid } from "recharts";
 import { format } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Button } from "@/components/ui/button";
-import { useSimulation } from "@/hooks/use-sse";
-import { useState, useEffect, useCallback } from "react";
 
 export default function Dashboard() {
   const { data: summary, isLoading: isLoadingSummary } = useGetDashboardSummary({
@@ -15,48 +12,6 @@ export default function Dashboard() {
   const { data: recentEvents, isLoading: isLoadingEvents } = useGetRecentEvents({
     query: { queryKey: getGetRecentEventsQueryKey(), refetchInterval: 5000 },
   });
-
-  const { triggerAttack, startAutoSim, stopAutoSim, getStatus } = useSimulation();
-  const [simRunning, setSimRunning] = useState(false);
-  const [simLoading, setSimLoading] = useState(false);
-  const [attackLoading, setAttackLoading] = useState(false);
-  const [lastEvent, setLastEvent] = useState<string | null>(null);
-
-  const syncStatus = useCallback(async () => {
-    try {
-      const s = await getStatus();
-      setSimRunning(s.running);
-    } catch {}
-  }, [getStatus]);
-
-  useEffect(() => {
-    syncStatus();
-    const t = setInterval(syncStatus, 5000);
-    return () => clearInterval(t);
-  }, [syncStatus]);
-
-  const handleTrigger = async () => {
-    setAttackLoading(true);
-    try {
-      await triggerAttack();
-      setLastEvent(`Attack simulated at ${new Date().toLocaleTimeString()}`);
-    } catch {}
-    setAttackLoading(false);
-  };
-
-  const handleToggleSim = async () => {
-    setSimLoading(true);
-    try {
-      if (simRunning) {
-        await stopAutoSim();
-        setSimRunning(false);
-      } else {
-        await startAutoSim();
-        setSimRunning(true);
-      }
-    } catch {}
-    setSimLoading(false);
-  };
 
   if (isLoadingSummary) {
     return (
@@ -72,51 +27,13 @@ export default function Dashboard() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-primary uppercase">Command Center</h1>
-          {lastEvent && (
-            <p className="text-xs text-muted-foreground mt-0.5">{lastEvent}</p>
-          )}
         </div>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <span className="relative flex h-3 w-3">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
-              <span className="relative inline-flex rounded-full h-3 w-3 bg-primary" />
-            </span>
-            Live Monitoring
-          </div>
-
-          <div className="h-4 w-px bg-border" />
-
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={handleTrigger}
-            disabled={attackLoading}
-            className="text-xs border-primary/30 text-primary hover:bg-primary/10"
-          >
-            <Zap className="h-3 w-3 mr-1.5" />
-            {attackLoading ? "Firing..." : "Simulate Attack"}
-          </Button>
-
-          <Button
-            size="sm"
-            variant={simRunning ? "destructive" : "outline"}
-            onClick={handleToggleSim}
-            disabled={simLoading}
-            className={`text-xs ${!simRunning ? "border-orange-500/30 text-orange-500 hover:bg-orange-500/10" : ""}`}
-          >
-            {simRunning ? (
-              <>
-                <Square className="h-3 w-3 mr-1.5" />
-                {simLoading ? "Stopping..." : "Stop Auto-Sim"}
-              </>
-            ) : (
-              <>
-                <Play className="h-3 w-3 mr-1.5" />
-                {simLoading ? "Starting..." : "Start Auto-Sim"}
-              </>
-            )}
-          </Button>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <span className="relative flex h-3 w-3">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
+            <span className="relative inline-flex rounded-full h-3 w-3 bg-primary" />
+          </span>
+          Live Monitoring
         </div>
       </div>
 
@@ -216,17 +133,8 @@ export default function Dashboard() {
       </div>
 
       <Card className="bg-card border-border overflow-hidden">
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader>
           <CardTitle className="text-sm uppercase tracking-wider">Recent Telemetry</CardTitle>
-          {simRunning && (
-            <div className="flex items-center gap-1.5 text-xs text-orange-500">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-500 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-orange-500" />
-              </span>
-              Auto-simulation active
-            </div>
-          )}
         </CardHeader>
         <CardContent className="p-0">
           <div className="flex flex-col max-h-[400px] overflow-auto">
@@ -234,7 +142,7 @@ export default function Dashboard() {
               Array.from({ length: 5 }).map((_, i) => (
                 <Skeleton key={i} className="h-12 w-full my-1 rounded-none bg-muted/20" />
               ))
-            ) : recentEvents?.map((event) => (
+            ) : recentEvents && recentEvents.length > 0 ? recentEvents.map((event) => (
               <div
                 key={event.id}
                 className="flex items-center justify-between p-3 border-b border-border/50 hover:bg-muted/20 text-xs"
@@ -262,7 +170,13 @@ export default function Dashboard() {
                   <div className="text-[10px] text-muted-foreground">{format(new Date(event.createdAt), "HH:mm:ss")}</div>
                 </div>
               </div>
-            ))}
+            )) : (
+              <div className="flex flex-col items-center justify-center py-16 text-muted-foreground text-xs gap-2">
+                <span className="text-2xl">📡</span>
+                <span>Waiting for real events from VMs...</span>
+                <span className="text-[10px] opacity-60">Start the forwarder on your Ubuntu VM to see live data</span>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>

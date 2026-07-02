@@ -29,8 +29,7 @@ export function useSSE() {
     const es = new EventSource(`${BASE}/api/events/stream`);
     esRef.current = es;
 
-    es.addEventListener("connected", () => {
-    });
+    es.addEventListener("connected", () => {});
 
     es.addEventListener("security_event", () => {
       queryClient.invalidateQueries({ queryKey: getGetRecentEventsQueryKey() });
@@ -66,27 +65,4 @@ export function useSSE() {
   }, [connect]);
 
   return { invalidateAll };
-}
-
-export function useSimulation() {
-  const BASE_URL = `${BASE}/api`;
-
-  const triggerAttack = async () => {
-    await fetch(`${BASE_URL}/simulate/attack`, { method: "POST" });
-  };
-
-  const startAutoSim = async () => {
-    await fetch(`${BASE_URL}/simulate/start`, { method: "POST" });
-  };
-
-  const stopAutoSim = async () => {
-    await fetch(`${BASE_URL}/simulate/stop`, { method: "POST" });
-  };
-
-  const getStatus = async () => {
-    const res = await fetch(`${BASE_URL}/simulate/status`);
-    return res.json() as Promise<{ running: boolean; connectedClients: number }>;
-  };
-
-  return { triggerAttack, startAutoSim, stopAutoSim, getStatus };
 }

@@ -86,7 +86,7 @@ paths:
     post:
       operationId: createEvent
       tags: [events]
-      summary: Create a security event (simulate attack)
+      summary: Create a security event (ingest from VM)
       requestBody:
         required: true
         content:
