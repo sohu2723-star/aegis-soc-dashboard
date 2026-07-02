@@ -20,6 +20,7 @@ import json
 import os
 import re
 import socket
+import subprocess
 import sys
 import time
 import threading
@@ -48,10 +49,59 @@ def get_local_ip() -> str:
         return "127.0.0.1"
 
 
+def get_mac_address(ip: str) -> str:
+    """Get MAC address for the interface that holds the given IP."""
+    try:
+        out = subprocess.check_output(["ip", "addr"], text=True)
+        blocks = re.split(r"\d+: ", out)
+        for block in blocks:
+            if ip in block:
+                m = re.search(r"link/ether\s+([0-9a-f:]{17})", block)
+                if m:
+                    return m.group(1)
+    except Exception:
+        pass
+    return ""
+
+
+def get_open_ports() -> str:
+    """Return comma-separated list of listening TCP ports (e.g. '22,80,443')."""
+    try:
+        out = subprocess.check_output(
+            ["ss", "-tlnp"], text=True, stderr=subprocess.DEVNULL
+        )
+        ports = set()
+        for line in out.splitlines()[1:]:
+            parts = line.split()
+            if len(parts) >= 4:
+                addr = parts[3]
+                port = addr.rsplit(":", 1)[-1]
+                if port.isdigit():
+                    ports.add(port)
+        return ",".join(sorted(ports, key=int)) if ports else ""
+    except Exception:
+        return ""
+
+
+def get_os_info() -> str:
+    """Read OS pretty name from /etc/os-release."""
+    try:
+        with open("/etc/os-release") as f:
+            for line in f:
+                if line.startswith("PRETTY_NAME="):
+                    return line.split("=", 1)[1].strip().strip('"')
+    except Exception:
+        pass
+    return "Ubuntu"
+
+
 def register_host():
     """Register this Ubuntu VM as a connected host in AEGIS Network Monitor."""
-    ip = get_local_ip()
+    ip       = get_local_ip()
     hostname = socket.gethostname()
+    mac      = get_mac_address(ip)
+    ports    = get_open_ports()
+    os_name  = get_os_info()
     try:
         r = requests.post(
             f"{AEGIS_URL}/network/hosts",
@@ -59,7 +109,9 @@ def register_host():
                 "ip":          ip,
                 "hostname":    hostname,
                 "role":        "ubuntu",
-                "os":          "Ubuntu 22.04",
+                "os":          os_name,
+                "mac":         mac or None,
+                "openPorts":   ports or None,
                 "status":      "online",
                 "isMonitored": True,
             },
@@ -67,24 +119,29 @@ def register_host():
             timeout=10,
         )
         if r.status_code in (200, 201):
-            print(f"  ✓ Host registered: {hostname} ({ip})")
+            print(f"  ✓ Host registered: {hostname} ({ip})  MAC={mac or '?'}  Ports={ports or '?'}")
         else:
-            print(f"  WARN Host registration: HTTP {r.status_code}")
+            print(f"  WARN Host registration: HTTP {r.status_code} — {r.text[:80]}")
     except Exception as e:
         print(f"  WARN Host registration failed: {e}")
 
 
 def heartbeat_loop():
     """Send periodic heartbeat every 60s to keep host status ONLINE."""
-    ip = get_local_ip()
+    ip       = get_local_ip()
     hostname = socket.gethostname()
+    os_name  = get_os_info()
     while True:
         time.sleep(60)
         try:
+            mac   = get_mac_address(ip)
+            ports = get_open_ports()
             requests.post(
                 f"{AEGIS_URL}/network/hosts",
                 json={"ip": ip, "hostname": hostname, "role": "ubuntu",
-                      "os": "Ubuntu 22.04", "status": "online", "isMonitored": True},
+                      "os": os_name, "mac": mac or None,
+                      "openPorts": ports or None,
+                      "status": "online", "isMonitored": True},
                 headers=HEADERS,
                 timeout=5,
             )
