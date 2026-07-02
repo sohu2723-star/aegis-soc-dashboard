@@ -9,9 +9,10 @@ import { sanitizeIp } from "../lib/defense-sanitize";
 const router = Router();
 
 // ─── Auto-timeout: mark hosts offline if heartbeat stopped > 90s ago ──────────
-const OFFLINE_TIMEOUT_MS = 90_000;
+const OFFLINE_TIMEOUT_MS = 45_000; // 45s — forwarder heartbeats every 15s, so 3 missed = offline
 
 setInterval(async () => {
+
   const cutoff = new Date(Date.now() - OFFLINE_TIMEOUT_MS);
   try {
     const stale = await db

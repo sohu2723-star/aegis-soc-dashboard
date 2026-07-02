@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { RefreshCcw, Wifi, Monitor, Shield, Activity, X, ChevronRight, Terminal, AlertTriangle, Trash2, WifiOff, WifiIcon } from "lucide-react";
+import { RefreshCcw, Wifi, Monitor, Shield, Activity, X, Terminal, AlertTriangle, Trash2, WifiOff, WifiIcon } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar } from "recharts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format, formatDistanceToNow } from "date-fns";
@@ -313,6 +314,7 @@ export default function Network() {
   const [flashedIds, setFlashedIds] = useState<Set<number>>(new Set());
   const prevHostsRef = useRef<NetworkHost[]>([]);
   const qc = useQueryClient();
+  const { toast } = useToast();
 
   // Flash row when status changes
   useEffect(() => {
@@ -340,30 +342,42 @@ export default function Network() {
     if (!confirm("Host ကို list ကနေ ဖြုတ်မလား?")) return;
     setLoadingId(id);
     try {
-      await fetch(`${BASE}/api/network/hosts/${id}`, { method: "DELETE" });
-    } finally {
-      qc.invalidateQueries({ queryKey: ["network-hosts"] });
-      setLoadingId(null);
+      const res = await fetch(`${BASE}/api/network/hosts/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      toast({ title: "Host Removed", description: "Connected device list ကနေ ဖြုတ်ပြီးပြီ။" });
       if (selectedHost?.id === id) setSelectedHost(null);
-    }
-  }
-
-  async function markOffline(e: React.MouseEvent, id: number) {
-    e.stopPropagation();
-    setLoadingId(id);
-    try {
-      await fetch(`${BASE}/api/network/hosts/${id}/offline`, { method: "PATCH" });
+    } catch (err: any) {
+      toast({ title: "Delete Failed", description: err.message, variant: "destructive" });
     } finally {
       qc.invalidateQueries({ queryKey: ["network-hosts"] });
       setLoadingId(null);
     }
   }
 
-  async function markOnline(e: React.MouseEvent, id: number) {
+  async function markOffline(e: React.MouseEvent, host: NetworkHost) {
     e.stopPropagation();
-    setLoadingId(id);
+    setLoadingId(host.id);
     try {
-      await fetch(`${BASE}/api/network/hosts/${id}/online`, { method: "PATCH" });
+      const res = await fetch(`${BASE}/api/network/hosts/${host.id}/offline`, { method: "PATCH" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      toast({ title: "Device Isolated", description: `${host.ip} (${host.hostname}) — offline + iptables DROP queued on VM.` });
+    } catch (err: any) {
+      toast({ title: "Failed", description: err.message, variant: "destructive" });
+    } finally {
+      qc.invalidateQueries({ queryKey: ["network-hosts"] });
+      setLoadingId(null);
+    }
+  }
+
+  async function markOnline(e: React.MouseEvent, host: NetworkHost) {
+    e.stopPropagation();
+    setLoadingId(host.id);
+    try {
+      const res = await fetch(`${BASE}/api/network/hosts/${host.id}/online`, { method: "PATCH" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      toast({ title: "Device Reconnected", description: `${host.ip} (${host.hostname}) — online + iptables unblock queued on VM.` });
+    } catch (err: any) {
+      toast({ title: "Failed", description: err.message, variant: "destructive" });
     } finally {
       qc.invalidateQueries({ queryKey: ["network-hosts"] });
       setLoadingId(null);
@@ -536,38 +550,37 @@ python3 /opt/aegis_forwarder.py --mode all`}</pre>
                         <LastSeenTicker lastSeen={h.lastSeen} status={h.status} />
                       </td>
                       <td className="py-2 px-3" onClick={e => e.stopPropagation()}>
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="flex items-center gap-1">
                           {h.status === "online" ? (
                             <Button
                               variant="ghost" size="icon"
-                              className="h-6 w-6 text-yellow-500 hover:text-yellow-400 hover:bg-yellow-500/10"
-                              title="Disconnect (mark offline + block on VM)"
+                              className="h-7 w-7 text-yellow-500 hover:text-yellow-400 hover:bg-yellow-500/10"
+                              title="Disconnect — mark offline + queue iptables DROP on VM"
                               disabled={loadingId === h.id}
-                              onClick={e => markOffline(e, h.id)}
+                              onClick={e => markOffline(e, h)}
                             >
                               <WifiOff className="w-3.5 h-3.5" />
                             </Button>
                           ) : (
                             <Button
                               variant="ghost" size="icon"
-                              className="h-6 w-6 text-green-500 hover:text-green-400 hover:bg-green-500/10"
-                              title="Reconnect (mark online + unblock on VM)"
+                              className="h-7 w-7 text-green-500 hover:text-green-400 hover:bg-green-500/10"
+                              title="Reconnect — mark online + queue iptables unblock on VM"
                               disabled={loadingId === h.id}
-                              onClick={e => markOnline(e, h.id)}
+                              onClick={e => markOnline(e, h)}
                             >
                               <WifiIcon className="w-3.5 h-3.5" />
                             </Button>
                           )}
                           <Button
                             variant="ghost" size="icon"
-                            className="h-6 w-6 text-red-500 hover:text-red-400 hover:bg-red-500/10"
+                            className="h-7 w-7 text-red-500 hover:text-red-400 hover:bg-red-500/10"
                             title="Remove from list"
                             disabled={loadingId === h.id}
                             onClick={e => removeHost(e, h.id)}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </Button>
-                          <ChevronRight className="w-4 h-4 text-muted-foreground" />
                         </div>
                       </td>
                     </tr>

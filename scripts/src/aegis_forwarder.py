@@ -127,12 +127,14 @@ def register_host():
 
 
 def heartbeat_loop():
-    """Send periodic heartbeat every 60s to keep host status ONLINE."""
+    """Send periodic heartbeat every 15s to keep host status ONLINE.
+    Auto-timeout on server is 45s, so 3 missed beats = offline.
+    """
     ip       = get_local_ip()
     hostname = socket.gethostname()
     os_name  = get_os_info()
     while True:
-        time.sleep(60)
+        time.sleep(15)
         try:
             mac   = get_mac_address(ip)
             ports = get_open_ports()
@@ -147,6 +149,23 @@ def heartbeat_loop():
             )
         except Exception:
             pass
+
+
+def send_offline():
+    """Send offline status immediately when script shuts down."""
+    ip       = get_local_ip()
+    hostname = socket.gethostname()
+    try:
+        requests.post(
+            f"{AEGIS_URL}/network/hosts",
+            json={"ip": ip, "hostname": hostname, "role": "ubuntu",
+                  "status": "offline", "isMonitored": True},
+            headers=HEADERS,
+            timeout=5,
+        )
+        print("\n[AEGIS] Sent offline status to dashboard.")
+    except Exception:
+        pass
 
 
 def get_service_status(service: str) -> str:
@@ -474,13 +493,23 @@ if __name__ == "__main__":
     print("  [*] Registering host with AEGIS...")
     register_host()
 
-    # Start heartbeat to keep host ONLINE every 60s
+    # Start heartbeat every 15s — server auto-timeouts at 45s (3 missed = offline)
     hb = threading.Thread(target=heartbeat_loop, daemon=True, name="heartbeat")
     hb.start()
 
     # Start service health reporter — updates fail2ban/suricata/snort/cowrie status every 30s
     sh = threading.Thread(target=service_health_loop, daemon=True, name="service_health")
     sh.start()
+
+    def shutdown(sig=None, frame=None):
+        """Send offline status immediately before exiting."""
+        send_offline()
+        print("[AEGIS] Forwarder stopped.")
+        sys.exit(0)
+
+    import signal as _signal
+    _signal.signal(_signal.SIGINT,  shutdown)
+    _signal.signal(_signal.SIGTERM, shutdown)
 
     if args.mode == "all":
         threads = []
@@ -494,9 +523,9 @@ if __name__ == "__main__":
             while True:
                 time.sleep(1)
         except KeyboardInterrupt:
-            print("\n[AEGIS] Forwarder stopped.")
+            shutdown()
     else:
         try:
             MODES[args.mode]()
         except KeyboardInterrupt:
-            print("\n[AEGIS] Forwarder stopped.")
+            shutdown()
