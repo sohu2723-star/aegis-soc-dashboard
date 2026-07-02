@@ -10,7 +10,9 @@ A real-time Security Operations Center dashboard that monitors attacks from Kali
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — MySQL connection string: `mysql://user:password@host:3306/aegis`
+- Required env: `DATABASE_URL` — PostgreSQL connection string (auto-provisioned by Replit)
+- Required env: `AEGIS_INGEST_KEY` — Sensor API key for ingest endpoints (set in Replit Secrets)
+- Required env: `AEGIS_ADMIN_KEY` — Admin API key for privileged endpoints (set in Replit Secrets)
 
 ## Stack
 

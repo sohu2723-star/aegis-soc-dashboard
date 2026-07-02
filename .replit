@@ -13,6 +13,8 @@ PORT = "5000"
 BASE_PATH = "/"
 API_PORT = "3000"
 NODE_ENV = "development"
+AEGIS_INGEST_KEY = "aegis-demo-key-change-me"
+AEGIS_ADMIN_KEY = "aegis-admin-key-change-me"
 
 [workflows]
 runButton = "Project"
