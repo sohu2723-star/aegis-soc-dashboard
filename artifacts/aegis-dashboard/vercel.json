@@ -1,7 +1,6 @@
 {
   "buildCommand": "cd ../.. && pnpm install && pnpm --filter @workspace/aegis-dashboard run build",
   "outputDirectory": "dist/public",
-  "framework": null,
   "functions": {
     "api/index.ts": {
       "maxDuration": 30,
@@ -11,5 +10,5 @@
   "rewrites": [
     { "source": "/api/:path*", "destination": "/api/index" },
     { "source": "/(.*)",       "destination": "/index.html" }
-  ],
+  ]
 }
