@@ -1,3 +1,3 @@
-- [MySQL / TiDB Cloud](mysql-migration.md) — Project uses TiDB Cloud MySQL (not Postgres); `.returning()` unavailable, use `.$returningId()` + re-select.
+- [Supabase connection](supabase-connection.md) — Pooler region `aws-1-ap-southeast-2:6543`; custom URL parser (lastIndexOf+safeDecode); drizzle-kit push broken with pooler so use generate→run SQL directly.
 - [Auto-defense engine](auto-defense.md) — Full attack→rule→command→agent pipeline; sanitize all IPs/ports before building shell commands; both AEGIS_INGEST_KEY and AEGIS_ADMIN_KEY must be set (no fallback) or server refuses to start.
 - [Project intent](project-intent.md) — Real lab only (no simulation); Replit = code editor only; web UI is monitoring-only; VMs do actual attack/defense.

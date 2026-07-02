@@ -21,13 +21,20 @@ function parseConnectionUrl(rawUrl: string) {
 
   const slashIdx = hostPart.indexOf("/");
   const hostPort = slashIdx === -1 ? hostPart : hostPart.slice(0, slashIdx);
-  const database = slashIdx === -1 ? "postgres" : hostPart.slice(slashIdx + 1) || "postgres";
+  // Strip query params from database name (e.g. postgres?sslmode=require → postgres)
+  const rawDb   = slashIdx === -1 ? "postgres" : hostPart.slice(slashIdx + 1) || "postgres";
+  const database = rawDb.split("?")[0] || "postgres";
 
   const portColon = hostPort.lastIndexOf(":");
   const host = portColon === -1 ? hostPort : hostPort.slice(0, portColon);
   const port = portColon === -1 ? 5432     : parseInt(hostPort.slice(portColon + 1), 10) || 5432;
 
-  return { user, password, host, port, database };
+  // Percent-decode credentials; fall back to raw value if the sequence is invalid
+  function safeDecode(s: string) {
+    try { return decodeURIComponent(s); } catch { return s; }
+  }
+
+  return { user: safeDecode(user), password: safeDecode(password), host, port, database };
 }
 
 const conn = parseConnectionUrl(raw);
