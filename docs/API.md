@@ -1,6 +1,6 @@
 # AEGIS API Reference
 
-Base URL: `https://aegis-api-server.onrender.com/api`
+Base URL: `https://aegis-api-server-jp3b.onrender.com/api`
 
 ---
 

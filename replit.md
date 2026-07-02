@@ -3,7 +3,7 @@
 > **⚠️ CRITICAL RULES FOR ALL AGENTS — READ FIRST**
 >
 > 1. **NEVER use Replit URLs** (`*.replit.app`, `*.repl.co`) anywhere in source code, documentation, or configuration. Replit is used for **code editing only**.
-> 2. **API server URL** is `https://aegis-api-server.onrender.com` (Render free tier, Singapore region).
+> 2. **API server URL** is `https://aegis-api-server-jp3b.onrender.com` (Render free tier, Singapore region).
 > 3. **Frontend URL** is the Vercel deployment URL (e.g. `https://aegis-soc-dashboard.vercel.app`).
 > 4. **Database** is **Supabase PostgreSQL** — env var is `SUPABASE_DB_URL` (pooler URL, port 6543). NOT TiDB/MySQL. The old `MYSQL_URL` reference is stale and wrong.
 > 5. **No simulated/mock data** — only real events from real lab VMs.
@@ -23,7 +23,7 @@ A real-time Security Operations Center (SOC) dashboard that receives events from
                              │  aegis_forwarder.py
                              ▼
                     [Render — aegis-api-server]
-                    https://aegis-api-server.onrender.com
+                    https://aegis-api-server-jp3b.onrender.com
                              │  Express 5 + Drizzle ORM
                              │  Supabase PostgreSQL (SUPABASE_DB_URL)
                              │  SSE /api/stream

@@ -107,13 +107,13 @@ sudo chmod +x /opt/aegis_forwarder.py
 Edit `/opt/aegis_forwarder.py` and set your AEGIS URL:
 
 ```python
-AEGIS_URL = "https://aegis-api-server.onrender.com/api"
+AEGIS_URL = "https://aegis-api-server-jp3b.onrender.com/api"
 AEGIS_KEY = "your-aegis-ingest-key"
 ```
 
 **Or use environment variables:**
 ```bash
-export AEGIS_URL="https://aegis-api-server.onrender.com/api"
+export AEGIS_URL="https://aegis-api-server-jp3b.onrender.com/api"
 export AEGIS_KEY="your-aegis-ingest-key"
 ```
 
@@ -143,7 +143,7 @@ After=network.target
 [Service]
 Type=simple
 User=root
-Environment=AEGIS_URL=https://aegis-api-server.onrender.com/api
+Environment=AEGIS_URL=https://aegis-api-server-jp3b.onrender.com/api
 Environment=AEGIS_KEY=your-aegis-ingest-key
 ExecStart=/usr/bin/python3 /opt/aegis_forwarder.py
 Restart=always

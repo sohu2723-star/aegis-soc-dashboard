@@ -288,7 +288,7 @@ Dashboard — live event appears in real-time`}</pre>
               <h3 className="text-base font-bold uppercase text-primary mt-6">Step 1 — AEGIS API URL ရယူပါ</h3>
               <p className="text-sm text-foreground">API server URL နှင့် ingest key ကို Ubuntu VM မှာ environment variable အဖြစ် export လုပ်ပါ။</p>
               <CodeBlock language="bash" code={`# AEGIS API server (Render)
-export AEGIS_URL="https://aegis-api-server.onrender.com/api"
+export AEGIS_URL="https://aegis-api-server-jp3b.onrender.com/api"
 export AEGIS_KEY="your-aegis-ingest-key"
 
 # Test connection:
@@ -321,7 +321,7 @@ chmod +x /opt/aegis_forwarder.py`} />
 sudo suricata -c /etc/suricata/suricata.yaml -i eth1 -D
 
 # AEGIS Forwarder ကို Suricata mode ဖြင့် run ပါ
-AEGIS_URL="https://aegis-api-server.onrender.com/api" \\
+AEGIS_URL="https://aegis-api-server-jp3b.onrender.com/api" \\
 AEGIS_KEY="your-aegis-ingest-key" \\
 python3 /opt/aegis_forwarder.py --mode suricata`} />
 
@@ -330,7 +330,7 @@ python3 /opt/aegis_forwarder.py --mode suricata`} />
 sudo snort -c /etc/snort/snort.conf -i eth1 -A fast -D
 
 # AEGIS Forwarder — Snort mode
-AEGIS_URL="https://aegis-api-server.onrender.com/api" \\
+AEGIS_URL="https://aegis-api-server-jp3b.onrender.com/api" \\
 AEGIS_KEY="your-aegis-ingest-key" \\
 python3 /opt/aegis_forwarder.py --mode snort`} />
 
@@ -338,7 +338,7 @@ python3 /opt/aegis_forwarder.py --mode snort`} />
               <CodeBlock language="bash" code={`# /etc/fail2ban/action.d/aegis.conf ဖိုင်အသစ် ဖန်တီးပါ
 sudo nano /etc/fail2ban/action.d/aegis.conf`} />
               <CodeBlock language="ini" code={`[Definition]
-actionban = curl -s -X POST https://aegis-api-server.onrender.com/api/ingest/fail2ban \\
+actionban = curl -s -X POST https://aegis-api-server-jp3b.onrender.com/api/ingest/fail2ban \\
             -H "Content-Type: application/json" \\
             -H "X-AEGIS-Key: your-aegis-ingest-key" \\
             -d '{"ip":"<ip>","jail":"<name>","failures":"<failures>"}'`} />
@@ -353,7 +353,7 @@ sudo systemctl restart fail2ban`} />
 
               <h3 className="text-base font-bold uppercase text-primary mt-6">Step 6 — Cowrie Honeypot ချိတ်ဆွဲပါ</h3>
               <CodeBlock language="bash" code={`# Cowrie VM မှာ run ပါ (cowrie user အဖြစ်)
-AEGIS_URL="https://aegis-api-server.onrender.com/api" \\
+AEGIS_URL="https://aegis-api-server-jp3b.onrender.com/api" \\
 AEGIS_KEY="your-aegis-ingest-key" \\
 python3 /opt/aegis_forwarder.py --mode cowrie`} />
 
@@ -395,7 +395,7 @@ python3 /opt/aegis_forwarder.py --mode cowrie`} />
 
               <h3 className="text-base font-bold uppercase text-primary mt-6">All Modes တပြိုင်တည်း Run ပါ</h3>
               <p className="text-sm text-muted-foreground mb-2">Snort + Suricata + Fail2ban + Cowrie တပြိုင်တည်း watch ဖို့:</p>
-              <CodeBlock language="bash" code={`AEGIS_URL="https://aegis-api-server.onrender.com/api" \\
+              <CodeBlock language="bash" code={`AEGIS_URL="https://aegis-api-server-jp3b.onrender.com/api" \\
 AEGIS_KEY="your-aegis-ingest-key" \\
 python3 /opt/aegis_forwarder.py --mode all
 

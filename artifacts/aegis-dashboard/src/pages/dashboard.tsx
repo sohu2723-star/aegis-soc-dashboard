@@ -42,7 +42,7 @@ export default function Dashboard() {
           <p className="text-sm text-muted-foreground max-w-sm">
             Render free tier က idle ဖြစ်ရင် sleep ဝင်တယ်။ ပြန်ပြည့် wake ဖို့ ~50 seconds ကြာနိုင်တယ်။
           </p>
-          <p className="text-xs text-muted-foreground/60 mt-1 font-mono">Connecting to aegis-api-server.onrender.com…</p>
+          <p className="text-xs text-muted-foreground/60 mt-1 font-mono">Connecting to aegis-api-server-jp3b.onrender.com…</p>
         </div>
         <button
           onClick={() => {
