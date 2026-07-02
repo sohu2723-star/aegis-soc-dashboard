@@ -32,7 +32,7 @@ router.post("/defense/block", async (req, res) => {
     reason:    body.data.reason,
     blockedBy: body.data.blockedBy ?? "manual",
     isActive:  true,
-  }).$returningId();
+  }).returning();
 
   await db.insert(defenseActionsTable).values({
     type:        body.data.blockedBy === "auto" ? "auto" : "manual",

@@ -36,7 +36,7 @@ router.post("/reports/generate", async (req, res) => {
     summary,
     eventsCount,
     incidentsCount,
-  }).$returningId();
+  }).returning();
 
   const [report] = await db.select().from(reportsTable).where(eq(reportsTable.id, row.id));
   res.status(201).json({ ...report, generatedAt: report.generatedAt.toISOString() });

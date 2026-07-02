@@ -1,9 +1,9 @@
-import { mysqlTable, int, varchar, text, timestamp, boolean } from "drizzle-orm/mysql-core";
+import { pgTable, integer, varchar, text, timestamp, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
-export const blockedIpsTable = mysqlTable("blocked_ips", {
-  id:          int("id").primaryKey().autoincrement(),
+export const blockedIpsTable = pgTable("blocked_ips", {
+  id:          integer("id").primaryKey().generatedAlwaysAsIdentity(),
   ip:          varchar("ip", { length: 45 }).notNull(),
   reason:      text("reason").notNull(),
   blockedBy:   varchar("blocked_by", { length: 32 }).notNull().default("manual"),
@@ -12,8 +12,8 @@ export const blockedIpsTable = mysqlTable("blocked_ips", {
   unblockedAt: timestamp("unblocked_at"),
 });
 
-export const defenseActionsTable = mysqlTable("defense_actions", {
-  id:             int("id").primaryKey().autoincrement(),
+export const defenseActionsTable = pgTable("defense_actions", {
+  id:             integer("id").primaryKey().generatedAlwaysAsIdentity(),
   type:           varchar("type", { length: 32 }).notNull(),
   action:         varchar("action", { length: 64 }).notNull(),
   targetIp:       varchar("target_ip", { length: 45 }).notNull(),
@@ -24,8 +24,8 @@ export const defenseActionsTable = mysqlTable("defense_actions", {
   createdAt:      timestamp("created_at").defaultNow().notNull(),
 });
 
-export const firewallRulesTable = mysqlTable("firewall_rules", {
-  id:         int("id").primaryKey().autoincrement(),
+export const firewallRulesTable = pgTable("firewall_rules", {
+  id:         integer("id").primaryKey().generatedAlwaysAsIdentity(),
   chain:      varchar("chain", { length: 16 }).notNull().default("INPUT"),
   action:     varchar("action", { length: 16 }).notNull(),
   protocol:   varchar("protocol", { length: 8 }),

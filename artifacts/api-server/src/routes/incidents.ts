@@ -38,7 +38,7 @@ router.post("/incidents", async (req, res) => {
     responder:   body.responder ?? null,
     status:      "open",
     eventCount:  0,
-  }).$returningId();
+  }).returning();
 
   const [incident] = await db.select().from(incidentsTable).where(eq(incidentsTable.id, row.id));
   res.status(201).json({ ...incident, createdAt: incident.createdAt.toISOString(), updatedAt: incident.updatedAt.toISOString() });

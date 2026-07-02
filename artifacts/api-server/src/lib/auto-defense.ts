@@ -220,7 +220,7 @@ async function executeAutoDefense(rule: DefenseRule, event: IngestEvent) {
     undoCommand:  undoCommand ?? null,
     targetIp:    event.sourceIp,
     status:      "pending",
-  }).$returningId();
+  }).returning();
 
   // Record in blocked_ips for IP-blocking defense types
   if (["block_ip", "null_route", "pfsense_block"].includes(rule.defenseType)) {
@@ -272,7 +272,7 @@ async function suggestManualDefense(rule: DefenseRule, event: IngestEvent) {
     responder:   "admin",
     notes:       `Suggested command (on ${rule.targetVm}):\n${commandText}`,
     eventCount:  1,
-  }).$returningId();
+  }).returning();
 
   const [alertRow] = await db.insert(alertsTable).values({
     message:      `MANUAL ACTION: ${rule.name} — ${event.sourceIp}`.slice(0, 255),
@@ -280,7 +280,7 @@ async function suggestManualDefense(rule: DefenseRule, event: IngestEvent) {
     channel:      "dashboard",
     acknowledged: false,
     eventId:      event.id,
-  }).$returningId();
+  }).returning();
 
   broadcaster.broadcast("alert", { id: alertRow.id, severity: event.severity, manualAction: true });
   broadcaster.broadcast("incident", { id: incRow.id, title: `[ACTION NEEDED] ${rule.name}` });

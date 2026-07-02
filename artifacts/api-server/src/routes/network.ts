@@ -44,7 +44,7 @@ router.post("/network/hosts", async (req, res) => {
     openPorts:   body.data.openPorts   ?? null,
     status:      body.data.status      ?? "online",
     isMonitored: body.data.isMonitored ?? false,
-  }).$returningId();
+  }).returning();
 
   const [created] = await db.select().from(networkHostsTable).where(eq(networkHostsTable.id, row.id));
   res.json({ ...created, lastSeen: created.lastSeen.toISOString(), createdAt: created.createdAt.toISOString() });

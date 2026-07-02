@@ -46,7 +46,7 @@ router.post("/defense/rules", requireAdmin, async (req, res) => {
     description:  body.data.description ?? null,
     actionParams: body.data.actionParams ?? null,
     isActive: true,
-  }).$returningId();
+  }).returning();
 
   const [rule] = await db.select().from(defenseRulesTable).where(eq(defenseRulesTable.id, row.id));
   res.status(201).json({ ...rule, createdAt: rule.createdAt.toISOString() });

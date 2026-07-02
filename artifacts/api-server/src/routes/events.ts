@@ -50,7 +50,7 @@ router.post("/events", async (req, res) => {
     ...body,
     toolUsed: body.toolUsed ?? null,
     status:   "detected",
-  }).$returningId();
+  }).returning();
 
   const [event] = await db.select().from(securityEventsTable).where(eq(securityEventsTable.id, row.id));
   res.status(201).json({ ...event, createdAt: event.createdAt.toISOString() });

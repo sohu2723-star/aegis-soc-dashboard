@@ -54,7 +54,7 @@ router.post("/firewall/rules", async (req, res) => {
     ruleText,
     isActive:   true,
     createdBy:  d.createdBy,
-  }).$returningId();
+  }).returning();
 
   await db.insert(defenseActionsTable).values({
     type:        "manual",

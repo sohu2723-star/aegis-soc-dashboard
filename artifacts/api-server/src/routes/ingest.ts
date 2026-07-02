@@ -46,7 +46,7 @@ function sev(s: string): "critical" | "high" | "medium" | "low" {
 }
 
 async function insertEvent(values: typeof securityEventsTable.$inferInsert) {
-  const [row] = await db.insert(securityEventsTable).values(values).$returningId();
+  const [row] = await db.insert(securityEventsTable).values(values).returning();
   const [event] = await db.select().from(securityEventsTable).where(eq(securityEventsTable.id, row.id));
   const serialized = { ...event, createdAt: event.createdAt.toISOString() };
   broadcaster.broadcast("security_event", serialized);
@@ -69,7 +69,7 @@ async function mkAlert(eventId: number, severity: "critical"|"high", message: st
     message: message.slice(0, 255), severity,
     channel: severity === "critical" ? "telegram" : "dashboard",
     acknowledged: false, eventId,
-  }).$returningId();
+  }).returning();
   broadcaster.broadcast("alert", { id: row.id, severity });
 }
 
