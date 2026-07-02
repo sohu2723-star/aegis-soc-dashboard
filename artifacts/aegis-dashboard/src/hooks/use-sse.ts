@@ -5,6 +5,7 @@ import {
   getGetRecentEventsQueryKey,
   getListAlertsQueryKey,
   getListEventsQueryKey,
+  getGetSystemStatusQueryKey,
 } from "@workspace/api-client-react";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -38,10 +39,23 @@ export function useSSE() {
 
     es.addEventListener("alert", () => {
       queryClient.invalidateQueries({ queryKey: getListAlertsQueryKey({}) });
+      // Also invalidate custom alerts key used in alerts.tsx
+      queryClient.invalidateQueries({ queryKey: ["alerts"] });
     });
 
     es.addEventListener("stats_update", () => {
       queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
+    });
+
+    // Host online/offline status changed — refresh network monitor
+    es.addEventListener("host_status_change", () => {
+      queryClient.invalidateQueries({ queryKey: ["network-hosts"] });
+    });
+
+    // Sensor/service status changed — refresh defense center + system status page
+    es.addEventListener("service_status_change", () => {
+      queryClient.invalidateQueries({ queryKey: ["defense-status"] });
+      queryClient.invalidateQueries({ queryKey: getGetSystemStatusQueryKey() });
     });
 
     es.onerror = () => {

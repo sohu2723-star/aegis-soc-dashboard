@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -57,7 +57,7 @@ function useDefenseStatus() {
       const r = await fetch(`${BASE}/api/defense/status`);
       return r.json();
     },
-    refetchInterval: 8000,
+    refetchInterval: 10000,
   });
 }
 
@@ -86,6 +86,56 @@ const actionIcons: Record<string, React.ReactNode> = {
   rate_limit: <ShieldOff className="w-3.5 h-3.5" />,
 };
 
+/** Animated service status indicator */
+function ServiceCard({
+  label,
+  active,
+  icon,
+  justChanged,
+}: {
+  label: string;
+  active: boolean | undefined;
+  icon: React.ReactNode;
+  justChanged: boolean;
+}) {
+  return (
+    <Card className={`bg-card border-border transition-all duration-700 ${
+      justChanged
+        ? active
+          ? "ring-1 ring-green-500 shadow-[0_0_12px_rgba(34,197,94,0.3)]"
+          : "ring-1 ring-red-500 shadow-[0_0_12px_rgba(239,68,68,0.3)]"
+        : ""
+    }`}>
+      <CardContent className="p-4 flex items-center gap-3">
+        <div className="relative">
+          {icon}
+          {/* Real-time pulse dot */}
+          {active !== undefined && (
+            <span className={`absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full ${
+              active ? "bg-green-400" : "bg-red-500"
+            } ${active ? "animate-ping" : ""}`} />
+          )}
+        </div>
+        <div>
+          <p className="text-xs text-muted-foreground uppercase tracking-wider">{label}</p>
+          {active === undefined ? (
+            <p className="text-sm font-bold text-gray-500">UNKNOWN</p>
+          ) : (
+            <p className={`text-sm font-bold flex items-center gap-1.5 ${active ? "text-green-400" : "text-red-400"}`}>
+              {active ? "ACTIVE" : "DOWN"}
+              {justChanged && (
+                <span className={`text-[10px] px-1 rounded ${active ? "bg-green-900/40 text-green-300" : "bg-red-900/40 text-red-300"}`}>
+                  just changed
+                </span>
+              )}
+            </p>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function Defense() {
   const [blockIp, setBlockIp] = useState("");
   const [blockReason, setBlockReason] = useState("");
@@ -95,6 +145,29 @@ export default function Defense() {
   const { data: blocks = [], refetch: refetchBlocks } = useBlocks();
   const { data: status } = useDefenseStatus();
   const { data: actions = [] } = useDefenseActions();
+
+  // Track which services just changed state for visual flash
+  const prevStatusRef = useRef<{ fail2ban?: boolean; suricata?: boolean }>({});
+  const [changedServices, setChangedServices] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!status) return;
+    const prev = prevStatusRef.current;
+    const changed = new Set<string>();
+    if (prev.fail2ban !== undefined && prev.fail2ban !== status.fail2banActive) changed.add("fail2ban");
+    if (prev.suricata !== undefined && prev.suricata !== status.suricataActive) changed.add("suricata");
+    if (changed.size > 0) {
+      setChangedServices(changed);
+      const svc = Array.from(changed).join(", ");
+      toast({
+        title: "Service status changed",
+        description: `${svc} is now ${changed.has("fail2ban") ? (status.fail2banActive ? "ACTIVE" : "DOWN") : (status.suricataActive ? "ACTIVE" : "DOWN")}`,
+        variant: changed.has("fail2ban") ? (status.fail2banActive ? "default" : "destructive") : "default",
+      });
+      setTimeout(() => setChangedServices(new Set()), 5000);
+    }
+    prevStatusRef.current = { fail2ban: status.fail2banActive, suricata: status.suricataActive };
+  }, [status, toast]);
 
   const activeBlocks = blocks.filter(b => b.isActive);
   const historyBlocks = blocks.filter(b => !b.isActive);
@@ -161,6 +234,7 @@ export default function Defense() {
       </div>
 
       <div className="grid grid-cols-4 gap-4">
+        {/* Auto Defense */}
         <Card className="bg-card border-border">
           <CardContent className="p-4 flex items-center gap-3">
             <Bot className="w-8 h-8 text-cyan-400" />
@@ -172,28 +246,24 @@ export default function Defense() {
             </div>
           </CardContent>
         </Card>
-        <Card className="bg-card border-border">
-          <CardContent className="p-4 flex items-center gap-3">
-            <Shield className="w-8 h-8 text-green-400" />
-            <div>
-              <p className="text-xs text-muted-foreground uppercase tracking-wider">Fail2Ban</p>
-              <p className={`text-sm font-bold ${status?.fail2banActive ? "text-green-400" : "text-red-400"}`}>
-                {status?.fail2banActive ? "ACTIVE" : "DOWN"}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="bg-card border-border">
-          <CardContent className="p-4 flex items-center gap-3">
-            <Shield className="w-8 h-8 text-primary" />
-            <div>
-              <p className="text-xs text-muted-foreground uppercase tracking-wider">Suricata IDS</p>
-              <p className={`text-sm font-bold ${status?.suricataActive ? "text-green-400" : "text-red-400"}`}>
-                {status?.suricataActive ? "ACTIVE" : "DOWN"}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+
+        {/* Fail2ban — real-time with flash */}
+        <ServiceCard
+          label="Fail2Ban"
+          active={status?.fail2banActive}
+          icon={<Shield className="w-8 h-8 text-green-400" />}
+          justChanged={changedServices.has("fail2ban")}
+        />
+
+        {/* Suricata IDS — real-time with flash */}
+        <ServiceCard
+          label="Suricata IDS"
+          active={status?.suricataActive}
+          icon={<Shield className="w-8 h-8 text-primary" />}
+          justChanged={changedServices.has("suricata")}
+        />
+
+        {/* IPs Blocked */}
         <Card className="bg-card border-border">
           <CardContent className="p-4 flex items-center gap-3">
             <Lock className="w-8 h-8 text-red-400" />

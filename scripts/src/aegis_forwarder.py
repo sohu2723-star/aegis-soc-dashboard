@@ -149,6 +149,62 @@ def heartbeat_loop():
             pass
 
 
+def get_service_status(service: str) -> str:
+    """Check if a systemd service is active."""
+    try:
+        result = subprocess.run(
+            ["systemctl", "is-active", service],
+            capture_output=True, text=True, timeout=5,
+        )
+        return "online" if result.stdout.strip() == "active" else "offline"
+    except Exception:
+        return "unknown"
+
+
+# Map: systemd service name → AEGIS component name (must match system_status table)
+SERVICE_MAP = [
+    ("fail2ban",  "Fail2ban",        "perimeter"),
+    ("suricata",  "Suricata IDS/IPS","perimeter"),
+    ("snort",     "Snort IDS",       "perimeter"),
+    ("cowrie",    "Cowrie Honeypot", "perimeter"),
+]
+
+
+def service_health_loop():
+    """
+    Report real service health to AEGIS every 30s.
+    Updates system_status table → triggers SSE service_status_change → Defense Center updates in real time.
+    """
+    print("[SERVICE HEALTH] Monitoring: fail2ban, suricata, snort, cowrie")
+    while True:
+        for svc_name, component, layer in SERVICE_MAP:
+            status = get_service_status(svc_name)
+            ts = datetime.now().strftime("%H:%M:%S")
+            try:
+                r = requests.post(
+                    f"{AEGIS_URL}/system/status",
+                    json={
+                        "component": component,
+                        "layer":     layer,
+                        "status":    status,
+                        "metrics":   json.dumps({
+                            "service":    svc_name,
+                            "checked_at": datetime.now().isoformat(),
+                        }),
+                    },
+                    headers=HEADERS,
+                    timeout=5,
+                )
+                indicator = "✓" if status == "online" else "✗"
+                if r.status_code in (200, 201):
+                    print(f"[{ts}] {indicator} {component}: {status.upper()}")
+                else:
+                    print(f"[{ts}] WARN service_health/{svc_name}: HTTP {r.status_code}")
+            except Exception as e:
+                print(f"[{ts}] ERROR service_health/{svc_name}: {e}")
+        time.sleep(30)
+
+
 def post(endpoint: str, data: dict):
     try:
         r = requests.post(
@@ -421,6 +477,10 @@ if __name__ == "__main__":
     # Start heartbeat to keep host ONLINE every 60s
     hb = threading.Thread(target=heartbeat_loop, daemon=True, name="heartbeat")
     hb.start()
+
+    # Start service health reporter — updates fail2ban/suricata/snort/cowrie status every 30s
+    sh = threading.Thread(target=service_health_loop, daemon=True, name="service_health")
+    sh.start()
 
     if args.mode == "all":
         threads = []

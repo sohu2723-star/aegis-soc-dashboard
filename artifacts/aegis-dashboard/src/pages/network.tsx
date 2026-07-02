@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { RefreshCcw, Wifi, Monitor, Shield, Activity, X, ChevronRight, Terminal, AlertTriangle, Trash2, WifiOff } from "lucide-react";
+import { RefreshCcw, Wifi, Monitor, Shield, Activity, X, ChevronRight, Terminal, AlertTriangle, Trash2, WifiOff, WifiIcon } from "lucide-react";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar } from "recharts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { format } from "date-fns";
+import { format, formatDistanceToNow } from "date-fns";
 
 interface NetworkHost {
   id: number;
@@ -49,7 +49,7 @@ function useNetworkHosts() {
       if (!r.ok) throw new Error("Failed to fetch hosts");
       return r.json();
     },
-    refetchInterval: 10000,
+    refetchInterval: 15000,
   });
 }
 
@@ -97,6 +97,44 @@ const severityBg: Record<string, string> = {
   critical: "bg-red-500/20", high: "bg-orange-500/20", medium: "bg-yellow-500/20", low: "bg-green-500/20",
 };
 
+/** Live "last seen X seconds ago" ticker */
+function LastSeenTicker({ lastSeen, status }: { lastSeen: string; status: string }) {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const secsAgo = Math.floor((Date.now() - new Date(lastSeen).getTime()) / 1000);
+
+  if (status === "offline") {
+    return (
+      <span className="text-gray-500 text-xs font-mono">
+        {formatDistanceToNow(new Date(lastSeen), { addSuffix: true })}
+      </span>
+    );
+  }
+
+  return (
+    <span className={`text-xs font-mono ${secsAgo > 70 ? "text-yellow-400" : "text-green-400/80"}`}>
+      {secsAgo < 5 ? "just now" : `${secsAgo}s ago`}
+    </span>
+  );
+}
+
+/** Online/offline status dot with animated pulse */
+function StatusDot({ status, size = "sm" }: { status: string; size?: "sm" | "lg" }) {
+  const dim = size === "lg" ? "w-2.5 h-2.5" : "w-1.5 h-1.5";
+  if (status === "online") {
+    return (
+      <span className="relative inline-flex">
+        <span className={`${dim} rounded-full bg-green-400 animate-ping absolute opacity-60`} />
+        <span className={`${dim} rounded-full bg-green-400 relative`} />
+      </span>
+    );
+  }
+  return <span className={`${dim} rounded-full bg-gray-500`} />;
+}
 
 function ConnectionGuide({ host }: { host: NetworkHost }) {
   const apiUrl = "https://aegis-api-server-jp3b.onrender.com/api";
@@ -159,8 +197,8 @@ function HostDetailPanel({ host, onClose }: { host: NetworkHost; onClose: () => 
               <Badge variant="outline" className={`text-xs ${roleColors[host.role] ?? roleColors.unknown}`}>
                 {roleLabels[host.role] ?? host.role.toUpperCase()}
               </Badge>
-              <span className={`flex items-center gap-1 text-xs ${host.status === "online" ? "text-green-400" : "text-gray-500"}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${host.status === "online" ? "bg-green-400" : "bg-gray-500"}`} />
+              <span className={`flex items-center gap-1.5 text-xs ${host.status === "online" ? "text-green-400" : "text-gray-500"}`}>
+                <StatusDot status={host.status} />
                 {host.status.toUpperCase()}
               </span>
             </div>
@@ -271,8 +309,26 @@ export default function Network() {
   const { data: hosts = [], isLoading: hostsLoading } = useNetworkHosts();
   const { data: traffic = [] } = useNetworkTraffic();
   const [selectedHost, setSelectedHost] = useState<NetworkHost | null>(null);
-  const [removingId, setRemovingId] = useState<number | null>(null);
+  const [loadingId, setLoadingId] = useState<number | null>(null);
+  const [flashedIds, setFlashedIds] = useState<Set<number>>(new Set());
+  const prevHostsRef = useRef<NetworkHost[]>([]);
   const qc = useQueryClient();
+
+  // Flash row when status changes
+  useEffect(() => {
+    const prev = prevHostsRef.current;
+    if (prev.length === 0) { prevHostsRef.current = hosts; return; }
+    const changed = hosts.filter(h => {
+      const old = prev.find(p => p.id === h.id);
+      return old && old.status !== h.status;
+    });
+    if (changed.length > 0) {
+      const ids = new Set(changed.map(h => h.id));
+      setFlashedIds(ids);
+      setTimeout(() => setFlashedIds(new Set()), 2000);
+    }
+    prevHostsRef.current = hosts;
+  }, [hosts]);
 
   function handleRefresh() {
     qc.invalidateQueries({ queryKey: ["network-hosts"] });
@@ -282,29 +338,40 @@ export default function Network() {
   async function removeHost(e: React.MouseEvent, id: number) {
     e.stopPropagation();
     if (!confirm("Host ကို list ကနေ ဖြုတ်မလား?")) return;
-    setRemovingId(id);
+    setLoadingId(id);
     try {
-      const res = await fetch(`${BASE}/api/network/hosts/${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Delete failed");
+      await fetch(`${BASE}/api/network/hosts/${id}`, { method: "DELETE" });
     } finally {
       qc.invalidateQueries({ queryKey: ["network-hosts"] });
-      setRemovingId(null);
+      setLoadingId(null);
       if (selectedHost?.id === id) setSelectedHost(null);
     }
   }
 
   async function markOffline(e: React.MouseEvent, id: number) {
     e.stopPropagation();
-    setRemovingId(id);
+    setLoadingId(id);
     try {
       await fetch(`${BASE}/api/network/hosts/${id}/offline`, { method: "PATCH" });
     } finally {
       qc.invalidateQueries({ queryKey: ["network-hosts"] });
-      setRemovingId(null);
+      setLoadingId(null);
+    }
+  }
+
+  async function markOnline(e: React.MouseEvent, id: number) {
+    e.stopPropagation();
+    setLoadingId(id);
+    try {
+      await fetch(`${BASE}/api/network/hosts/${id}/online`, { method: "PATCH" });
+    } finally {
+      qc.invalidateQueries({ queryKey: ["network-hosts"] });
+      setLoadingId(null);
     }
   }
 
   const onlineCount    = hosts.filter(h => h.status === "online").length;
+  const offlineCount   = hosts.filter(h => h.status === "offline").length;
   const monitoredCount = hosts.filter(h => h.isMonitored).length;
 
   const chartData = traffic.slice(-12).map(p => ({
@@ -317,7 +384,10 @@ export default function Network() {
   return (
     <div className="space-y-6">
       {selectedHost && (
-        <HostDetailPanel host={selectedHost} onClose={() => setSelectedHost(null)} />
+        <HostDetailPanel
+          host={hosts.find(h => h.id === selectedHost.id) ?? selectedHost}
+          onClose={() => setSelectedHost(null)}
+        />
       )}
 
       <div className="flex items-center justify-between">
@@ -333,10 +403,20 @@ export default function Network() {
       <div className="grid grid-cols-3 gap-4">
         <Card className="bg-card border-border">
           <CardContent className="p-4 flex items-center gap-4">
-            <Monitor className="w-8 h-8 text-cyan-400" />
+            <div className="relative">
+              <Monitor className="w-8 h-8 text-cyan-400" />
+              {onlineCount > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-green-400 animate-ping" />
+              )}
+            </div>
             <div>
               <p className="text-xs text-muted-foreground uppercase tracking-wider">Hosts Online</p>
-              <p className="text-3xl font-bold text-cyan-400">{onlineCount}</p>
+              <p className="text-3xl font-bold text-cyan-400">
+                {onlineCount}
+                {offlineCount > 0 && (
+                  <span className="text-sm text-gray-500 ml-2 font-normal">/ {offlineCount} offline</span>
+                )}
+              </p>
             </div>
           </CardContent>
         </Card>
@@ -420,7 +500,6 @@ python3 /opt/aegis_forwarder.py --mode all`}</pre>
                     <th className="text-left py-2 px-3">OS</th>
                     <th className="text-left py-2 px-3">Open Ports</th>
                     <th className="text-left py-2 px-3">Status</th>
-                    <th className="text-left py-2 px-3">Monitored</th>
                     <th className="text-left py-2 px-3">Last Seen</th>
                     <th className="py-2 px-3" />
                   </tr>
@@ -430,7 +509,13 @@ python3 /opt/aegis_forwarder.py --mode all`}</pre>
                     <tr
                       key={h.id}
                       onClick={() => setSelectedHost(h)}
-                      className="border-b border-border/50 hover:bg-primary/10 transition-colors cursor-pointer group"
+                      className={`border-b border-border/50 hover:bg-primary/10 transition-all cursor-pointer group ${
+                        flashedIds.has(h.id)
+                          ? h.status === "online"
+                            ? "bg-green-500/10"
+                            : "bg-red-500/10"
+                          : ""
+                      }`}
                     >
                       <td className="py-2 px-3 font-mono text-primary">{h.ip}</td>
                       <td className="py-2 px-3 font-mono">{h.hostname}</td>
@@ -442,37 +527,42 @@ python3 /opt/aegis_forwarder.py --mode all`}</pre>
                       <td className="py-2 px-3 text-muted-foreground">{h.os ?? "—"}</td>
                       <td className="py-2 px-3 font-mono text-xs text-muted-foreground">{h.openPorts ?? "—"}</td>
                       <td className="py-2 px-3">
-                        <span className={`flex items-center gap-1.5 text-xs ${h.status === "online" ? "text-green-400" : "text-gray-500"}`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${h.status === "online" ? "bg-green-400" : "bg-gray-500"}`} />
-                          {h.status.toUpperCase()}
+                        <span className={`flex items-center gap-1.5 text-xs font-semibold ${h.status === "online" ? "text-green-400" : "text-gray-400"}`}>
+                          <StatusDot status={h.status} />
+                          {h.status === "online" ? "ONLINE" : "OFFLINE"}
                         </span>
                       </td>
                       <td className="py-2 px-3">
-                        {h.isMonitored
-                          ? <Badge className="bg-primary/20 text-primary border-primary/30 text-xs">ACTIVE</Badge>
-                          : <Badge variant="outline" className="text-xs text-gray-500 border-gray-700">PASSIVE</Badge>}
-                      </td>
-                      <td className="py-2 px-3 text-xs text-muted-foreground">
-                        {format(new Date(h.lastSeen), "MM/dd HH:mm:ss")}
+                        <LastSeenTicker lastSeen={h.lastSeen} status={h.status} />
                       </td>
                       <td className="py-2 px-3" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          {h.status === "online" && (
+                          {h.status === "online" ? (
                             <Button
                               variant="ghost" size="icon"
                               className="h-6 w-6 text-yellow-500 hover:text-yellow-400 hover:bg-yellow-500/10"
-                              title="Disconnect (mark offline)"
-                              disabled={removingId === h.id}
+                              title="Disconnect (mark offline + block on VM)"
+                              disabled={loadingId === h.id}
                               onClick={e => markOffline(e, h.id)}
                             >
                               <WifiOff className="w-3.5 h-3.5" />
+                            </Button>
+                          ) : (
+                            <Button
+                              variant="ghost" size="icon"
+                              className="h-6 w-6 text-green-500 hover:text-green-400 hover:bg-green-500/10"
+                              title="Reconnect (mark online + unblock on VM)"
+                              disabled={loadingId === h.id}
+                              onClick={e => markOnline(e, h.id)}
+                            >
+                              <WifiIcon className="w-3.5 h-3.5" />
                             </Button>
                           )}
                           <Button
                             variant="ghost" size="icon"
                             className="h-6 w-6 text-red-500 hover:text-red-400 hover:bg-red-500/10"
                             title="Remove from list"
-                            disabled={removingId === h.id}
+                            disabled={loadingId === h.id}
                             onClick={e => removeHost(e, h.id)}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -484,6 +574,16 @@ python3 /opt/aegis_forwarder.py --mode all`}</pre>
                   ))}
                 </tbody>
               </table>
+
+              {/* Legend */}
+              <div className="mt-3 flex items-center gap-4 text-[10px] text-muted-foreground border-t border-border/30 pt-2">
+                <span className="flex items-center gap-1.5">
+                  <StatusDot status="online" /> ONLINE — heartbeat active, iptables open
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-gray-500" /> OFFLINE — no heartbeat / manually isolated, iptables DROP queued
+                </span>
+              </div>
             </div>
           )}
         </CardContent>

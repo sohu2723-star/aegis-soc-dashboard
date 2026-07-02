@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { systemStatusTable } from "@workspace/db";
 import { asc, eq } from "drizzle-orm";
+import { broadcaster } from "../lib/broadcaster";
 
 const router = Router();
 
@@ -52,21 +53,44 @@ router.post("/system/status", async (req, res) => {
   const existing = await db.select().from(systemStatusTable);
   const match = existing.find(s => s.component === component);
 
+  let result;
   if (match) {
+    const prevStatus = match.status;
     const [updated] = await db
       .update(systemStatusTable)
       .set({ status, metrics: metrics ?? null, lastCheck: new Date() })
       .where(eq(systemStatusTable.id, match.id))
       .returning();
-    res.json({ ...updated, lastCheck: updated.lastCheck.toISOString() });
+    result = { ...updated, lastCheck: updated.lastCheck.toISOString() };
+
+    // Broadcast only when status actually changed
+    if (prevStatus !== status) {
+      broadcaster.broadcast("service_status_change", {
+        component,
+        status,
+        prevStatus,
+        layer,
+        lastCheck: result.lastCheck,
+      });
+    }
   } else {
     const [row] = await db.insert(systemStatusTable).values({
       component, layer, status,
       description: description ?? component,
       metrics: metrics ?? null,
     }).returning();
-    res.json({ ...row, lastCheck: row.lastCheck.toISOString() });
+    result = { ...row, lastCheck: row.lastCheck.toISOString() };
+
+    broadcaster.broadcast("service_status_change", {
+      component,
+      status,
+      prevStatus: "unknown",
+      layer,
+      lastCheck: result.lastCheck,
+    });
   }
+
+  res.json(result);
 });
 
 export default router;
