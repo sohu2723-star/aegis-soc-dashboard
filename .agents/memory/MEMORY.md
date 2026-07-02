@@ -1,2 +1,3 @@
-- [MySQL migration](mysql-migration.md) — Project uses MySQL (not Postgres); `.returning()` is unavailable, use `.$returningId()` + re-select.
+- [MySQL / TiDB Cloud](mysql-migration.md) — Project uses TiDB Cloud MySQL (not Postgres); `.returning()` unavailable, use `.$returningId()` + re-select.
 - [Auto-defense engine](auto-defense.md) — Full attack→rule→command→agent pipeline; sanitize all IPs/ports before building shell commands; both AEGIS_INGEST_KEY and AEGIS_ADMIN_KEY must be set (no fallback) or server refuses to start.
+- [Project intent](project-intent.md) — Real lab only (no simulation); Replit = code editor only; web UI is monitoring-only; VMs do actual attack/defense.
