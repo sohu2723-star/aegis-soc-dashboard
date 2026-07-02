@@ -8,21 +8,30 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { format } from "date-fns";
-import { FileText, Download, Plus, Search, FileBarChart } from "lucide-react";
+import { FileText, Download, Plus, Search, FileBarChart, Trash2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 export default function Reports() {
   const [isGenerateOpen, setIsGenerateOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [type, setType] = useState("daily");
-  const [formatType, setFormatType] = useState("pdf");
+  const [formatType, setFormatType] = useState("html");
+  const [search, setSearch] = useState("");
+  const [deletingId, setDeletingId] = useState<number | null>(null);
 
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  
+
   const { data: reports, isLoading } = useListReports({ query: { queryKey: getListReportsQueryKey() } });
   const generateReport = useGenerateReport();
+
+  const filtered = reports?.filter(r =>
+    r.title.toLowerCase().includes(search.toLowerCase()) ||
+    r.type.toLowerCase().includes(search.toLowerCase())
+  );
 
   const handleGenerate = (e: React.FormEvent) => {
     e.preventDefault();
@@ -38,6 +47,32 @@ export default function Reports() {
       }
     );
   };
+
+  function handleDownload(id: number, reportTitle: string, reportType: string) {
+    const url = `${BASE}/api/reports/${id}/download`;
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `aegis-report-${id}-${reportType}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    toast({ title: "Downloading", description: `"${reportTitle}" download ကို စတင်နေပြီ။` });
+  }
+
+  async function handleDelete(id: number, reportTitle: string) {
+    if (!confirm(`"${reportTitle}" ကို ဖျက်မလား?`)) return;
+    setDeletingId(id);
+    try {
+      const res = await fetch(`${BASE}/api/reports/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Delete failed");
+      queryClient.invalidateQueries({ queryKey: getListReportsQueryKey() });
+      toast({ title: "Report Deleted", description: `Report ကို ဖျက်ပြီးပြီ။` });
+    } catch {
+      toast({ title: "Error", description: "Delete မအောင်မြင်ဘူး", variant: "destructive" });
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   return (
     <div className="space-y-6 h-full flex flex-col">
@@ -84,8 +119,8 @@ export default function Reports() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="pdf">PDF Document</SelectItem>
                       <SelectItem value="html">HTML Report</SelectItem>
+                      <SelectItem value="pdf">PDF (HTML)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -103,25 +138,29 @@ export default function Reports() {
       <div className="flex gap-4 items-center bg-card p-4 border border-border rounded-lg">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input 
-            placeholder="Search reports..." 
+          <Input
+            placeholder="Search reports..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
             className="pl-9 bg-background border-border"
           />
         </div>
+        <span className="text-xs text-muted-foreground">{filtered?.length ?? 0} reports</span>
       </div>
 
       {isLoading ? (
         <div className="text-center py-12 text-muted-foreground border border-border rounded-lg bg-card border-dashed">
           Loading report history...
         </div>
-      ) : reports?.length === 0 ? (
+      ) : filtered?.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground border border-border rounded-lg bg-card border-dashed flex flex-col items-center">
           <FileBarChart className="h-8 w-8 mb-4 text-muted-foreground/50" />
           <p>No reports generated yet.</p>
+          <p className="text-xs mt-1 text-muted-foreground/60">Click "Generate Report" to create your first report.</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {reports?.map((report) => (
+          {filtered?.map((report) => (
             <Card key={report.id} className="bg-card border-border hover:border-primary/50 transition-colors group">
               <CardHeader className="pb-3 border-b border-border/50">
                 <div className="flex justify-between items-start mb-2">
@@ -141,7 +180,7 @@ export default function Reports() {
                 <p className="text-sm text-muted-foreground line-clamp-2">
                   {report.summary}
                 </p>
-                
+
                 <div className="grid grid-cols-2 gap-2 py-2 border-y border-border/50">
                   <div className="text-center">
                     <div className="text-xs uppercase text-muted-foreground tracking-wider mb-1">Events</div>
@@ -152,11 +191,27 @@ export default function Reports() {
                     <div className="font-mono text-lg font-bold text-foreground">{report.incidentsCount}</div>
                   </div>
                 </div>
-                
-                <Button variant="outline" className="w-full border-border hover:bg-primary/10 hover:text-primary hover:border-primary/50">
-                  <Download className="w-4 h-4 mr-2" />
-                  Download
-                </Button>
+
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    className="flex-1 border-border hover:bg-primary/10 hover:text-primary hover:border-primary/50"
+                    onClick={() => handleDownload(report.id, report.title, report.type)}
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    Download
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="border-border text-red-500 hover:text-red-400 hover:bg-red-500/10 hover:border-red-500/30"
+                    disabled={deletingId === report.id}
+                    onClick={() => handleDelete(report.id, report.title)}
+                    title="Delete report"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           ))}

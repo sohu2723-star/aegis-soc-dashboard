@@ -1,38 +1,100 @@
 import { useGetSystemStatus, getGetSystemStatusQueryKey } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Server, Activity, AlertTriangle, CheckCircle, HelpCircle, Network, HardDrive, Shield } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Server, Activity, AlertTriangle, CheckCircle, HelpCircle, Network, HardDrive, Shield, RefreshCcw } from "lucide-react";
 import { format } from "date-fns";
+import { useQueryClient } from "@tanstack/react-query";
 
 export default function SystemStatus() {
-  const { data: systems, isLoading } = useGetSystemStatus({ query: { queryKey: getGetSystemStatusQueryKey() } });
+  const qc = useQueryClient();
+  const { data: systems, isLoading } = useGetSystemStatus({ query: { queryKey: getGetSystemStatusQueryKey(), refetchInterval: 15000 } });
+
+  function handleRefresh() {
+    qc.invalidateQueries({ queryKey: getGetSystemStatusQueryKey() });
+  }
 
   const getStatusIcon = (status: string) => {
     switch (status) {
-      case 'online': return <CheckCircle className="h-5 w-5 text-green-500" />;
+      case 'online':  return <CheckCircle className="h-5 w-5 text-green-500" />;
       case 'offline': return <AlertTriangle className="h-5 w-5 text-destructive" />;
       case 'warning': return <Activity className="h-5 w-5 text-yellow-500" />;
-      default: return <HelpCircle className="h-5 w-5 text-muted-foreground" />;
+      default:        return <HelpCircle className="h-5 w-5 text-muted-foreground" />;
     }
   };
 
   const getLayerIcon = (layer: string) => {
     switch (layer) {
       case 'perimeter': return <Network className="h-4 w-4 text-primary" />;
-      case 'brain': return <Server className="h-4 w-4 text-primary" />;
-      case 'output': return <HardDrive className="h-4 w-4 text-primary" />;
-      case 'attacker': return <Shield className="h-4 w-4 text-destructive" />;
-      default: return <Server className="h-4 w-4 text-primary" />;
+      case 'brain':     return <Server className="h-4 w-4 text-primary" />;
+      case 'output':    return <HardDrive className="h-4 w-4 text-primary" />;
+      case 'attacker':  return <Shield className="h-4 w-4 text-destructive" />;
+      default:          return <Server className="h-4 w-4 text-primary" />;
     }
+  };
+
+  const layerLabels: Record<string, string> = {
+    perimeter: "Perimeter Defense",
+    brain:     "AEGIS Core",
+    output:    "Dashboard",
+    attacker:  "Red Team",
   };
 
   const layers = ['perimeter', 'brain', 'output', 'attacker'];
 
+  const onlineCount  = systems?.filter(s => s.status === "online").length  ?? 0;
+  const offlineCount = systems?.filter(s => s.status === "offline").length ?? 0;
+  const unknownCount = systems?.filter(s => s.status === "unknown").length ?? 0;
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-primary uppercase">System Status</h1>
-        <p className="text-sm text-muted-foreground">Health and metrics for all AEGIS architecture components.</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-primary uppercase">System Status</h1>
+          <p className="text-sm text-muted-foreground">Health and metrics for all AEGIS architecture components.</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={handleRefresh} className="border-border">
+          <RefreshCcw className="w-4 h-4 mr-2" /> Refresh
+        </Button>
+      </div>
+
+      {/* Summary bar */}
+      {!isLoading && systems && (
+        <div className="grid grid-cols-3 gap-4">
+          <Card className="bg-card border-border">
+            <CardContent className="p-4 flex items-center gap-3">
+              <CheckCircle className="w-7 h-7 text-green-500" />
+              <div>
+                <p className="text-xs text-muted-foreground uppercase tracking-wider">Online</p>
+                <p className="text-2xl font-bold text-green-500">{onlineCount}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="bg-card border-border">
+            <CardContent className="p-4 flex items-center gap-3">
+              <AlertTriangle className="w-7 h-7 text-destructive" />
+              <div>
+                <p className="text-xs text-muted-foreground uppercase tracking-wider">Offline</p>
+                <p className="text-2xl font-bold text-destructive">{offlineCount}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="bg-card border-border">
+            <CardContent className="p-4 flex items-center gap-3">
+              <HelpCircle className="w-7 h-7 text-muted-foreground" />
+              <div>
+                <p className="text-xs text-muted-foreground uppercase tracking-wider">Unknown</p>
+                <p className="text-2xl font-bold text-muted-foreground">{unknownCount}</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      <div className="bg-card border border-border rounded-lg p-4 text-xs text-muted-foreground space-y-1">
+        <p className="font-bold text-primary uppercase tracking-wider text-[10px]">ℹ️ System Status ဆိုတာ ဘာလဲ?</p>
+        <p>Ubuntu VM ပေါ်မှာ run နေတဲ့ Suricata, Snort, Fail2ban, Cowrie စတဲ့ security sensors တွေရဲ့ health ကို ဒီမှာ မြင်ရမည်။</p>
+        <p>Status က <span className="text-yellow-400 font-mono">unknown</span> ဖြစ်နေတာ = forwarder မှ heartbeat မပို့ရသေးဘူး။ Forwarder run ပြီး VM ချိတ်ဆက်လိုက်တာနဲ့ status update ဖြစ်မည်။</p>
       </div>
 
       {isLoading ? (
@@ -49,13 +111,13 @@ export default function SystemStatus() {
               <div key={layer} className="space-y-4">
                 <h2 className="text-lg font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-2 border-b border-border pb-2">
                   {getLayerIcon(layer)}
-                  {layer} Layer
+                  {layerLabels[layer] ?? layer} Layer
                 </h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {layerSystems.map((sys) => (
                     <Card key={sys.id} className="bg-card border-border overflow-hidden">
                       <div className={`h-1 w-full ${
-                        sys.status === 'online' ? 'bg-green-500' :
+                        sys.status === 'online'  ? 'bg-green-500' :
                         sys.status === 'offline' ? 'bg-destructive' :
                         sys.status === 'warning' ? 'bg-yellow-500' : 'bg-muted'
                       }`} />
@@ -72,14 +134,15 @@ export default function SystemStatus() {
                             <span className="text-muted-foreground uppercase text-[10px] tracking-wider">Status</span>
                             <Badge variant="outline" className={`
                               uppercase text-[10px] tracking-wider
-                              ${sys.status === 'online' ? 'border-green-500 text-green-500' : ''}
+                              ${sys.status === 'online'  ? 'border-green-500 text-green-500' : ''}
                               ${sys.status === 'offline' ? 'border-destructive text-destructive' : ''}
                               ${sys.status === 'warning' ? 'border-yellow-500 text-yellow-500' : ''}
+                              ${sys.status === 'unknown' ? 'border-muted-foreground text-muted-foreground' : ''}
                             `}>
                               {sys.status}
                             </Badge>
                           </div>
-                          
+
                           {sys.metrics && (
                             <div className="bg-background rounded p-2 border border-border/50">
                               <pre className="text-[10px] font-mono text-primary/80 whitespace-pre-wrap">
@@ -87,7 +150,7 @@ export default function SystemStatus() {
                               </pre>
                             </div>
                           )}
-                          
+
                           <div className="text-[10px] text-muted-foreground font-mono flex justify-between">
                             <span>LAST CHECK:</span>
                             <span>{format(new Date(sys.lastCheck), "HH:mm:ss")}</span>

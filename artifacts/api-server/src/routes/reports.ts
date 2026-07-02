@@ -42,4 +42,109 @@ router.post("/reports/generate", async (req, res) => {
   res.status(201).json({ ...report, generatedAt: report.generatedAt.toISOString() });
 });
 
+router.get("/reports/:id/download", async (req, res) => {
+  const id = Number(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const [report] = await db.select().from(reportsTable).where(eq(reportsTable.id, id));
+  if (!report) { res.status(404).json({ error: "Report not found" }); return; }
+
+  const recentEvents = await db.select().from(securityEventsTable)
+    .orderBy(desc(securityEventsTable.createdAt)).limit(50);
+  const recentIncidents = await db.select().from(incidentsTable)
+    .orderBy(desc(incidentsTable.createdAt)).limit(20);
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>${report.title}</title>
+<style>
+  body { font-family: monospace; background: #0a0f1a; color: #e5e7eb; margin: 0; padding: 32px; }
+  h1 { color: #22d3ee; text-transform: uppercase; letter-spacing: 4px; border-bottom: 1px solid #1f2937; padding-bottom: 12px; }
+  h2 { color: #94a3b8; text-transform: uppercase; letter-spacing: 2px; font-size: 14px; margin-top: 32px; }
+  .meta { color: #6b7280; font-size: 12px; margin-bottom: 24px; }
+  .summary { background: #111827; border: 1px solid #1f2937; border-radius: 6px; padding: 16px; margin: 16px 0; line-height: 1.6; }
+  .stats { display: flex; gap: 24px; margin: 16px 0; }
+  .stat { background: #111827; border: 1px solid #1f2937; border-radius: 6px; padding: 16px 24px; text-align: center; }
+  .stat-num { font-size: 36px; font-weight: bold; color: #22d3ee; }
+  .stat-label { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+  th { text-align: left; padding: 8px 12px; color: #6b7280; border-bottom: 1px solid #1f2937; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; }
+  td { padding: 8px 12px; border-bottom: 1px solid #1f2937; }
+  .critical { color: #f87171; } .high { color: #fb923c; } .medium { color: #fbbf24; } .low { color: #4ade80; }
+  .tag { display: inline-block; background: #1f2937; border: 1px solid #374151; border-radius: 4px; padding: 2px 8px; font-size: 10px; }
+  footer { margin-top: 48px; color: #374151; font-size: 11px; border-top: 1px solid #1f2937; padding-top: 16px; }
+</style>
+</head>
+<body>
+<h1>⚡ AEGIS SOC — ${report.title}</h1>
+<div class="meta">
+  Generated: ${new Date(report.generatedAt).toISOString()} &nbsp;|&nbsp;
+  Type: ${report.type.toUpperCase()} &nbsp;|&nbsp;
+  Format: ${report.format.toUpperCase()} &nbsp;|&nbsp;
+  Report ID: #${report.id}
+</div>
+
+<div class="summary">${report.summary}</div>
+
+<div class="stats">
+  <div class="stat">
+    <div class="stat-num">${report.eventsCount}</div>
+    <div class="stat-label">Security Events</div>
+  </div>
+  <div class="stat">
+    <div class="stat-num">${report.incidentsCount}</div>
+    <div class="stat-label">Incidents</div>
+  </div>
+</div>
+
+${recentEvents.length > 0 ? `
+<h2>Recent Security Events (last 50)</h2>
+<table>
+  <tr><th>Time</th><th>Type</th><th>Subtype</th><th>Severity</th><th>Source IP</th><th>Target</th><th>Status</th></tr>
+  ${recentEvents.map(e => `
+  <tr>
+    <td>${new Date(e.createdAt).toISOString().slice(0, 19).replace("T", " ")}</td>
+    <td class="tag">${e.type}</td>
+    <td>${e.subtype}</td>
+    <td class="${e.severity}">${e.severity.toUpperCase()}</td>
+    <td style="color:#22d3ee;font-family:monospace">${e.sourceIp}</td>
+    <td style="font-family:monospace">${e.targetHost}</td>
+    <td>${e.status}</td>
+  </tr>`).join("")}
+</table>` : "<h2>Recent Security Events</h2><p style='color:#6b7280'>No events recorded in this period.</p>"}
+
+${recentIncidents.length > 0 ? `
+<h2>Incidents (last 20)</h2>
+<table>
+  <tr><th>ID</th><th>Title</th><th>Severity</th><th>Status</th><th>Responder</th><th>Events</th><th>Created</th></tr>
+  ${recentIncidents.map(i => `
+  <tr>
+    <td style="font-family:monospace;color:#6b7280">INC-${String(i.id).padStart(4,"0")}</td>
+    <td>${i.title}</td>
+    <td class="${i.severity}">${i.severity.toUpperCase()}</td>
+    <td>${i.status}</td>
+    <td>${i.responder ?? "—"}</td>
+    <td>${i.eventCount}</td>
+    <td>${new Date(i.createdAt).toISOString().slice(0, 16).replace("T", " ")}</td>
+  </tr>`).join("")}
+</table>` : "<h2>Incidents</h2><p style='color:#6b7280'>No incidents recorded in this period.</p>"}
+
+<footer>AEGIS Tactical SOC — Confidential Security Report — Generated ${new Date().toUTCString()}</footer>
+</body>
+</html>`;
+
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="aegis-report-${report.id}-${report.type}.html"`);
+  res.send(html);
+});
+
+router.delete("/reports/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  await db.delete(reportsTable).where(eq(reportsTable.id, id));
+  res.json({ success: true });
+});
+
 export default router;

@@ -152,7 +152,6 @@ function HostDetailPanel({ host, onClose }: { host: NetworkHost; onClose: () => 
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
       <div className="relative w-full max-w-lg bg-background border-l border-border flex flex-col overflow-hidden">
-        {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-border bg-card">
           <div>
             <div className="flex items-center gap-2">
@@ -173,7 +172,6 @@ function HostDetailPanel({ host, onClose }: { host: NetworkHost; onClose: () => 
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-5">
-          {/* Device Info */}
           <div className="grid grid-cols-2 gap-3 text-xs">
             {[
               { label: "MAC", value: host.mac ?? "—" },
@@ -188,12 +186,10 @@ function HostDetailPanel({ host, onClose }: { host: NetworkHost; onClose: () => 
             ))}
           </div>
 
-          {/* Attack Summary */}
           {isLoading ? (
             <div className="text-muted-foreground text-xs text-center py-4">Loading attack data…</div>
           ) : eventsData && eventsData.totalEvents > 0 ? (
             <>
-              {/* Severity counts */}
               <div>
                 <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2 font-bold">Attack Severity</p>
                 <div className="grid grid-cols-4 gap-2">
@@ -206,7 +202,6 @@ function HostDetailPanel({ host, onClose }: { host: NetworkHost; onClose: () => 
                 </div>
               </div>
 
-              {/* Attack types bar chart */}
               {eventsData.byType.length > 0 && (
                 <div>
                   <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2 font-bold">
@@ -223,7 +218,6 @@ function HostDetailPanel({ host, onClose }: { host: NetworkHost; onClose: () => 
                 </div>
               )}
 
-              {/* Recent events */}
               <div>
                 <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2 font-bold">Recent Events</p>
                 <div className="space-y-1.5 max-h-64 overflow-y-auto">
@@ -261,7 +255,6 @@ function HostDetailPanel({ host, onClose }: { host: NetworkHost; onClose: () => 
             </div>
           )}
 
-          {/* Connection guide */}
           <div className="border-t border-border/50 pt-4">
             <p className="text-xs uppercase tracking-wider text-muted-foreground mb-3 font-bold flex items-center gap-2">
               <Terminal className="w-3.5 h-3.5" /> How to Connect This Device
@@ -275,28 +268,40 @@ function HostDetailPanel({ host, onClose }: { host: NetworkHost; onClose: () => 
 }
 
 export default function Network() {
-  const { data: hosts = [], isLoading: hostsLoading, refetch } = useNetworkHosts();
+  const { data: hosts = [], isLoading: hostsLoading } = useNetworkHosts();
   const { data: traffic = [] } = useNetworkTraffic();
   const [selectedHost, setSelectedHost] = useState<NetworkHost | null>(null);
   const [removingId, setRemovingId] = useState<number | null>(null);
   const qc = useQueryClient();
 
+  function handleRefresh() {
+    qc.invalidateQueries({ queryKey: ["network-hosts"] });
+    qc.invalidateQueries({ queryKey: ["network-traffic"] });
+  }
+
   async function removeHost(e: React.MouseEvent, id: number) {
     e.stopPropagation();
     if (!confirm("Host ကို list ကနေ ဖြုတ်မလား?")) return;
     setRemovingId(id);
-    await fetch(`/api/network/hosts/${id}`, { method: "DELETE" });
-    qc.invalidateQueries({ queryKey: ["network-hosts"] });
-    setRemovingId(null);
-    if (selectedHost?.id === id) setSelectedHost(null);
+    try {
+      const res = await fetch(`${BASE}/api/network/hosts/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Delete failed");
+    } finally {
+      qc.invalidateQueries({ queryKey: ["network-hosts"] });
+      setRemovingId(null);
+      if (selectedHost?.id === id) setSelectedHost(null);
+    }
   }
 
   async function markOffline(e: React.MouseEvent, id: number) {
     e.stopPropagation();
     setRemovingId(id);
-    await fetch(`/api/network/hosts/${id}/offline`, { method: "PATCH" });
-    qc.invalidateQueries({ queryKey: ["network-hosts"] });
-    setRemovingId(null);
+    try {
+      await fetch(`${BASE}/api/network/hosts/${id}/offline`, { method: "PATCH" });
+    } finally {
+      qc.invalidateQueries({ queryKey: ["network-hosts"] });
+      setRemovingId(null);
+    }
   }
 
   const onlineCount    = hosts.filter(h => h.status === "online").length;
@@ -320,7 +325,7 @@ export default function Network() {
           <h1 className="text-2xl font-bold tracking-tight text-primary uppercase">Network Monitor</h1>
           <p className="text-sm text-muted-foreground">Real-time network topology and traffic analysis.</p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()} className="border-border">
+        <Button variant="outline" size="sm" onClick={handleRefresh} className="border-border">
           <RefreshCcw className="w-4 h-4 mr-2" /> Refresh
         </Button>
       </div>

@@ -63,4 +63,11 @@ router.patch("/incidents/:id", async (req, res) => {
   res.json({ ...incident, createdAt: incident.createdAt.toISOString(), updatedAt: incident.updatedAt.toISOString() });
 });
 
+router.delete("/incidents/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  await db.delete(incidentsTable).where(eq(incidentsTable.id, id));
+  res.json({ success: true });
+});
+
 export default router;

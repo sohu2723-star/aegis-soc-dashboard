@@ -10,9 +10,11 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { format } from "date-fns";
-import { Search, Plus, ShieldAlert, FileText, ArrowRight } from "lucide-react";
+import { Search, Plus, ArrowRight, Trash2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 export default function Incidents() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -20,12 +22,19 @@ export default function Incidents() {
   const [severity, setSeverity] = useState("medium");
   const [description, setDescription] = useState("");
   const [responder, setResponder] = useState("");
+  const [search, setSearch] = useState("");
+  const [deletingId, setDeletingId] = useState<number | null>(null);
 
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  
+
   const { data: incidents, isLoading } = useListIncidents({ query: { queryKey: getListIncidentsQueryKey() } });
   const createIncident = useCreateIncident();
+
+  const filtered = incidents?.filter(i =>
+    i.title.toLowerCase().includes(search.toLowerCase()) ||
+    (i.responder ?? "").toLowerCase().includes(search.toLowerCase())
+  );
 
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,6 +52,21 @@ export default function Incidents() {
       }
     );
   };
+
+  async function handleDelete(id: number, incidentTitle: string) {
+    if (!confirm(`"${incidentTitle}" ကို ဖျက်မလား?`)) return;
+    setDeletingId(id);
+    try {
+      const res = await fetch(`${BASE}/api/incidents/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Delete failed");
+      queryClient.invalidateQueries({ queryKey: getListIncidentsQueryKey() });
+      toast({ title: "Incident Deleted", description: `INC-${String(id).padStart(4,"0")} ကို ဖျက်ပြီးပြီ။` });
+    } catch {
+      toast({ title: "Error", description: "Delete မအောင်မြင်ဘူး", variant: "destructive" });
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   return (
     <div className="space-y-6 h-full flex flex-col">
@@ -104,11 +128,14 @@ export default function Incidents() {
       <div className="flex gap-4 items-center bg-card p-4 border border-border rounded-lg">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input 
-            placeholder="Search incidents..." 
+          <Input
+            placeholder="Search incidents..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
             className="pl-9 bg-background border-border"
           />
         </div>
+        <span className="text-xs text-muted-foreground">{filtered?.length ?? 0} incidents</span>
       </div>
 
       <div className="flex-1 overflow-auto border border-border rounded-lg bg-card">
@@ -122,7 +149,7 @@ export default function Incidents() {
               <TableHead>Responder</TableHead>
               <TableHead>Events</TableHead>
               <TableHead className="w-[180px]">Updated</TableHead>
-              <TableHead className="w-[80px]"></TableHead>
+              <TableHead className="w-[100px]"></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -132,13 +159,13 @@ export default function Incidents() {
                   Loading incidents...
                 </TableCell>
               </TableRow>
-            ) : incidents?.length === 0 ? (
+            ) : filtered?.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                  No active incidents.
+                  No incidents found.
                 </TableCell>
               </TableRow>
-            ) : incidents?.map((incident) => (
+            ) : filtered?.map((incident) => (
               <TableRow key={incident.id} className="border-border hover:bg-muted/20">
                 <TableCell className="font-mono text-xs text-muted-foreground">
                   INC-{incident.id.toString().padStart(4, '0')}
@@ -172,11 +199,22 @@ export default function Incidents() {
                   {format(new Date(incident.updatedAt), "yyyy-MM-dd HH:mm")}
                 </TableCell>
                 <TableCell>
-                  <Button variant="ghost" size="icon" asChild className="h-8 w-8 text-primary hover:text-primary hover:bg-primary/10">
-                    <Link href={`/incidents/${incident.id}`}>
-                      <ArrowRight className="h-4 w-4" />
-                    </Link>
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button variant="ghost" size="icon" asChild className="h-8 w-8 text-primary hover:text-primary hover:bg-primary/10">
+                      <Link href={`/incidents/${incident.id}`}>
+                        <ArrowRight className="h-4 w-4" />
+                      </Link>
+                    </Button>
+                    <Button
+                      variant="ghost" size="icon"
+                      className="h-8 w-8 text-red-500 hover:text-red-400 hover:bg-red-500/10"
+                      disabled={deletingId === incident.id}
+                      onClick={() => handleDelete(incident.id, incident.title)}
+                      title="Delete incident"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
