@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db, networkHostsTable } from "@workspace/db";
-import { eq, desc } from "drizzle-orm";
+import { securityEventsTable } from "@workspace/db";
+import { eq, desc, or } from "drizzle-orm";
 import { z } from "zod";
 
 const router = Router();
@@ -48,6 +49,41 @@ router.post("/network/hosts", async (req, res) => {
 
   const [created] = await db.select().from(networkHostsTable).where(eq(networkHostsTable.id, row.id));
   res.json({ ...created, lastSeen: created.lastSeen.toISOString(), createdAt: created.createdAt.toISOString() });
+});
+
+router.get("/network/hosts/:ip/events", async (req, res) => {
+  const ip = req.params.ip;
+  const limit = Math.min(Number(req.query.limit) || 100, 500);
+
+  const events = await db
+    .select().from(securityEventsTable)
+    .where(or(
+      eq(securityEventsTable.sourceIp, ip),
+      eq(securityEventsTable.targetHost, ip),
+    ))
+    .orderBy(desc(securityEventsTable.createdAt))
+    .limit(limit);
+
+  const typeCounts: Record<string, number> = {};
+  const bySeverity = { critical: 0, high: 0, medium: 0, low: 0 };
+
+  for (const e of events) {
+    typeCounts[e.type] = (typeCounts[e.type] ?? 0) + 1;
+    const sev = e.severity as keyof typeof bySeverity;
+    if (sev in bySeverity) bySeverity[sev]++;
+  }
+
+  const byType = Object.entries(typeCounts)
+    .map(([type, count]) => ({ type, count }))
+    .sort((a, b) => b.count - a.count);
+
+  res.json({
+    ip,
+    totalEvents: events.length,
+    byType,
+    bySeverity,
+    recentEvents: events.slice(0, 20).map(e => ({ ...e, createdAt: e.createdAt.toISOString() })),
+  });
 });
 
 router.get("/network/traffic", async (_req, res) => {
