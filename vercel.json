@@ -3,5 +3,11 @@
   "outputDirectory": "artifacts/aegis-dashboard/dist/public",
   "installCommand": "pnpm install",
   "framework": null,
-  "nodejs": "20.x"
+  "nodejs": "20.x",
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://aegis-api-server.onrender.com/api/:path*"
+    }
+  ]
 }
