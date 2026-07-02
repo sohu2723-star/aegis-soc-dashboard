@@ -1,6 +1,6 @@
 # AEGIS API Reference
 
-Base URL: `https://YOUR-APP.replit.app/api`
+Base URL: `https://aegis-api-server.onrender.com/api`
 
 ---
 
@@ -8,7 +8,7 @@ Base URL: `https://YOUR-APP.replit.app/api`
 
 Ingest endpoints require the `X-AEGIS-Key` header:
 ```
-X-AEGIS-Key: aegis-demo-key-change-me
+X-AEGIS-Key: your-aegis-ingest-key
 ```
 
 Set the key via environment variable: `AEGIS_INGEST_KEY`
