@@ -4,20 +4,55 @@ import { Activity, ShieldAlert, Siren, Server } from "lucide-react";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, BarChart, Bar, CartesianGrid } from "recharts";
 import { format } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 export default function Dashboard() {
-  const { data: summary, isLoading: isLoadingSummary } = useGetDashboardSummary({
+  const queryClient = useQueryClient();
+  const { data: summary, isLoading: isLoadingSummary, isError: isSummaryError } = useGetDashboardSummary({
     query: { queryKey: getGetDashboardSummaryQueryKey(), refetchInterval: 8000 },
   });
   const { data: recentEvents, isLoading: isLoadingEvents } = useGetRecentEvents({
     query: { queryKey: getGetRecentEventsQueryKey(), refetchInterval: 5000 },
   });
 
-  if (isLoadingSummary) {
+  const [slowLoad, setSlowLoad] = useState(false);
+
+  useEffect(() => {
+    if (!isLoadingSummary) { setSlowLoad(false); return; }
+    const t = setTimeout(() => setSlowLoad(true), 12000);
+    return () => clearTimeout(t);
+  }, [isLoadingSummary]);
+
+  if (isLoadingSummary && !slowLoad && !isSummaryError) {
     return (
       <div className="space-y-4">
         <Skeleton className="h-32 w-full bg-card" />
         <Skeleton className="h-96 w-full bg-card" />
+      </div>
+    );
+  }
+
+  if (isSummaryError || (isLoadingSummary && slowLoad)) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[60vh] gap-6 text-center px-4">
+        <div className="text-5xl">🔄</div>
+        <div>
+          <h2 className="text-lg font-bold text-primary uppercase tracking-wider mb-1">API Server Warming Up</h2>
+          <p className="text-sm text-muted-foreground max-w-sm">
+            Render free tier က idle ဖြစ်ရင် sleep ဝင်တယ်။ ပြန်ပြည့် wake ဖို့ ~50 seconds ကြာနိုင်တယ်။
+          </p>
+          <p className="text-xs text-muted-foreground/60 mt-1 font-mono">Connecting to aegis-api-server.onrender.com…</p>
+        </div>
+        <button
+          onClick={() => {
+            setSlowLoad(false);
+            queryClient.invalidateQueries();
+          }}
+          className="px-4 py-2 text-xs font-mono border border-primary/40 text-primary rounded hover:bg-primary/10 transition-colors uppercase tracking-wider"
+        >
+          ↺ Retry Now
+        </button>
       </div>
     );
   }
