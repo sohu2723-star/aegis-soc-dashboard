@@ -1,6 +1,72 @@
 # AEGIS SOC Dashboard
 
+> **⚠️ CRITICAL RULES FOR ALL AGENTS — READ FIRST**
+>
+> 1. **NEVER use Replit URLs** (`*.replit.app`, `*.repl.co`) anywhere in source code, documentation, or configuration. Replit is used for **code editing only**.
+> 2. **API server URL** is `https://aegis-api-server.onrender.com` (Render free tier, Singapore region).
+> 3. **Frontend URL** is the Vercel deployment URL (e.g. `https://aegis-soc-dashboard.vercel.app`).
+> 4. **Database** is **Supabase PostgreSQL** — env var is `SUPABASE_DB_URL` (pooler URL, port 6543). NOT TiDB/MySQL. The old `MYSQL_URL` reference is stale and wrong.
+> 5. **No simulated/mock data** — only real events from real lab VMs.
+> 6. Both `AEGIS_INGEST_KEY` and `AEGIS_ADMIN_KEY` **must** be set or the API server refuses to start.
+> 7. `.returning()` does **not** work on TiDB/MySQL but does work on Supabase PostgreSQL.
+> 8. Any URL in `setup.tsx` forwarder examples must use the Render API URL, not Replit.
+
+---
+
 A real-time Security Operations Center (SOC) dashboard that receives events from a real lab environment and displays them for monitoring. The web UI is **monitoring-only** — actual attacks and defenses happen on real VMs.
+
+## Deployment Architecture
+
+```
+[Kali Linux]  ──attack──►  [Ubuntu VM]
+                             │  Snort / Suricata / Fail2ban / Cowrie
+                             │  aegis_forwarder.py
+                             ▼
+                    [Render — aegis-api-server]
+                    https://aegis-api-server.onrender.com
+                             │  Express 5 + Drizzle ORM
+                             │  Supabase PostgreSQL (SUPABASE_DB_URL)
+                             │  SSE /api/stream
+                             ▼
+                    [Vercel — aegis-dashboard]
+                    https://<your-vercel-app>.vercel.app
+                    (rewrites /api/* → Render via vercel.json)
+```
+
+### How Vercel + Render fit together
+
+- **Vercel** hosts the React frontend (static build). All `/api/*` requests are transparently proxied to Render via `vercel.json` rewrites — no CORS issues, no extra env vars needed on Vercel.
+- **Render** runs the Express API server (`artifacts/api-server`). It connects to Supabase PostgreSQL. It receives ingest events from Ubuntu VM sensors and broadcasts them via SSE.
+- **Supabase** provides the PostgreSQL database. Use the **pooler connection string** (port 6543, session mode) as `SUPABASE_DB_URL`.
+
+### Required Environment Variables
+
+#### On Render (aegis-api-server):
+| Variable | Description |
+|---|---|
+| `SUPABASE_DB_URL` | Supabase → Settings → Database → Connection string → URI (port **6543** pooler) |
+| `AEGIS_INGEST_KEY` | Secret key Ubuntu VMs send via `X-AEGIS-Key` header to authenticate ingest |
+| `AEGIS_ADMIN_KEY` | Secret key for privileged admin endpoints (`X-AEGIS-Admin-Key` header) |
+| `PORT` | Set to `3000` (already in render.yaml) |
+| `NODE_ENV` | Set to `production` (already in render.yaml) |
+
+#### On Vercel (aegis-dashboard):
+No extra env vars required — all API calls proxy through vercel.json rewrites to Render.
+
+### Why the Render Deploy Fails
+
+The Render API server crashes at startup with:
+> `SUPABASE_DB_URL must be set.`
+
+**Fix**: Go to Render Dashboard → aegis-api-server → Environment → add `SUPABASE_DB_URL` with the Supabase pooler connection string. Also add `AEGIS_INGEST_KEY` and `AEGIS_ADMIN_KEY`. Then trigger a manual deploy.
+
+### Why the Vercel Frontend Shows 404 / Blank Content
+
+The sidebar loads (static HTML/JS) but page content is empty because all API calls fail — the Render API server is down. Fixing the Render deploy (above) fixes the frontend content too.
+
+### Slow Cold Start on Render Free Tier
+
+Render free tier spins down after 15 minutes of inactivity. First request after spindown takes ~50 seconds. This is a Render limitation, not a code bug. Upgrade Render to a paid plan to eliminate cold starts.
 
 ## Real Lab Architecture
 
@@ -32,28 +98,29 @@ A real-time Security Operations Center (SOC) dashboard that receives events from
 3. Defense actions are queued in `defense_commands` table → Ubuntu/pfSense agent polls and executes them
 4. Auto-block triggers: Fail2ban bans, Cowrie hits, repeated SSH/web brute force, DDoS thresholds
 
-## Run & Operate
+## Run & Operate (Replit code editing only)
 
 - `pnpm --filter @workspace/aegis-dashboard run dev` — frontend (port 5000)
 - `PORT=3000 pnpm --filter @workspace/api-server run dev` — API server (port 3000)
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes to TiDB Cloud (dev only)
-- Required secret: `MYSQL_URL` — TiDB Cloud connection string (`mysql://user:pass@host:4000/aegis`)
-- Required secret: `AEGIS_INGEST_KEY` — Sensor auth key; Ubuntu VMs send this via `X-AEGIS-Key` header
-- Required secret: `AEGIS_ADMIN_KEY` — Admin key for privileged endpoints (`X-AEGIS-Admin-Key` header)
+- `pnpm --filter @workspace/db run push` — push DB schema changes to Supabase (dev only)
+- Required secret in dev: `SUPABASE_DB_URL` — Supabase pooler connection string (port 6543)
+- Required secret in dev: `AEGIS_INGEST_KEY` — Sensor auth key
+- Required secret in dev: `AEGIS_ADMIN_KEY` — Admin key for privileged endpoints
 
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
 - Frontend: React 19, Vite, TailwindCSS v4, shadcn/ui, Recharts
 - API: Express 5 (port 3000 in dev)
-- DB: **TiDB Cloud (MySQL-compatible)** + Drizzle ORM (`mysql2` driver)
+- DB: **Supabase PostgreSQL** + Drizzle ORM (`postgres.js` driver) — pooler port 6543
 - Validation: Zod, drizzle-zod
 - API codegen: Orval (from OpenAPI spec)
 - Real-time: Server-Sent Events (SSE) via `/api/stream`
 - Build: esbuild (ESM bundle)
+- Hosting: Vercel (frontend) + Render (API)
 
 ## Where Things Live
 
@@ -68,15 +135,18 @@ A real-time Security Operations Center (SOC) dashboard that receives events from
 - `lib/api-client-react/` — Generated React Query hooks (from Orval)
 - `lib/api-zod/` — Generated Zod schemas (from Orval)
 - `scripts/src/aegis_forwarder.py` — Python log forwarder for Ubuntu VMs (tails Suricata/Snort/Fail2ban/auth.log)
+- `render.yaml` — Render deployment config (API server)
+- `vercel.json` — Vercel deployment config (frontend + /api proxy to Render)
 
 ## Architecture Decisions
 
-- Frontend proxies `/api` to backend via Vite dev server proxy (port 3000)
+- Frontend proxies `/api` to backend via Vite dev server proxy (port 3000) in dev; via vercel.json rewrites in production
 - SSE broadcaster singleton distributes real-time events to all dashboard clients
-- DB is TiDB Cloud MySQL — `.returning()` is unavailable; use `.$returningId()` + re-select pattern
+- DB is Supabase PostgreSQL — custom `parseConnectionUrl()` in `lib/db/src/index.ts` handles special chars in password (uses `lastIndexOf` + `safeDecode`); SSL required
 - Both `AEGIS_INGEST_KEY` and `AEGIS_ADMIN_KEY` must be set or server refuses to start (no fallback)
 - esbuild bundles the API server to ESM (`dist/index.mjs`) before Node runs it
 - All IPs/ports are sanitized in `defense-sanitize.ts` before building shell commands
+- Render free plan: cold start ~50s after inactivity — this is expected, not a bug
 
 ## Ingest Endpoints (Ubuntu VM → Dashboard)
 
@@ -124,6 +194,8 @@ A real-time Security Operations Center (SOC) dashboard that receives events from
 ## Gotchas
 
 - API server must start before frontend polling; Vite proxy 502s until port 3000 is ready
-- Run both "API Server" (port 3000) and "Start application" (port 5000) workflows
-- `pnpm --filter @workspace/db run push` must be run after any schema changes
-- TiDB Cloud requires SSL by default; set `MYSQL_SSL_REJECT_UNAUTH=false` only for local non-TLS dev
+- Run both "API Server" (port 3000) and "Start application" (port 5000) workflows in Replit dev
+- `pnpm --filter @workspace/db run push` must be run after any schema changes (requires `SUPABASE_DB_URL`)
+- Supabase PostgreSQL requires SSL — `ssl: "require"` is set in `lib/db/src/index.ts`
+- Render free tier cold start ~50s — expected behavior, not a bug
+- Do NOT use Replit URLs anywhere — they are for the code editor only
