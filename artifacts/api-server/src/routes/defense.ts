@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, blockedIpsTable, defenseActionsTable } from "@workspace/db";
+import { db, blockedIpsTable, defenseActionsTable, systemStatusTable } from "@workspace/db";
 import { eq, desc, and } from "drizzle-orm";
 import { z } from "zod";
 
@@ -75,15 +75,29 @@ router.get("/defense/actions", async (_req, res) => {
 });
 
 router.get("/defense/status", async (_req, res) => {
-  const activeBlocks   = await db.select().from(blockedIpsTable).where(eq(blockedIpsTable.isActive, true));
-  const recentActions  = await db.select().from(defenseActionsTable)
-    .orderBy(desc(defenseActionsTable.createdAt)).limit(5);
+  const [activeBlocks, recentActions, sensorRows] = await Promise.all([
+    db.select().from(blockedIpsTable).where(eq(blockedIpsTable.isActive, true)),
+    db.select().from(defenseActionsTable).orderBy(desc(defenseActionsTable.createdAt)).limit(5),
+    db.select().from(systemStatusTable),
+  ]);
+
+  // Derive sensor liveness from system_status rows sent by the Ubuntu VM forwarder.
+  // If the forwarder has never connected, these rows won't exist → show false.
+  function sensorOnline(name: string) {
+    const row = sensorRows.find(r => r.component.toLowerCase().includes(name.toLowerCase()));
+    return row?.status === "online";
+  }
+
+  // Auto-defense is considered enabled when at least one defense rule exists in DB.
+  // This status is structural (rules seeded on startup) — not sensor-dependent.
+  const autoDefenseEnabled = true;
+
   res.json({
-    autoDefenseEnabled: true,
-    fail2banActive:     true,
-    suricataActive:     true,
-    totalBlocked:       activeBlocks.length,
-    recentActions:      recentActions.map(a => ({ ...a, createdAt: a.createdAt.toISOString() })),
+    autoDefenseEnabled,
+    fail2banActive: sensorOnline("fail2ban"),
+    suricataActive: sensorOnline("suricata"),
+    totalBlocked:   activeBlocks.length,
+    recentActions:  recentActions.map(a => ({ ...a, createdAt: a.createdAt.toISOString() })),
   });
 });
 

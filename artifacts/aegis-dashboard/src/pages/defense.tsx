@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Shield, ShieldOff, Lock, Unlock, Bot, UserCheck, AlertTriangle, CheckCircle, RefreshCcw } from "lucide-react";
+import { Shield, ShieldOff, Lock, Unlock, Bot, UserCheck, AlertTriangle, RefreshCcw } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
@@ -205,50 +205,7 @@ export default function Defense() {
         </Card>
       </div>
 
-      <div className="grid grid-cols-2 gap-6">
-        <Card className="bg-card border-border">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-              <Bot className="w-4 h-4 text-cyan-400" /> Auto Defense — How It Works
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="rounded-lg bg-background border border-border p-3 space-y-2">
-              <div className="flex items-start gap-2">
-                <CheckCircle className="w-4 h-4 text-green-400 mt-0.5 shrink-0" />
-                <div>
-                  <p className="text-xs font-semibold text-green-400">Fail2Ban (Ubuntu)</p>
-                  <p className="text-xs text-muted-foreground">SSH brute-force → auto ban IP for 1 hour. Watches /var/log/auth.log</p>
-                </div>
-              </div>
-              <div className="flex items-start gap-2">
-                <CheckCircle className="w-4 h-4 text-green-400 mt-0.5 shrink-0" />
-                <div>
-                  <p className="text-xs font-semibold text-green-400">Suricata IDS (Ubuntu)</p>
-                  <p className="text-xs text-muted-foreground">Detect port scans, SQLi, exploits → alert + drop packet</p>
-                </div>
-              </div>
-              <div className="flex items-start gap-2">
-                <CheckCircle className="w-4 h-4 text-yellow-400 mt-0.5 shrink-0" />
-                <div>
-                  <p className="text-xs font-semibold text-yellow-400">Cowrie Honeypot</p>
-                  <p className="text-xs text-muted-foreground">Fake SSH/Telnet — logs attacker commands, captures credentials</p>
-                </div>
-              </div>
-            </div>
-            <div className="rounded-lg bg-primary/5 border border-primary/20 p-3">
-              <p className="text-xs text-primary font-semibold mb-1">Auto-defense flow:</p>
-              <p className="text-xs text-muted-foreground font-mono">
-                Kali attacks → Suricata/Fail2ban detects<br />
-                → iptables DROP rule added<br />
-                → Forwarder sends event to AEGIS<br />
-                → Dashboard shows defense action ✅
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-card border-border">
+      <Card className="bg-card border-border">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
               <UserCheck className="w-4 h-4 text-primary" /> Manual Block / Unblock
@@ -314,7 +271,6 @@ export default function Defense() {
             </div>
           </CardContent>
         </Card>
-      </div>
 
       <Card className="bg-card border-border">
         <CardHeader className="pb-3">
