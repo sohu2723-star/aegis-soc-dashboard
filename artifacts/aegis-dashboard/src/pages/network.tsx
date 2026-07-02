@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { RefreshCcw, Wifi, Monitor, Shield, Globe, Activity, X, ChevronRight, Terminal, AlertTriangle } from "lucide-react";
+import { RefreshCcw, Wifi, Monitor, Shield, Activity, X, ChevronRight, Terminal, AlertTriangle } from "lucide-react";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar } from "recharts";
 import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
@@ -97,24 +97,6 @@ const severityBg: Record<string, string> = {
   critical: "bg-red-500/20", high: "bg-orange-500/20", medium: "bg-yellow-500/20", low: "bg-green-500/20",
 };
 
-const LAB_NODES = [
-  { id: "internet", label: "INTERNET",              x: 390, y: 30,  icon: "🌐", color: "#6b7280" },
-  { id: "router",   label: "ROUTER",                x: 390, y: 120, icon: "⊕", color: "#22c55e" },
-  { id: "kali",     label: "KALI LINUX\n192.168.56.101", x: 160, y: 240, icon: "💀", color: "#f87171" },
-  { id: "ubuntu",   label: "UBUNTU\n192.168.56.102",    x: 390, y: 240, icon: "🛡", color: "#22d3ee" },
-  { id: "honeypot", label: "HONEYPOT\n192.168.56.103",  x: 620, y: 240, icon: "🍯", color: "#facc15" },
-];
-const EDGES = [
-  { from: "internet", to: "router" },
-  { from: "router",   to: "kali" },
-  { from: "router",   to: "ubuntu" },
-  { from: "router",   to: "honeypot" },
-];
-
-function nodeCenter(id: string) {
-  const n = LAB_NODES.find(n => n.id === id)!;
-  return { x: n.x + 50, y: n.y + 24 };
-}
 
 function ConnectionGuide({ host }: { host: NetworkHost }) {
   const apiUrl = "https://aegis-api-server-jp3b.onrender.com/api";
@@ -355,62 +337,30 @@ export default function Network() {
         </Card>
       </div>
 
-      <div className="grid grid-cols-2 gap-6">
-        <Card className="bg-card border-border">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-              <Globe className="w-4 h-4" /> Network Topology
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <svg viewBox="0 0 780 330" className="w-full" style={{ background: "rgba(0,0,0,0.2)", borderRadius: 8 }}>
-              {EDGES.map((e, i) => {
-                const f = nodeCenter(e.from), t = nodeCenter(e.to);
-                return <line key={i} x1={f.x} y1={f.y} x2={t.x} y2={t.y}
-                  stroke="#22d3ee" strokeWidth={1.5} strokeDasharray="6 3" opacity={0.4} />;
-              })}
-              {LAB_NODES.map(n => (
-                <g key={n.id}>
-                  <rect x={n.x} y={n.y} width={100} height={48} rx={6}
-                    fill="rgba(0,0,0,0.6)" stroke={n.color} strokeWidth={1.5} />
-                  <text x={n.x + 50} y={n.y + 16} textAnchor="middle"
-                    fill={n.color} fontSize={14} fontFamily="monospace">{n.icon}</text>
-                  {n.label.split("\n").map((line, li) => (
-                    <text key={li} x={n.x + 50} y={n.y + 30 + li * 12} textAnchor="middle"
-                      fill={n.color} fontSize={9} fontFamily="monospace" fontWeight="bold">{line}</text>
-                  ))}
-                </g>
-              ))}
-            </svg>
-            <p className="text-xs text-muted-foreground mt-2 text-center">VirtualBox Host-Only Network — 192.168.56.0/24</p>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-card border-border">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-              <Activity className="w-4 h-4" /> Traffic (Last 12h)
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {chartData.length === 0 ? (
-              <div className="h-48 flex items-center justify-center text-muted-foreground text-sm">No traffic data</div>
-            ) : (
-              <ResponsiveContainer width="100%" height={200}>
-                <AreaChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
-                  <XAxis dataKey="time" tick={{ fill: "#6b7280", fontSize: 10 }} />
-                  <YAxis tick={{ fill: "#6b7280", fontSize: 10 }} />
-                  <Tooltip contentStyle={{ background: "#111827", border: "1px solid #374151", color: "#e5e7eb", fontSize: 11 }} />
-                  <Area type="monotone" dataKey="inbound"  stroke="#22d3ee" fill="#22d3ee22" name="Inbound" />
-                  <Area type="monotone" dataKey="outbound" stroke="#22c55e" fill="#22c55e22" name="Outbound" />
-                  <Area type="monotone" dataKey="blocked"  stroke="#f87171" fill="#f8717122" name="Blocked" />
-                </AreaChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+      <Card className="bg-card border-border">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+            <Activity className="w-4 h-4" /> Traffic (Last 12h)
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {chartData.length === 0 ? (
+            <div className="h-48 flex items-center justify-center text-muted-foreground text-sm">No traffic data</div>
+          ) : (
+            <ResponsiveContainer width="100%" height={200}>
+              <AreaChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+                <XAxis dataKey="time" tick={{ fill: "#6b7280", fontSize: 10 }} />
+                <YAxis tick={{ fill: "#6b7280", fontSize: 10 }} />
+                <Tooltip contentStyle={{ background: "#111827", border: "1px solid #374151", color: "#e5e7eb", fontSize: 11 }} />
+                <Area type="monotone" dataKey="inbound"  stroke="#22d3ee" fill="#22d3ee22" name="Inbound" />
+                <Area type="monotone" dataKey="outbound" stroke="#22c55e" fill="#22c55e22" name="Outbound" />
+                <Area type="monotone" dataKey="blocked"  stroke="#f87171" fill="#f8717122" name="Blocked" />
+              </AreaChart>
+            </ResponsiveContainer>
+          )}
+        </CardContent>
+      </Card>
 
       <Card className="bg-card border-border">
         <CardHeader className="pb-2">
