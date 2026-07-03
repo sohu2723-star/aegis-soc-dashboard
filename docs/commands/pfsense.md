@@ -237,6 +237,35 @@ Status → System Logs → Settings
 
 ## Troubleshooting
 
+### OPT interface — ping 100% loss (gateway reach မရ)
+
+**Cause:** OPT1/OPT2 interfaces မှာ firewall rule မရှိ → default block all
+**Diagnose:**
+```bash
+# pfSense Shell (Option 8)
+pfctl -d    # firewall ယာယီ disable
+# VM ကနေ gateway ping ရရင် → rule ပြဿနာ confirmed
+```
+
+**Fix — easyrule (Shell):**
+```bash
+easyrule pass opt2 any 10.30.30.0/24 any
+easyrule pass opt1 any 10.20.20.0/24 any
+easyrule pass lan  any 10.10.10.0/24 any
+pfctl -e    # ပြန် enable
+```
+
+> ⚠️ Wrong: `easyrule pass opt2 from 10.30.30.0/24 to any`  
+> ✅ Correct: `easyrule pass opt2 any 10.30.30.0/24 any` (protocol = `any` ပါရမည်)
+
+**Fix — WebGUI (Permanent):**
+```
+Firewall → Rules → OPT2 → Add
+  Action: Pass | Interface: OPT2 | Source: OPT2 subnet | Destination: any
+```
+
+---
+
 ### vtnet0 does not exist
 ```
 ifconfig: interface vtnet0 does not exist

@@ -927,6 +927,148 @@ pfSense → Router-2 (10.0.23.1) → Router-1 (10.0.12.1) → Cloud1 → Interne
 
 ---
 
+### 2026-07-04 — Ubuntu VM Console Type: VNC မှသာ အလုပ်လုပ်
+
+**Status:** ✅ Resolved
+
+**What:** ubuntu-base QEMU VM တွေ telnet console type နဲ့ double-click လုပ်ရင် `Trying ::1... Connected to localhost.` ပြပြီး blank ဖြစ်နေတာ — login prompt မပေါ်ဘူး
+
+**Root cause:** Ubuntu Desktop image က VGA output သုံးထားတာ — telnet (serial) console ထဲ output မသွားဘူး
+
+**Fix:**
+```
+VM icon → right-click → Configure
+General Settings → Console type: telnet → vnc → OK
+VM → Stop → Start → double-click → VNC window ပေါ်မည်
+```
+
+Template အားလုံး fix ဖို့:
+```
+Edit → Preferences → QEMU VMs → ubuntu-base → Edit
+Console type: vnc → OK
+Existing instances → right-click → Reload
+```
+
+**Rule:** ubuntu-base template (Ubuntu Desktop) → Console type = **VNC** (telnet မဟုတ်)
+
+---
+
+### 2026-07-04 — aegis-forwarder Static IP via Netplan
+
+**Status:** ✅ Done
+
+**What:** aegis-forwarder VM ကို 10.30.30.10/24 static IP set လုပ်ခဲ့သည်
+
+**Discovery:** VM boot ပြီးချင်းဆိုင်း pfSense OPT2 DHCP ကနေ **10.30.30.101/24** auto ရသည် → static ပြောင်းခဲ့သည်
+
+**Netplan file:** `/etc/netplan/01-network-manager-all.yaml`
+```yaml
+network:
+  version: 2
+  ethernets:
+    ens3:
+      addresses:
+        - 10.30.30.10/24
+      routes:
+        - to: default
+          via: 10.30.30.1
+      nameservers:
+        addresses: [8.8.8.8, 1.1.1.1]
+```
+
+**Commands:**
+```bash
+sudo nano /etc/netplan/01-network-manager-all.yaml
+sudo chmod 600 /etc/netplan/01-network-manager-all.yaml
+sudo netplan apply
+ip a show ens3    # → inet 10.30.30.10/24 ✅
+```
+
+**Warning (ignore):**
+```
+WARNING: systemd-networkd is not running, output will be incomplete
+Failed to reload network settings: No such file or directory
+```
+Ubuntu Desktop သည် NetworkManager သုံးသောကြောင့် warning ပေါ်သည် — IP apply ဖြစ်ပြီ ဒါကြောင့် ignore လုပ်ရသည်
+
+**Common mistake:** `route:` မဟုတ်ဘဲ `routes:` (s ပါရမည်) — YAML exact spelling
+
+---
+
+### 2026-07-04 — pfSense OPT Interfaces: Default Firewall Block
+
+**Status:** 🔄 Permanent rule pending (WebGUI)
+
+**What:** aegis-forwarder (10.30.30.10) မှ pfSense gateway (10.30.30.1) ping လုပ်ရာ 100% packet loss
+
+**Root cause:** pfSense OPT interfaces (OPT1, OPT2) default = **block all** — LAN anti-lockout rule ရှိသော်လည်း OPT interfaces မှာ outbound rule မရှိ
+
+**Diagnosis:**
+```bash
+# pfSense Shell (Option 8)
+pfctl -d    # firewall ယာယီ disable
+
+# aegis-forwarder မှ test
+ping -c 3 10.30.30.1  # → 0% loss ✅ (firewall disable မှ ရတာ)
+```
+
+**Confirmed:** pfSense firewall rule ပြဿနာ
+
+**Correct easyrule syntax (pfSense Shell):**
+```bash
+easyrule pass opt2 any 10.30.30.0/24 any
+easyrule pass opt1 any 10.20.20.0/24 any
+easyrule pass lan  any 10.10.10.0/24 any
+pfctl -e    # firewall ပြန် enable
+```
+
+> ⚠️ `easyrule pass opt2 from 10.30.30.0/24 to any` = **WRONG** (protocol argument မပါ)  
+> ✅ `easyrule pass opt2 any 10.30.30.0/24 any` = correct
+
+**Permanent fix (WebGUI — ကျန်ဆောင်ရွက်ရန်):**
+```
+Browser: https://10.30.30.1 (aegis-forwarder Firefox ကနေ)
+Login: admin / pfsense → ပြောင်းပါ
+Firewall → Rules → OPT1 → Add: Pass / OPT1 subnet / any
+Firewall → Rules → OPT2 → Add: Pass / OPT2 subnet / any
+Firewall → Rules → LAN  → Add: Pass / LAN subnet / any
+Save → Apply Changes
+```
+
+**Rule:** pfSense OPT interface rules မထည့်မချင်း VM တွေ gateway ကိုပင် reach မနိုင်ဘူး
+
+---
+
+### 2026-07-04 — Ubuntu VM RAM Optimization
+
+**Status:** ✅ Decided
+
+**Host:** 16GB RAM — 5 Ubuntu VMs × 1024MB = 5GB + Kali 2048MB + pfSense 256MB + Routers = ~8GB → host slow
+
+**Optimized allocation:**
+| VM | Before | After |
+|---|---|---|
+| Ubuntu Server × 5 | 1024MB | 512MB |
+| Kali | 2048MB | 1024MB |
+| pfSense | 256MB | 256MB |
+| R1, R2 | 256MB | 256MB |
+| **Total** | **~10.9GB** | **~4.3GB** |
+
+Ubuntu Server = 512MB နဲ့ Apache/PostgreSQL/Python script အဆင်ပြေသည်
+
+---
+
+## Next Steps (ကျန်ဆောင်ရွက်ရန်)
+
+- [ ] pfSense WebGUI ဝင် → Permanent firewall rules (OPT1/OPT2/LAN)
+- [ ] OPT1/OPT2 interfaces Enable in WebGUI
+- [ ] ကျန် VMs (bank-web, bank-mail, teller-pc, customer-db) static IP set
+- [ ] pfSense WebGUI password ပြောင်း
+- [ ] Suricata IPS install
+- [ ] aegis-forwarder: AEGIS agent install
+
+---
+
 ## References
 
 - GNS3 docs: https://docs.gns3.com
