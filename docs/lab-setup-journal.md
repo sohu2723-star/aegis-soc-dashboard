@@ -258,20 +258,64 @@ Cloud node ကို Kali ဘေးမှာ visual ထားပြီး annota
 
 ---
 
-### [PENDING] — GNS3 Link Wiring (Cables)
+### 2026-07-03 — Network Adapter Count Fix
+
+**Status:** ✅ Done
+
+**What:** QEMU VM templates မှာ network adapter count ပြောင်း (link တစ်ခုထက်ပိုလိုတဲ့ VM တွေအတွက်)
+
+**Changes:**
+| VM | Adapters | ဘာကြောင့် |
+|---|---|---|
+| R1 | 3 | Kali (ether1) + NAT (ether2) + R2 (ether3) |
+| R2 | 2 | R1 (ether1) + pfSense WAN (ether2) |
+| linux2024 (pfSense) | 3 | WAN (eth0) + LAN-DMZ (eth1) + LAN-INT (eth2) |
+| ubuntu-base | 1 | မပြောင်း |
+| Kali | 1 | မပြောင်း |
+| Cloud | မပြောင်း | Host NIC ကိုယ်တိုင် — GNS3 manage |
+| NAT | မပြောင်း | Built-in nat0 တစ်ခုဘဲ ရှိတယ် |
+
+**How:** GNS3 → Edit → Preferences → QEMU VMs → VM select → Edit → Network → Adapters
+
+---
+
+### 🔄 IN PROGRESS — GNS3 Link Wiring (Cables)
 
 **Status:** 🔄 In Progress
 
 **What:** Cable tool သုံးပြီး nodes တွေ ချိတ်ဆက်တာ
 
-**Remaining links to draw:**
-- Kali-1 → R1-1
-- NAT-1 → R1-1
-- R1-1 → R2-1
-- R2-1 → linux2024-1
-- linux2024-1 → ubuntu-base-1
+**Links to draw:**
+```
+Kali-1  (eth0)   ──→  R1-1   (ether1)
+NAT-1   (nat0)   ──→  R1-1   (ether2)
+R1-1    (ether3) ──→  R2-1   (ether1)
+R2-1    (ether2) ──→  linux2024-1 (eth0)   ← pfSense WAN
+linux2024-1 (eth1) ──→ ubuntu-base-1 (eth0) ← pfSense LAN
+```
 
-**Next:** All nodes linked → Start VMs → Configure router IPs
+**Cloud node role:** Visual label "Internet" သာ — real link မဆွဲ။ Kali နဲ့ R1 ကြားမှာ canvas annotation အနေထား panel ကိုပြဖို့သုံး
+
+---
+
+### Cloud vs NAT — ရှင်းလင်းချက်
+
+**Cloud node (GNS3):**
+- Host machine ရဲ့ real physical NIC (enp1s0/wip0s20f3) ကို bridge လုပ်တယ်
+- Link chain ထဲ (Kali→Cloud→R1) မထည့်နိုင် — NIC တစ်ခုကို link တစ်ခုသာ ချိတ်လို့ရတယ်
+- **ဒီ lab မှာ visual/annotation အနေနဲ့သာ သုံးတယ်**
+
+**NAT node (GNS3):**
+- VM တွေ internet ဝင်ဖို့ (apt install, update) host machine ရဲ့ NAT သုံးတယ်
+- R1 နဲ့ ချိတ်ပြီး VM တွေ internet access ရတယ်
+- **Attack path နဲ့ မဆိုင်ဘူး — VM maintenance အတွက်သာ**
+
+**Attack flow (story):**
+```
+Real:       Kali ──→ R1 ──→ R2 ──→ pfSense ──→ Bank
+Narrative:  Kali ──→ [Internet] ──→ R1 ──→ R2 ──→ pfSense ──→ Bank
+```
+Canvas မှာ Cloud node ကို Kali နဲ့ R1 ကြားမှာ ထားပြီး "Internet" label ရေးထားမယ် — judges တွေကို flow ရှင်းပြဖို့
 
 ---
 
