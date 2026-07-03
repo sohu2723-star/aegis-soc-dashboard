@@ -231,15 +231,58 @@ export AEGIS_KEY="your-ingest-key-here"
 
 ---
 
+---
+
+## Session 4 — Defender Self-Block Bug Fix (2026-07-03 10:10)
+
+### What was observed
+- Dashboard Telemetry: `192.168.84.130 → 216.24.57.8/9 [Suspicious TLS]` — repeated flood
+- Forwarder log: `SURICATA/TLS → AEGIS` every few seconds
+- Command Center: `BLOCK_IP 192.168.84.130` queued (AUTO, QUEUED status) — defender being blocked!
+- Kali nmap worked: ports 21/22/80 open on `192.168.84.130`
+
+### Root cause
+```
+Ubuntu VM (192.168.84.130)
+    │ forwarder sends heartbeat/events to Render API via HTTPS
+    ▼
+Render servers (216.24.57.8, 216.24.57.9)
+         ↑
+Suricata detects this OUTBOUND TLS connection
+→ Python requests TLS fingerprint triggers ET rules → "Suspicious TLS"
+→ auto-defense engine sees src_ip = 192.168.84.130 (our own VM)
+→ queues BLOCK_IP 192.168.84.130   ← defender blocking itself!
+```
+
+### Fixes applied
+
+**Fix 1 — auto-defense.ts: RFC1918 IP whitelist**
+Added `isDefenderIp()` check at top of `evaluateEvent()`:
+- Any `src_ip` in `10.x.x.x`, `172.16-31.x.x`, `192.168.x.x`, `127.x.x.x` → skip auto-defense
+- Log: `[AutoDefense] Skipped — defender IP x.x.x.x is whitelisted (RFC1918)`
+
+**Fix 2 — ingest.ts: Outbound TLS from defender = benign**
+Added `isPrivateIp()` helper + check in `/ingest/suricata/tls`:
+- If `src_ip` is private → log to encrypted_traffic table (for telemetry) but NO alert, NO auto-defense
+- Returns `{ isSuspicious: false, skipped: "outbound_from_defender" }`
+- Genuine suspicious TLS (from external attackers with bad certs) still alerts normally
+
+### Result
+- Ubuntu VM will no longer be auto-blocked
+- Forwarder→Render outbound TLS = silently logged only
+- Real external attacker TLS with weak/expired/self-signed certs = still alerts
+
+---
+
 ## Next Steps (TODO)
 
-- [ ] Fix: Confirm ET SCAN rules loaded in Suricata → nmap alerts appear in dashboard
-- [ ] Test: Hydra brute-force SSH → Fail2ban ban → dashboard alert
-- [ ] Start: Fail2ban service on Ubuntu VM
-- [ ] Install: Cowrie honeypot
-- [ ] Test: Full end-to-end attack→detect→dashboard pipeline
+- [ ] Load ET SCAN rules → `sudo suricata-update && sudo systemctl restart suricata`
+- [ ] Confirm: nmap from Kali now generates alerts in Security Events
+- [ ] Start: Fail2ban service on Ubuntu VM → test SSH brute-force → Fail2ban ban alert
+- [ ] Install: Cowrie honeypot → test fake SSH login
+- [ ] Deploy updated API to Render (git push → auto-deploy)
 - [ ] Document: Real IP addresses in Lab IP Reference table
 
 ---
 
-*Last updated: 2026-07-03*
+*Last updated: 2026-07-03 (Session 4)*
