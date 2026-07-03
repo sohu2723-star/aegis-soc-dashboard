@@ -34,49 +34,63 @@
 
 ---
 
-## Lab Topology (Target)
+## Lab Topology (Final — Confirmed 2026-07-04)
 
 ```
-[Kali Linux]          Attacker VM
-    192.168.56.101
+[Kali Linux / Attacker]
+  e0 → 192.168.122.132/24 (vicbr0 / Cloud1)
          │
-    [R1 - MikroTik CHR]     GNS3 virtual router
-    WAN: 192.168.56.1
-    LAN: 10.20.0.1
+    [Cloud1 - vicbr0]   ← visual "Internet" on canvas
+         │ enp1s0
+    [Router-1 - MikroTik CHR 7.15.3]
+      ether1: 192.168.122.2/24    ← Attacker side
+      ether2: 192.168.122.135/24  ← NAT cloud (DHCP) / internet out
+      ether3: 10.0.12.1/30        ← Router-2 link
+         │ ether3
+    [Router-2 - MikroTik CHR 7.15.3]
+      ether1: 10.0.12.2/30        ← Router-1 link
+      ether2: 10.0.23.1/30        ← pfSense WAN link
+         │ ether2
+    [pfSense]
+      e0 / WAN:  10.0.23.2/30,  GW=10.0.23.1
+      e1 / DMZ:  10.10.10.1/24
+      e2 / INT:  10.20.20.1/24
+      e3 / MGMT: 10.30.30.1/24
          │
-    [R2 - MikroTik CHR]     GNS3 virtual router
-    WAN: 10.20.0.2
-    LAN: 10.10.0.1
-         │
-    [pfSense]               Firewall / IPS / WAF
-    WAN: 10.10.0.254
-    LAN (DMZ):  10.10.10.1
-    LAN (INT):  10.10.20.1
-         │
-    ┌────┴──────────────────────┐
-    │                           │
-[Bank Web Server]       [Bank Mail Server]
-10.10.10.10 (DVWA)      10.10.10.20 (Postfix)
-    │
-[Teller Workstation]    [Customer DB]
-10.10.20.10             10.10.20.20 (PostgreSQL)
+    ┌────┴──────────────────────────────┐           │
+[DMZ-Switch]                      [INT-Switch]  [aegis-forwarder]
+    │         │                     │        │    10.30.30.10/24
+[bank-web] [bank-mail]        [teller-pc] [customer-db]
+10.10.10.10 10.10.10.20       10.20.20.10  10.20.20.20
 
-[AEGIS Forwarder VM]
-10.10.0.200
-aegis_forwarder.py → Render API → Supabase → Vercel Dashboard
+[NAT cloud (nat0)] → Router-1 ether2 ← internet / apt updates only
 ```
+
+**Network Segments:**
+| Segment | Subnet | Purpose |
+|---|---|---|
+| Attacker ↔ Router-1 | 192.168.122.0/24 | Attack path entry |
+| Router-1 ↔ Router-2 | 10.0.12.0/30 | Transit link |
+| Router-2 ↔ pfSense | 10.0.23.0/30 | Firewall WAN |
+| DMZ | 10.10.10.0/24 | bank-web, bank-mail |
+| Internal | 10.20.20.0/24 | teller-pc, customer-db |
+| Management | 10.30.30.0/24 | aegis-forwarder |
 
 ---
 
-## VM Inventory
+## VM Inventory (Updated 2026-07-04)
 
-| VM Name | OS | Role | IP | Location |
+| VM Name | OS | Role | IP (confirmed) | Location |
 |---|---|---|---|---|
-| Kali Linux | Kali Linux | Attacker | 192.168.56.101 | virt-manager |
-| pfSense | FreeBSD (pfSense) | Firewall/IPS | 10.10.0.254 | virt-manager |
-| ubuntu-base (clones) | Ubuntu Server 22.04 | Victims + Forwarder | various | virt-manager |
-| R1 | MikroTik CHR | Edge Router | 192.168.56.1 / 10.20.0.1 | GNS3 |
-| R2 | MikroTik CHR | Core Router | 10.20.0.2 / 10.10.0.1 | GNS3 |
+| Attacker (Kali) | Kali Linux | Red Team attacker | 192.168.122.132/24 | GNS3 (Kali.qcow2) |
+| Router-1 | MikroTik CHR 7.15.3 | Edge router | ether1:192.168.122.2, ether2:DHCP, ether3:10.0.12.1/30 | GNS3 |
+| Router-2 | MikroTik CHR 7.15.3 | Transit router | ether1:10.0.12.2/30, ether2:10.0.23.1/30 | GNS3 |
+| pfSense | pfSense (FreeBSD) | Firewall/IPS/WAF | WAN:10.0.23.2/30 DMZ:10.10.10.1 INT:10.20.20.1 MGMT:10.30.30.1 | GNS3 |
+| bank-web | Ubuntu Server 22.04 | DVWA web server | 10.10.10.10/24 GW:10.10.10.1 | GNS3 |
+| bank-mail | Ubuntu Server 22.04 | Postfix mail server | 10.10.10.20/24 GW:10.10.10.1 | GNS3 |
+| teller-pc | Ubuntu Server 22.04 | Internal workstation | 10.20.20.10/24 GW:10.20.20.1 | GNS3 |
+| customer-db | Ubuntu Server 22.04 | PostgreSQL DB | 10.20.20.20/24 GW:10.20.20.1 | GNS3 |
+| aegis-forwarder | Ubuntu Server 22.04 | Sensor + forwarder | 10.30.30.10/24 GW:10.30.30.1 | GNS3 |
 
 ---
 
@@ -324,22 +338,32 @@ pfSense → aegis-forwarder (direct, eth3)  ✓
 
 ---
 
-### 🔄 IN PROGRESS — GNS3 Link Wiring (Cables)
+### 2026-07-04 — GNS3 Final Topology Wiring Complete
 
-**Status:** 🔄 In Progress
+**Status:** ✅ Done
 
-**What:** Cable tool သုံးပြီး nodes တွေ ချိတ်ဆက်တာ
+**What:** Cable tool သုံးပြီး nodes တွေ ချိတ်ဆက်တာ — final confirmed topology
 
-**Links to draw:**
+**Confirmed links (from screenshot 01:54):**
 ```
-Kali-1  (eth0)   ──→  R1-1   (ether1)
-NAT-1   (nat0)   ──→  R1-1   (ether2)
-R1-1    (ether3) ──→  R2-1   (ether1)
-R2-1    (ether2) ──→  linux2024-1 (eth0)   ← pfSense WAN
-linux2024-1 (eth1) ──→ ubuntu-base-1 (eth0) ← pfSense LAN
+Attacker(Kali) e0 ──→ Cloud1(vicbr0)(enp1s0) ──→ Router-1 e0
+NAT(nat0)             ──→ Router-1 e1
+Router-1 e2           ──→ Router-2 e0
+Router-2 e1           ──→ pfSense e0  (WAN)
+pfSense e1            ──→ DMZ-Switch
+pfSense e2            ──→ INT-Switch
+pfSense e3            ──→ aegis-forwarder
+DMZ-Switch e1         ──→ bank-web e0
+DMZ-Switch e2         ──→ bank-mail e0
+INT-Switch e1         ──→ teller-pc e0
+INT-Switch e2 (?)     ──→ customer-db e0
 ```
 
-**Cloud node role:** Visual label "Internet" သာ — real link မဆွဲ။ Kali နဲ့ R1 ကြားမှာ canvas annotation အနေထား panel ကိုပြဖို့သုံး
+**Design rationale (2-router architecture):**
+- Router-1: ISP/edge router — attacker ဝင်ရောက်တဲ့ entry point
+- Router-2: transit router — Router-1 ↔ pfSense ကြား extra routing hop
+- pfSense: stateful firewall — Router-2 ကဖြတ်ပြီးမှ ဝင်ရတယ် (defense in depth)
+- Attack path: Kali → Router-1 → Router-2 → pfSense → DMZ/Internal
 
 ---
 
@@ -507,42 +531,93 @@ pfSense (LAN0/MGMT) ──── AEGIS Forwarder VM
 
 ---
 
-### [PENDING] — Router IP Configuration
+### 2026-07-04 — Router-1 IP Configuration Complete
 
-**Status:** ⏳ Not Started
+**Status:** ✅ Done
 
-**What:** Configure IP addresses and static routes on R1 and R2 (MikroTik CHR)
+**What:** Router-1 (MikroTik CHR) IP addresses, routes, NAT masquerade setup
 
-**R1 config (MikroTik syntax):**
+**Interface mapping (GNS3 e → MikroTik ether):**
+| GNS3 | MikroTik | Connected to | IP |
+|---|---|---|---|
+| e0 | ether1 | Cloud1 / Attacker (192.168.122.0/24) | 192.168.122.2/24 |
+| e1 | ether2 | NAT cloud (nat0) | DHCP → 192.168.122.135/24 |
+| e2 | ether3 | Router-2 ether1 | 10.0.12.1/30 |
+
+**Commands run:**
+```routeros
+/ip address add address=192.168.122.2/24 interface=ether1
+/ip address add address=10.0.12.1/30 interface=ether3
+# ether2: DHCP (see troubleshooting below)
+/ip dhcp-client add interface=ether2 disabled=no
+/ip firewall nat add chain=srcnat out-interface=ether2 action=masquerade
+/ip route add dst-address=10.0.0.0/8 gateway=10.0.12.2
 ```
-/ip address add address=192.168.56.1/24 interface=ether1
-/ip address add address=10.20.0.1/30 interface=ether2
-/ip route add dst-address=10.10.0.0/16 gateway=10.20.0.2
-```
 
-**R2 config:**
-```
-/ip address add address=10.20.0.2/30 interface=ether1
-/ip address add address=10.10.0.1/24 interface=ether2
-/ip route add dst-address=192.168.56.0/24 gateway=10.20.0.1
-```
+**Result:**
+- ether1: 192.168.122.2/24 ✅
+- ether3: 10.0.12.1/30 ✅
+- ether2: 192.168.122.135/24 (DHCP from NAT cloud) ✅
+- Internet: `ping 8.8.8.8` → 0% packet-loss, ~30ms ✅
 
-**Verify:** `traceroute 10.10.10.10` from Kali → should show R1 → R2 → pfSense → Web
+**Next:** Router-2 config
 
 ---
 
-### [PENDING] — pfSense Configuration
+### 2026-07-04 — Router-2 IP Configuration Complete
+
+**Status:** ✅ Done
+
+**What:** Router-2 (MikroTik CHR) IP addresses and routes
+
+**Interface mapping:**
+| GNS3 | MikroTik | Connected to | IP |
+|---|---|---|---|
+| e0 | ether1 | Router-1 ether3 | 10.0.12.2/30 |
+| e1 | ether2 | pfSense WAN (e0) | 10.0.23.1/30 |
+
+**Commands run:**
+```routeros
+/ip address add address=10.0.12.2/30 interface=ether1
+/ip address add address=10.0.23.1/30 interface=ether2
+/ip route add dst-address=0.0.0.0/0 gateway=10.0.12.1
+/ip route add dst-address=10.10.10.0/24 gateway=10.0.23.2
+/ip route add dst-address=10.20.20.0/24 gateway=10.0.23.2
+/ip route add dst-address=10.30.30.0/24 gateway=10.0.23.2
+```
+
+**Result:**
+- ether1: 10.0.12.2/30 ✅
+- ether2: 10.0.23.1/30 ✅
+- Internet: `ping 8.8.8.8` → 0% packet-loss, ~31ms ✅
+
+**Next:** pfSense WAN/LAN interface config
+
+---
+
+### [PENDING] — pfSense Interface Configuration
 
 **Status:** ⏳ Not Started
 
-**What:** Configure pfSense interfaces, Suricata IPS, and syslog forwarding
+**What:** Configure pfSense interfaces, firewall rules, Suricata IPS, syslog
+
+**Confirmed IP plan (updated from actual router config):**
+
+| Interface | GNS3 | IP | Gateway | Role |
+|---|---|---|---|---|
+| WAN (em0/vtnet0) | e0 | 10.0.23.2/30 | 10.0.23.1 | Router-2 ဆီ |
+| OPT1 / DMZ (em1) | e1 | 10.10.10.1/24 | — | bank-web, bank-mail |
+| LAN / Internal (em2) | e2 | 10.20.20.1/24 | — | teller-pc, customer-db |
+| OPT2 / MGMT (em3) | e3 | 10.30.30.1/24 | — | aegis-forwarder |
 
 **Steps:**
-1. WAN interface: `10.10.0.254/24`, gateway `10.10.0.1`
-2. LAN interfaces: DMZ `10.10.10.1/24`, Internal `10.10.20.1/24`
-3. Install Suricata package → enable IPS mode (Block Offenders)
-4. Syslog → remote server: `10.10.0.200:514` (AEGIS forwarder VM)
-5. Create `Blocked_Attackers` alias for dynamic IP blocking
+1. pfSense menu → Option 2 → Set WAN: `10.0.23.2/30`, GW: `10.0.23.1`
+2. Set OPT1 (DMZ): `10.10.10.1/24`
+3. Set LAN (Internal): `10.20.20.1/24`
+4. Set OPT2 (MGMT): `10.30.30.1/24`
+5. WebGUI (via LAN) → Firewall rules → allow DMZ, block cross-zone
+6. Install Suricata package → enable IPS mode on WAN
+7. Syslog → `10.30.30.10:514` (aegis-forwarder)
 
 ---
 
@@ -634,6 +709,43 @@ python3 scripts/src/aegis_forwarder.py --mode all
 ---
 
 ## Troubleshooting Log
+
+### 2026-07-04 — Router-1 NAT Internet မရတာ (10.0.99.x static IP အသုံးမဝင်)
+
+**Symptom:** `ping 8.8.8.8` → 100% packet-loss, `10.0.99.1 host unreachable`
+
+**Root cause:** GNS3 NAT node (nat0) က 10.0.99.0/30 subnet ကို **မသုံးဘူး**။ GNS3 built-in NAT cloud က host machine ရဲ့ libvirt NAT bridge ကိုသုံးပြီး `192.168.122.0/24` subnet ပေးတယ် — Cloud1 (vicbr0) နဲ့ subnet တူသည်။ Static IP (10.0.99.1/30) + static gateway (10.0.99.2) set လုပ်ထားလို့ gateway unreachable ဖြစ်ခဲ့တာ။
+
+**Fix:**
+```routeros
+# ether2 static IP ဖျက်
+/ip address remove numbers=2
+# static default route ဖျက်
+/ip route remove [find dst-address=0.0.0.0/0]
+# DHCP client ဖွင့် — NAT cloud က IP + gateway auto assign လုပ်မည်
+/ip dhcp-client add interface=ether2 disabled=no
+```
+
+**Result:** ether2 → 192.168.122.135/24 (DHCP), gateway auto set → `ping 8.8.8.8` OK ✅
+
+**Rule for future:** GNS3 NAT node interface မှာ **static IP မသုံးနဲ့** — DHCP client သုံးပါ။ NAT cloud က 192.168.122.0/24 ပေးမည် (Cloud1/vicbr0 နဲ့ subnet တူသည် — ဒါပေမယ့် routing conflict မဖြစ်ဘဲ MikroTik က handle လုပ်သည်)။
+
+---
+
+### 2026-07-04 — DHCP Client ether1 မှာ ပါသွားတာ
+
+**Symptom:** `/ip dhcp-client print` မှာ ether1 (searching...) ပါနေတာ မျှော်လင့်မထားဘဲ
+
+**Root cause:** MikroTik CHR factory default မှာ ether1 မှာ DHCP client ပါလာတတ်တယ်၊ သို့မဟုတ် `/ip dhcp-client` context ထဲမှာ `add interface=ether2` ရိုက်တဲ့အခါ ether1 ကိုပါ add မိသွားတာ
+
+**Fix:**
+```routeros
+/ip dhcp-client remove numbers=0   # ether1 DHCP ဖျက်
+```
+
+**Rule:** ether1 မှာ static IP (192.168.122.2/24) ရှိနေပြီး — DHCP client မထပ်ထည့်ပါနဲ့
+
+---
 
 ### 2026-07-03 — GNS3 "Cannot connect to localhost:3080" / Forbidden
 

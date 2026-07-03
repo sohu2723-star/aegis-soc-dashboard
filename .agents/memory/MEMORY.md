@@ -1,3 +1,4 @@
 - [Supabase connection](supabase-connection.md) — Pooler region `aws-1-ap-southeast-2:6543`; custom URL parser (lastIndexOf+safeDecode); drizzle-kit push broken with pooler so use generate→run SQL directly.
 - [Auto-defense engine](auto-defense.md) — Full attack→rule→command→agent pipeline; sanitize all IPs/ports before building shell commands; both AEGIS_INGEST_KEY and AEGIS_ADMIN_KEY must be set (no fallback) or server refuses to start.
 - [Project intent](project-intent.md) — Real lab only (no simulation); Replit = code editor only; web UI is monitoring-only; VMs do actual attack/defense.
+- [GNS3 network config](gns3-network-config.md) — Confirmed IPs for all nodes; GNS3 NAT cloud uses 192.168.122.0/24 (DHCP only, no static); R1/R2 full MikroTik commands included.
