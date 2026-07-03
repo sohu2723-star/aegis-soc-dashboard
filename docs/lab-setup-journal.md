@@ -130,24 +130,36 @@ sudo usermod -aG ubridge,wireshark $USER
 
 ---
 
-### [PENDING] — MikroTik CHR Router Import
+### 2026-07-03 — MikroTik CHR Download & Convert
 
-**Status:** 🔄 In Progress
+**Status:** ✅ Done
 
-**What:** Download MikroTik CHR (free router OS) and import into GNS3 as R1 and R2
+**What:** Download MikroTik CHR 7.15.3 and convert to QEMU qcow2 format
 
 **How:**
 ```bash
 wget https://download.mikrotik.com/routeros/7.15.3/chr-7.15.3.img.zip
-unzip chr-7.15.3.img.zip
+unzip chr-7.15.3.img.zip        # answered "A" (All) to overwrite prompt
 qemu-img convert -f raw -O qcow2 chr-7.15.3.img chr-7.15.3.qcow2
 ```
 
-GNS3 → Edit → Preferences → QEMU VMs → New:
+**Result:** `chr-7.15.3.qcow2` file ready for GNS3 import
+
+**Next:** Import as QEMU VM in GNS3 (R1 and R2)
+
+---
+
+### [PENDING] — MikroTik CHR Import into GNS3 (R1 & R2)
+
+**Status:** ⏳ Not Started
+
+**What:** Add MikroTik CHR as QEMU appliance in GNS3, create R1 and R2
+
+**How:** GNS3 → Edit → Preferences → QEMU VMs → New:
 - Name: `R1`, RAM: 256MB, Disk: `chr-7.15.3.qcow2`
 - Repeat for `R2` (same image, different name)
 
-**Next:** Import KVM VMs (Kali, pfSense, bank VMs) into GNS3
+**Next:** Import KVM VMs (Kali, pfSense, Ubuntu) into GNS3
 
 ---
 
