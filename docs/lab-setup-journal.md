@@ -202,6 +202,79 @@ sudo virsh domblklist ubuntu22.04 # → /var/lib/libvirt/images/ubuntu22.04.qcow
 
 ---
 
+### 2026-07-03 — KVM VMs Copy to GNS3 + Import
+
+**Status:** ✅ Done
+
+**What:** Copied KVM qcow2 images to GNS3 QEMU folder and added all 5 VMs as QEMU templates
+
+**VM Templates added:**
+| Name | Disk | RAM | Console |
+|---|---|---|---|
+| Kali | Kali.qcow2 | 2048MB | vnc |
+| linux2024 | linux2024.qcow2 | 1024MB | vnc |
+| ubuntu-base | ubuntu22.04.qcow2 | 1024MB | telnet |
+| R1 | chr-7.15.3.qcow2 | 256MB | telnet |
+| R2 | chr-7.15.3.qcow2 | 256MB | telnet |
+
+---
+
+### 2026-07-03 — GNS3 Canvas Topology Built
+
+**Status:** ✅ Done
+
+**What:** Dragged all 5 VM nodes + NAT + Cloud onto AEGIS-SecureBank canvas
+
+**Nodes on canvas:** Kali-1, Cloud1, NAT-1, R1-1, R2-1, linux2024-1, ubuntu-base-1
+
+---
+
+### 2026-07-03 — Cloud Node Issue + Topology Decision
+
+**Status:** ✅ Resolved
+
+**Issue:** Cloud node မှာ physical NIC တစ်ခုကို link တစ်ခုသာ ချိတ်လို့ရတယ် — Kali→Cloud→R1 chain မရနိုင်ဘူး။ "Can't create the link the port is not free" error ပေါ်တယ်။
+
+**Cloud interfaces တွေ:**
+- `enp1s0` — ethernet NIC
+- `wip0s20f3` — WiFi NIC
+
+**Solution:** Cloud node ကို "Internet (simulated)" visual label အဖြစ်သာ canvas မှာ ထားမယ် — real link မဆွဲဘဲ။
+
+**Final Topology — Real Links:**
+```
+Kali-1       ──→  R1-1  (ether1)
+NAT-1        ──→  R1-1  (ether2)   ← VM internet access
+R1-1 (ether3)──→  R2-1  (ether1)
+R2-1 (ether2)──→  linux2024-1 (eth0)   ← pfSense WAN
+linux2024-1 (eth1) ──→ ubuntu-base-1 (eth0)  ← pfSense LAN → bank-web
+```
+
+**Attack flow (story for panel):**
+```
+Kali ──→ [Internet/Cloud] ──→ R1 ──→ R2 ──→ pfSense ──→ Bank Server
+```
+Cloud node ကို Kali ဘေးမှာ visual ထားပြီး annotation "Internet" ရေး — judges ကို flow ရှင်းပြဖို့
+
+---
+
+### [PENDING] — GNS3 Link Wiring (Cables)
+
+**Status:** 🔄 In Progress
+
+**What:** Cable tool သုံးပြီး nodes တွေ ချိတ်ဆက်တာ
+
+**Remaining links to draw:**
+- Kali-1 → R1-1
+- NAT-1 → R1-1
+- R1-1 → R2-1
+- R2-1 → linux2024-1
+- linux2024-1 → ubuntu-base-1
+
+**Next:** All nodes linked → Start VMs → Configure router IPs
+
+---
+
 ### 🔄 IN PROGRESS — KVM VMs Copy to GNS3 + Import
 
 **Status:** 🔄 In Progress (copy command running)
