@@ -166,8 +166,35 @@ export interface IngestEvent {
   status:      string;
 }
 
+// ─── Defender IP whitelist ────────────────────────────────────────────────────
+// Never auto-block IPs from our own private network (RFC1918).
+// These are defender hosts, not attackers. Suricata outbound TLS from the
+// forwarder (192.168.x.x → Render) must not trigger self-block.
+function isDefenderIp(ip: string): boolean {
+  try {
+    const parts = ip.split(".").map(Number);
+    if (parts.length !== 4 || parts.some(isNaN)) return false;
+    const [a, b] = parts;
+    // 10.0.0.0/8
+    if (a === 10) return true;
+    // 172.16.0.0/12
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    // 192.168.0.0/16
+    if (a === 192 && b === 168) return true;
+    // loopback
+    if (a === 127) return true;
+  } catch { /* ignore */ }
+  return false;
+}
+
 export async function evaluateEvent(event: IngestEvent): Promise<void> {
   if (!event.sourceIp || event.sourceIp === "unknown") return;
+
+  // Skip auto-defense for private/defender IPs — never self-block
+  if (isDefenderIp(event.sourceIp)) {
+    console.log(`[AutoDefense] Skipped — defender IP ${event.sourceIp} is whitelisted (RFC1918)`);
+    return;
+  }
 
   const actualTriggerType = toTriggerType(event.type, event.subtype);
 

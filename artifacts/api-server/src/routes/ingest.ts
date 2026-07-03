@@ -45,6 +45,20 @@ function sev(s: string): "critical" | "high" | "medium" | "low" {
   return "low";
 }
 
+// Returns true for RFC1918 private IPs (our own defender network = outbound, not inbound attack)
+function isPrivateIp(ip: string): boolean {
+  try {
+    const parts = ip.split(".").map(Number);
+    if (parts.length !== 4 || parts.some(isNaN)) return false;
+    const [a, b] = parts;
+    if (a === 10) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 127) return true;
+  } catch { /* ignore */ }
+  return false;
+}
+
 async function insertEvent(values: typeof securityEventsTable.$inferInsert) {
   const [row] = await db.insert(securityEventsTable).values(values).returning();
   const [event] = await db.select().from(securityEventsTable).where(eq(securityEventsTable.id, row.id));
@@ -135,6 +149,22 @@ router.post("/ingest/suricata", auth, async (req, res) => {
 router.post("/ingest/suricata/tls", auth, async (req, res) => {
   const { src_ip, dest_ip, dest_port, tls } = req.body;
   const t = tls ?? {};
+
+  // If src_ip is our own private/defender network making an OUTBOUND connection
+  // (e.g. forwarder → Render API), treat as benign — log only, no alert/auto-defense.
+  const isOutboundFromDefender = isPrivateIp(src_ip ?? "");
+  if (isOutboundFromDefender) {
+    await db.insert(encryptedTrafficTable).values({
+      sourceIp: src_ip ?? "unknown", destIp: dest_ip ?? "unknown",
+      destPort: dest_port ?? null, tlsVersion: t.version ?? null,
+      cipherSuite: t.cipher_suite ?? null, sni: t.sni ?? null,
+      certIssuer: t.issuerdn ?? null, certSubject: t.subject ?? null,
+      certExpiry: t.notafter ?? null, isSuspicious: false, reason: null,
+    });
+    res.status(201).json({ isSuspicious: false, skipped: "outbound_from_defender" });
+    return;
+  }
+
   const isSuspicious = t.version === "SSLv3" || t.version === "TLSv1" ||
     (t.notafter && new Date(t.notafter) < new Date()) || !t.issuerdn;
 
