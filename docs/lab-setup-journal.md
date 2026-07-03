@@ -473,11 +473,40 @@ python3 scripts/src/aegis_forwarder.py --mode all
 
 ## Troubleshooting Log
 
-| Date | Issue | Fix |
-|---|---|---|
-| — | — | — |
+### 2026-07-03 — GNS3 "Cannot connect to localhost:3080" / Forbidden
 
-*(Add entries here as issues are encountered)*
+**Symptoms:**
+- `Error while getting compute list: Operation timeout`
+- `Forbidden (localhost:3080)`
+- `Cannot connect to http://localhost:3080`
+- "Another GNS3 GUI is already running" warning
+
+**Root cause:** GNS3 server (`gns3server`) process ရပ်သွားတာ သို့မဟုတ် multiple instances conflict ဖြစ်တာ။ Terminal မှာ `gns3server &` manually run ခဲ့ပြီး GUI နဲ့ conflict ဖြစ်ခဲ့တာ။
+
+**Fix:**
+```bash
+# Step 1 — GNS3 window အကုန် X နဲ့ close
+# Step 2 — Terminal မှာ
+sudo pkill -9 -f gns3
+sleep 2
+sudo lsof -i :3080     # port clear ဖြစ်ကြောင်း verify
+# Step 3 — Clean start (GUI + server အတူတူ)
+gns3
+```
+
+**Rule:** `gns3server` ကို ကိုယ်တိုင် terminal မှာ manually run **မလုပ်ပါနဲ့**။ `gns3` command တစ်ကြောင်းတည်း run ရင် server + GUI အတူတူ start မယ်။
+
+---
+
+### 2026-07-03 — GNS3 QEMU VM Templates ပျောက်သွားသလားထင်တာ
+
+**Symptom:** GNS3 restart ပြီးနောက် VM templates တွေ မမြင်ရဘူးထင်တာ
+
+**Root cause:** Templates တွေက project ထဲမှာ မသိမ်းဘဲ global GNS3 config (`~/.config/GNS3/2.2/gns3_server.conf`) ထဲမှာ သိမ်းတယ်။ Server connect မဖြစ်မချင်း template list ပေါ်မလာဘူး — server problem ဖြစ်နေတာ template problem မဟုတ်ဘူး။
+
+**Verify:** Edit → Preferences → QEMU VMs ထဲမှာ R1, R2, Kali, linux2024, ubuntu-base ရှိနေသေးတယ်
+
+**Fix:** Server connection fix (အပေါ်ကအတိုင်း) လုပ်ရင် templates ပြန်ပေါ်လာမယ်
 
 ---
 
