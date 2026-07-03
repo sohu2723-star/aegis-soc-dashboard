@@ -212,14 +212,16 @@ router.post("/ingest/fail2ban", auth, async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 router.post("/ingest/ssh", auth, async (req, res) => {
   const { src_ip, username, status: st, auth_method, session_id, failures } = req.body;
+  const failCount = Number(failures) || 0;
 
   await db.insert(sshSessionsTable).values({
     sourceIp: src_ip ?? "unknown", username: username ?? null,
     status: st ?? "failed", authMethod: auth_method ?? null,
-    sessionId: session_id ?? null, failures: Number(failures) || 0, bannedBy: null,
+    sessionId: session_id ?? null, failures: failCount, bannedBy: null,
   });
 
   if (st === "success") {
+    // Successful SSH login = possible breach
     const event = await insertEvent({
       type:"network_attack", subtype:"Unauthorized SSH Access", severity:"critical",
       sourceIp: src_ip ?? "unknown", targetHost:"ubuntu-server",
@@ -227,7 +229,23 @@ router.post("/ingest/ssh", auth, async (req, res) => {
       status:"detected", layer:"perimeter",
     });
     await mkAlert(event.id, "critical", `SSH BREACH: ${src_ip} logged in as '${username}'`);
+
+  } else if (st === "failed") {
+    // SSH brute force — create event on first attempt and every 5th failure
+    // (avoids flooding but keeps dashboard responsive on first hit)
+    if (failCount === 1 || failCount % 5 === 0) {
+      const severity = failCount >= 10 ? "high" : "medium";
+      await insertEvent({
+        type:"network_attack", subtype:"SSH Brute Force",
+        severity,
+        sourceIp: src_ip ?? "unknown", targetHost:"ubuntu-server",
+        toolUsed:"ssh",
+        description:`SSH brute force from ${src_ip} — ${failCount} failed attempt(s) for user '${username ?? "?"}'`,
+        status:"detected", layer:"perimeter",
+      });
+    }
   }
+
   res.status(201).json({ ok:true });
 });
 
