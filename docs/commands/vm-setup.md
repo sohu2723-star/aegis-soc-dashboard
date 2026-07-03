@@ -278,17 +278,20 @@ Apply Changes
 
 ---
 
-## Status (2026-07-04)
+## Status (2026-07-04 04:30)
 
 | VM | IP Set | Gateway Ping | Internet | Services |
 |---|---|---|---|---|
-| aegis-forwarder | ✅ 10.30.30.10 | ✅ (pfctl -d 后) | ⏳ rule pending | ⏳ |
-| bank-web | ⏳ | ⏳ | ⏳ | ⏳ |
-| bank-mail | ⏳ | ⏳ | ⏳ | ⏳ |
-| teller-pc | ⏳ | ⏳ | ⏳ | ⏳ |
-| customer-db | ⏳ | ⏳ | ⏳ | ⏳ |
+| aegis-forwarder | ✅ 10.30.30.10 | ✅ | ✅ | ⏳ AEGIS agent pending |
+| bank-web | ✅ 10.10.10.10 | ✅ | ✅ | ⏳ Apache+DVWA pending |
+| bank-mail | ⏳ 10.10.10.20 | ⏳ | ⏳ | ⏳ |
+| teller-pc | ⏳ 10.20.20.10 | ⏳ | ⏳ | ⏳ |
+| customer-db | ⏳ 10.20.20.20 | ⏳ | ⏳ | ⏳ |
 
-**Blocker:** pfSense firewall rules မထည့်ရသေးဘဲ VM တွေ internet reach မနိုင်ဘူး
+**pfSense firewall rules:** ✅ easyrule ထည့်ပြီး (opt1/opt2/lan all pass)
+
+**Discovery:** pfSense DHCP ကြောင့် VM boot တာနဲ့ IP auto ရသည် (100-200 range)
+→ DHCP IP = ကောင်းပေမယ့် static ထည့်မှ reboot-safe ဖြစ်မည်
 
 ---
 
