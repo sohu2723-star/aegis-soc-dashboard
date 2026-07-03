@@ -279,6 +279,56 @@ Cloud node ကို Kali ဘေးမှာ visual ထားပြီး annota
 
 ---
 
+### 2026-07-04 — GNS3 Topology Backbone Complete
+
+**Status:** ✅ Done
+
+**Canvas state (confirmed from screenshot):**
+```
+Attacker(Kali) → Internet(Cloud) → Router-1 → Router-2 → pfSense(linux2024)
+NAT → Router-1   ✓
+pfSense → BankZone(ubuntu-base)  ✓
+```
+
+**Labels added on canvas:** Attacker, Internet, Router-1, Router-2, pfSense, NAT, BankZone
+
+**Issue found:** Node name "Bank Zone" has space → invalid. Fix: right-click → Change hostname → `bank-web`
+
+**Adapter counts finalized (with buffer):**
+| VM | Adapters |
+|---|---|
+| Kali | 2 |
+| R1 | 4 |
+| R2 | 4 |
+| linux2024 (pfSense) | 8 |
+| ubuntu-base + clones | 2 |
+
+---
+
+### [NEXT] — Expand Bank Zone
+
+**Status:** 🔄 Pending
+
+**What:** Clone ubuntu-base + add Ethernet switches for DMZ and INT zones
+
+**Nodes to add:**
+```
+Ethernet Switch (DMZ) → pfSense eth1
+  └─ bank-web    (10.10.10.10)
+  └─ bank-mail   (10.10.10.20)
+
+Ethernet Switch (INT) → pfSense eth2
+  └─ teller-pc   (10.10.20.10)
+  └─ customer-db (10.10.20.20)
+
+aegis-forwarder (10.10.0.200) → pfSense eth3
+```
+
+**How to clone ubuntu-base in GNS3:**
+- ubuntu-base-1 right-click → Duplicate → rename each clone
+
+---
+
 ### 🔄 IN PROGRESS — GNS3 Link Wiring (Cables)
 
 **Status:** 🔄 In Progress
