@@ -154,4 +154,14 @@ sudo systemctl status aegis-forwarder
 
 ---
 
-## Status: ⏳ Not Started
+## ⚠️ VM Redo Note (2026-07-04)
+
+ubuntu-base template ကနေ duplicate + rename လုပ်ရာ VM confusion ဖြစ်ခဲ့သည်။
+Confused instances တွေ delete ပြီး ပြန် drag & drop လုပ်ရန် ဆုံးဖြတ်ခဲ့သည်။
+
+**Fresh VM ဆွဲချပုံ:**
+1. GNS3 Left panel → QEMU VMs → `ubuntu-base` → canvas ပေါ် drag × 5
+2. Drop ချိန်မှာ name ချက်ချင်းပေး: `bank-web`, `bank-mail`, `teller-pc`, `customer-db`, `aegis-forwarder`
+3. Cable ချိတ်ပြီး Start → console → netplan static IP set
+
+## Status: 🔄 VM Redo In Progress (Topology rebuild pending)

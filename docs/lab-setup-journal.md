@@ -784,6 +784,149 @@ gns3
 
 ---
 
+### 2026-07-04 — pfSense Interface Discovery: vtnet0 မဟုတ်ဘဲ em0–em7
+
+**Status:** ✅ Resolved
+
+**What:** pfSense console မှာ Option 2 (Set IP) လုပ်တုန်းက `vtnet0` (VirtIO NIC) ထင်ထားသော်လည်း `ifconfig vtnet0` run ရာ `interface vtnet0 does not exist` error ပေါ်ခဲ့သည်။
+
+**Root cause:** GNS3 QEMU pfSense template မှာ NIC adapter type = **Intel Gigabit Ethernet 82540EM (e1000)** သုံးထားသောကြောင့် interface name တွေ `em0`–`em7` ဖြစ်သည်။ VirtIO (`vtnet`) မဟုတ်ဘူး။
+
+**How (investigation):**
+```bash
+# Shell (Option 8) ထဲမှာ
+ifconfig vtnet0          # → "interface vtnet0 does not exist"
+ifconfig -a | grep flags # → em0 em1 em2 em3 (LOWER_UP) em4–em7 (DOWN)
+ifconfig -l              # → em0 em1 em2 em3 em4 em5 em6 em7 enc0 lo0 pflog0 pfsync0
+```
+
+**em0–em3 = LOWER_UP** (GNS3 cable ချိတ်ထားသည်)
+**em4–em7 = link DOWN** (cable မချိတ်)
+
+**Fix:** pfSense console Option 1 (Assign Interfaces) မှ reassign:
+```
+VLANs? → n
+WAN  → em0
+LAN  → em1
+OPT1 → em2
+OPT2 → em3
+OPT3 → (blank)
+Proceed? → y
+```
+
+**Rule:** GNS3 pfSense QEMU template NIC type ကို မပြောင်းမချင်း interface name = `em0, em1...` ဖြစ်မည်။ `vtnet` မဟုတ်ဘူး။
+
+---
+
+### 2026-07-04 — pfSense IP Configuration (All Interfaces)
+
+**Status:** ✅ Confirmed Working
+
+**What:** pfSense console Option 2 (Set interface IPs) မှတဆင့် interfaces 4 ခုလုံး IP set လုပ်ခဲ့သည်။
+
+**Commands (Option 2 → interface select → answers):**
+
+**WAN (em0) — 10.0.23.2/30:**
+```
+Interface: 1 (WAN)
+DHCP? → n
+IP: 10.0.23.2
+Subnet: 30
+Gateway: 10.0.23.1
+Default gateway? → y          ← y ဖြေရမည် မဟုတ်ရင် routing မလုပ်ဘူး
+IPv6? → n
+IPv6 addr: (blank)
+HTTP revert? → n
+```
+
+**LAN/DMZ (em1) — 10.10.10.1/24:**
+```
+Interface: 2 (LAN)
+DHCP? → n
+IP: 10.10.10.1 / 24
+Gateway: (blank)
+DHCP server? → y
+Start: 10.10.10.100  End: 10.10.10.200
+```
+
+**OPT1/Internal (em2) — 10.20.20.1/24:**
+```
+Interface: 3 (OPT1)
+IP: 10.20.20.1 / 24
+DHCP server? → y
+Start: 10.20.20.100  End: 10.20.20.200
+```
+
+**OPT2/MGMT (em3) — 10.30.30.1/24:**
+```
+Interface: 4 (OPT2)
+IP: 10.30.30.1 / 24
+DHCP server? → y
+Start: 10.30.30.100  End: 10.30.30.200
+```
+
+**Final menu display (confirmed ✅):**
+```
+WAN  (wan)  → em0  → v4: 10.0.23.2/30
+LAN  (lan)  → em1  → v4: 10.10.10.1/24
+OPT1 (opt1) → em2  → v4: 10.20.20.1/24
+OPT2 (opt2) → em3  → v4: 10.30.30.1/24
+```
+
+---
+
+### 2026-07-04 — pfSense Connectivity Verification
+
+**Status:** ✅ Router chain verified
+
+**Tests (Option 7: Ping host):**
+```
+ping 10.0.23.1  → ✅ 3/3 packets, 0.0% loss       (Router-2 WAN link)
+ping 10.0.12.1  → ✅ 3/3 packets, 0.0% loss, ttl=63 (Router-1 — full chain)
+```
+
+**Routing chain confirmed:**
+```
+pfSense → Router-2 (10.0.23.1) → Router-1 (10.0.12.1) → Cloud1 → Internet
+```
+
+**Pending:** `ping 8.8.8.8` (internet) — test မလုပ်ရသေးဘူး
+
+---
+
+### 2026-07-04 — Ubuntu VM Confusion — Delete & Redo Plan
+
+**Status:** 🔄 In Progress
+
+**What happened:** ubuntu-base template ကနေ VM တွေ duplicate + rename လုပ်ရာ ဘယ် VM က ဘယ် role ဆိုမသိဖြစ်ခဲ့သည်။
+
+**Decision:** Confused VM instance တွေ အားလုံး GNS3 topology ထဲကနေ delete ပြီး ubuntu-base template ကနေ ပြန် drag & drop လုပ်မည်။
+
+**Required VMs (fresh):**
+
+| VM Name | Switch | IP Plan | Role |
+|---|---|---|---|
+| bank-web | DMZ-Switch | 10.10.10.10/24, GW=10.10.10.1 | Apache2 + DVWA |
+| bank-mail | DMZ-Switch | 10.10.10.20/24, GW=10.10.10.1 | Postfix mail server |
+| teller-pc | INT-Switch | 10.20.20.10/24, GW=10.20.20.1 | Internal workstation |
+| customer-db | INT-Switch | 10.20.20.20/24, GW=10.20.20.1 | PostgreSQL |
+| aegis-forwarder | pfSense em3 direct | 10.30.30.10/24, GW=10.30.30.1 | Sensor + AEGIS agent |
+
+**How to redo:**
+```
+1. GNS3 → topology မှာ confused VMs select all → Delete
+2. Left panel → QEMU VMs → ubuntu-base → drag to canvas × 5
+3. Drop တာနဲ့ name ပေး: bank-web, bank-mail, teller-pc, customer-db, aegis-forwarder
+4. Cable ချိတ်
+5. Start all → console → netplan နဲ့ static IP set
+```
+
+**Next after VMs ready:**
+- pfSense WebGUI ဝင် → OPT1/OPT2 enable → firewall rules
+- aegis-forwarder: AEGIS agent install + configure
+
+---
+
 ## References
 
 - GNS3 docs: https://docs.gns3.com
