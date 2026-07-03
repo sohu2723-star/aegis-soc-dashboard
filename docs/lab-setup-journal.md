@@ -305,27 +305,22 @@ pfSense → BankZone(ubuntu-base)  ✓
 
 ---
 
-### [NEXT] — Expand Bank Zone
+### 2026-07-04 — Bank Zone Expansion Complete
 
-**Status:** 🔄 Pending
+**Status:** ✅ Done
 
-**What:** Clone ubuntu-base + add Ethernet switches for DMZ and INT zones
-
-**Nodes to add:**
+**Canvas state (confirmed from screenshot 00:38):**
 ```
-Ethernet Switch (DMZ) → pfSense eth1
-  └─ bank-web    (10.10.10.10)
-  └─ bank-mail   (10.10.10.20)
-
-Ethernet Switch (INT) → pfSense eth2
-  └─ teller-pc   (10.10.20.10)
-  └─ customer-db (10.10.20.20)
-
-aegis-forwarder (10.10.0.200) → pfSense eth3
+Attacker(Kali) → Internet(Cloud) → Router-1 → Router-2 → pfSense
+NAT → Router-1  ✓
+pfSense → DMZ-Switch → bank-web, bank-mail  ✓
+pfSense → INT-Switch → teller-pc, customer-db  ✓
+pfSense → aegis-forwarder (direct, eth3)  ✓
 ```
 
-**How to clone ubuntu-base in GNS3:**
-- ubuntu-base-1 right-click → Duplicate → rename each clone
+**Remaining issue:** "Invalid name detected for this node: Bank Zone" — hidden node with space in name. Fix: scroll canvas → find node → right-click → Change hostname → `bankzone`
+
+**Topology COMPLETE — all nodes placed and linked**
 
 ---
 
