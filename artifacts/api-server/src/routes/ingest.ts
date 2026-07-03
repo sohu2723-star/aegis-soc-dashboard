@@ -234,8 +234,8 @@ router.post("/ingest/ssh", auth, async (req, res) => {
     // SSH brute force — create event on first attempt and every 5th failure
     // (avoids flooding but keeps dashboard responsive on first hit)
     if (failCount === 1 || failCount % 5 === 0) {
-      const severity = failCount >= 10 ? "high" : "medium";
-      await insertEvent({
+      const severity = failCount >= 5 ? "high" : "medium";
+      const event = await insertEvent({
         type:"network_attack", subtype:"SSH Brute Force",
         severity,
         sourceIp: src_ip ?? "unknown", targetHost:"ubuntu-server",
@@ -243,6 +243,9 @@ router.post("/ingest/ssh", auth, async (req, res) => {
         description:`SSH brute force from ${src_ip} — ${failCount} failed attempt(s) for user '${username ?? "?"}'`,
         status:"detected", layer:"perimeter",
       });
+      if (severity === "high") {
+        await mkAlert(event.id, "high", `SSH BRUTE FORCE: ${src_ip} — ${failCount} failures targeting '${username ?? "?"}'`);
+      }
     }
   }
 
