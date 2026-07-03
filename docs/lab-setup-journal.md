@@ -194,25 +194,115 @@ sudo virsh domblklist ubuntu22.04 # → /var/lib/libvirt/images/ubuntu22.04.qcow
 
 ---
 
-### [PENDING] — KVM VMs Import into GNS3
+### 2026-07-03 — Disk Space Check
 
-**Status:** ⏳ Not Started
+**Status:** ✅ Done
 
-**What:** Add Kali, linux2024, ubuntu22.04 as QEMU VMs in GNS3
+**Result:** Only 17% disk used — sufficient space to copy all VM images.
 
-**Important:** Must copy (not just point to) qcow2 files into GNS3 images folder — GNS3 uses linked clones from this location.
+---
 
-**How:**
+### 🔄 IN PROGRESS — KVM VMs Copy to GNS3 + Import
+
+**Status:** 🔄 In Progress (copy command running)
+
+**What:** Copy existing KVM qcow2 images into GNS3 QEMU images folder, then add each as a QEMU VM template in GNS3.
+
+**Why copy instead of point directly:** GNS3 creates linked clones from its own images folder. Pointing to `/var/lib/libvirt/images/` directly risks file conflicts if virt-manager also tries to access the same file.
+
+**Commands run:**
 ```bash
 sudo cp /var/lib/libvirt/images/Kali.qcow2 ~/GNS3/images/QEMU/
 sudo cp /var/lib/libvirt/images/linux2024.qcow2 ~/GNS3/images/QEMU/
 sudo cp /var/lib/libvirt/images/ubuntu22.04.qcow2 ~/GNS3/images/QEMU/
-sudo chown sithuphyo:sithuphyo ~/GNS3/images/QEMU/*.qcow2
+sudo chown $USER:$USER ~/GNS3/images/QEMU/*.qcow2
 ```
 
-Then GNS3 → Edit → Preferences → QEMU VMs → New for each VM.
+**After copy — add each VM in GNS3:**
+GNS3 → Edit → Preferences → QEMU VMs → New for each:
+
+| GNS3 Name | Disk image | RAM | Role |
+|---|---|---|---|
+| `Kali` | Kali.qcow2 | 2048 MB | Attacker |
+| `linux2024` | linux2024.qcow2 | 1024 MB | pfSense or other (TBC) |
+| `ubuntu-base` | ubuntu22.04.qcow2 | 1024 MB | Bank servers / forwarder base |
+
+**Note on linux2024:** Role not yet confirmed. Could be pfSense (FreeBSD-based) or another Linux VM. Verify after booting in GNS3.
 
 **Next:** Wire topology in GNS3 canvas
+
+---
+
+## Topology Wiring Plan (GNS3 Canvas)
+
+Once all VMs are added, wire them as follows:
+
+```
+Kali (eth0/vda) ──────────────────── R1 (ether1)
+                                      R1 (ether2) ── R2 (ether1)
+                                                      R2 (ether2) ── pfSense (WAN/vtnet0)
+                                                                      pfSense (LAN1/DMZ) ── bank-web
+                                                                      pfSense (LAN1/DMZ) ── bank-mail
+                                                                      pfSense (LAN2/INT) ── teller-pc
+                                                                      pfSense (LAN2/INT) ── customer-db
+                                                                      pfSense (LAN0/MGMT) ── aegis-forwarder
+```
+
+**GNS3 wiring steps:**
+1. Drag R1, R2 (MikroTik CHR) onto canvas
+2. Drag Kali, linux2024 (pfSense), ubuntu-base clones onto canvas
+3. Draw links between nodes using the cable tool
+4. Each link = one network interface on each side
+
+---
+
+## Router IP Config Plan (MikroTik CHR syntax)
+
+### R1
+```
+/ip address add address=192.168.56.1/24 interface=ether1   # Kali side
+/ip address add address=10.20.0.1/30    interface=ether2   # R2 side
+/ip route add dst-address=10.10.0.0/16 gateway=10.20.0.2
+```
+
+### R2
+```
+/ip address add address=10.20.0.2/30   interface=ether1   # R1 side
+/ip address add address=10.10.0.1/24   interface=ether2   # pfSense side
+/ip route add dst-address=192.168.56.0/24 gateway=10.20.0.1
+```
+
+### Kali Static IP
+```bash
+# /etc/network/interfaces or nmcli
+ip addr add 192.168.56.101/24 dev eth0
+ip route add default via 192.168.56.1
+```
+
+---
+
+## pfSense Config Plan
+
+| Interface | Assignment | IP |
+|---|---|---|
+| WAN (vtnet0) | R2 link | 10.10.0.254/24, GW 10.10.0.1 |
+| LAN1 / DMZ (vtnet1) | Bank Web + Mail | 10.10.10.1/24 |
+| LAN2 / Internal (vtnet2) | Teller + DB | 10.10.20.1/24 |
+
+**Suricata IPS:**
+- Install via: System → Package Manager → Suricata
+- Enable "Block Offenders" on WAN/DMZ interface
+- Syslog → 10.10.0.200:514 (AEGIS forwarder VM)
+
+---
+
+## Verification Checklist (End-to-End)
+
+- [ ] `traceroute 10.10.10.10` from Kali shows: R1 → R2 → pfSense → bank-web
+- [ ] AEGIS dashboard receives live events from forwarder
+- [ ] pfSense block event appears in dashboard after attack
+- [ ] sqlmap attack succeeds before rule, fails after rule
+- [ ] `pfctl -s info` counter increments on block
 
 ---
 
