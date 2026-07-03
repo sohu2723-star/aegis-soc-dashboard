@@ -149,17 +149,70 @@ qemu-img convert -f raw -O qcow2 chr-7.15.3.img chr-7.15.3.qcow2
 
 ---
 
-### [PENDING] — MikroTik CHR Import into GNS3 (R1 & R2)
+### 2026-07-03 — MikroTik CHR Import into GNS3 (R1 & R2)
+
+**Status:** ✅ Done
+
+**What:** Added MikroTik CHR as QEMU appliance in GNS3 — created R1 and R2
+
+**Settings used:**
+- QEMU binary: `/bin/qemu-system-x86_64` (v8.2.2)
+- RAM: 256 MB
+- Console type: telnet
+- Disk image: `/home/sithuphyo/GNS3/images/QEMU/chr-7.15.3.qcow2`
+- Network adapters: 1 (expandable later)
+
+**Result:** R1 and R2 templates visible in GNS3 QEMU VMs list ✓
+
+**Next:** Import KVM VMs into GNS3
+
+---
+
+### 2026-07-03 — KVM VM Disk Paths Found
+
+**Status:** ✅ Done
+
+**What:** Located existing virt-manager VM disk images
+
+**How:**
+```bash
+sudo virsh domblklist Kali       # → /var/lib/libvirt/images/Kali.qcow2
+sudo virsh domblklist linux2024  # → /var/lib/libvirt/images/linux2024.qcow2
+sudo virsh domblklist ubuntu22.04 # → /var/lib/libvirt/images/ubuntu22.04.qcow2
+```
+
+**VM disk paths:**
+| VM Name | Disk Path | Role (assumed) |
+|---|---|---|
+| Kali | `/var/lib/libvirt/images/Kali.qcow2` | Attacker |
+| linux2024 | `/var/lib/libvirt/images/linux2024.qcow2` | pfSense or other (TBC) |
+| ubuntu22.04 | `/var/lib/libvirt/images/ubuntu22.04.qcow2` | Blue Team base VM |
+
+**Note:** `linux2024` OS role not yet confirmed — need to verify if pfSense or Linux.
+
+**Next:** Copy/link qcow2 files to GNS3 images folder, then add as QEMU VMs in GNS3
+
+---
+
+### [PENDING] — KVM VMs Import into GNS3
 
 **Status:** ⏳ Not Started
 
-**What:** Add MikroTik CHR as QEMU appliance in GNS3, create R1 and R2
+**What:** Add Kali, linux2024, ubuntu22.04 as QEMU VMs in GNS3
 
-**How:** GNS3 → Edit → Preferences → QEMU VMs → New:
-- Name: `R1`, RAM: 256MB, Disk: `chr-7.15.3.qcow2`
-- Repeat for `R2` (same image, different name)
+**Important:** Must copy (not just point to) qcow2 files into GNS3 images folder — GNS3 uses linked clones from this location.
 
-**Next:** Import KVM VMs (Kali, pfSense, Ubuntu) into GNS3
+**How:**
+```bash
+sudo cp /var/lib/libvirt/images/Kali.qcow2 ~/GNS3/images/QEMU/
+sudo cp /var/lib/libvirt/images/linux2024.qcow2 ~/GNS3/images/QEMU/
+sudo cp /var/lib/libvirt/images/ubuntu22.04.qcow2 ~/GNS3/images/QEMU/
+sudo chown sithuphyo:sithuphyo ~/GNS3/images/QEMU/*.qcow2
+```
+
+Then GNS3 → Edit → Preferences → QEMU VMs → New for each VM.
+
+**Next:** Wire topology in GNS3 canvas
 
 ---
 
