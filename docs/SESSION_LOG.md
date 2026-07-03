@@ -12,23 +12,25 @@
 | **Dashboard** | https://aegis-soc-dashboard.vercel.app |
 | **API Server** | https://aegis-api-server-jp3b.onrender.com |
 | **Database** | Supabase (PostgreSQL) |
-| **Ubuntu VM IP** | `192.168.122.225` |
-| **Kali Linux** | Attacker VM (KVM guest) |
-| **Forwarder** | `/opt/aegis_forwarder.py` on Ubuntu VM |
+| **Ubuntu VM IP** | `192.168.84.130` |
+| **Kali Linux IP** | `192.168.84.135` |
+| **Forwarder path** | `/opt/aegis_forwarder.py` on Ubuntu VM |
 
 ---
 
 ## Architecture
 
 ```
-Kali Linux (attacker)
-    │  nmap / hydra / sqlmap
+Kali Linux (192.168.84.135) — attacker
+    │  nmap / hydra / sqlmap / nikto
     ▼
-Ubuntu VM (defender)
+Ubuntu VM (192.168.84.130) — defender
     ├── Suricata IDS/IPS  (/var/log/suricata/eve.json)
     ├── Snort IDS          (/var/log/snort/alert)
     ├── Fail2ban           (/var/log/fail2ban.log)
     ├── Cowrie Honeypot    (/var/log/cowrie/cowrie.json)
+    ├── SSH auth.log       (/var/log/auth.log)
+    ├── vsftpd             (/var/log/vsftpd.log)
     └── aegis_forwarder.py ──→ API Server (Render)
                                         │
                                         ▼
@@ -40,173 +42,18 @@ Ubuntu VM (defender)
 
 ---
 
-## Session 1 — Project Bootstrap
+## Forwarder Thread Map
 
-### What was built
-- Monorepo setup: `artifacts/aegis-dashboard` (React + Vite) + `artifacts/api-server` (Express)
-- Supabase schema: `hosts`, `security_events`, `alerts`, `system_status` tables
-- Orval OpenAPI codegen for typed API client
-- Deployed: Vercel (frontend) + Render (API)
-
-### Key files created
-- `artifacts/api-server/src/routes/network.ts` — host registration + heartbeat
-- `artifacts/api-server/src/routes/alerts.ts` — alert ingestion + SSE
-- `artifacts/api-server/src/routes/system.ts` — service health
-- `artifacts/aegis-dashboard/src/pages/` — Network Monitor, Defense Center, Active Alerts
-- `scripts/src/aegis_forwarder.py` — Ubuntu forwarder script
-
----
-
-## Session 2 — Real-time Features
-
-### Features added
-- **Network Monitor** — online/offline auto-detection via heartbeat
-- **Defense Center** — Suricata/Snort/Fail2ban/Cowrie service health cards
-- **Active Alerts** — enriched alert display with LEFT JOIN security_events
-- **SSE (Server-Sent Events)** — real-time push to dashboard without polling
-
-### Bug fixes
-| Bug | Root Cause | Fix |
-|-----|-----------|-----|
-| `window.confirm()` silently blocked | Cross-origin iframe (Vercel/Replit preview) blocks `window.confirm()` | Replaced with shadcn `AlertDialog` in `network.tsx` + `reports.tsx` |
-| Host goes ONLINE then never OFFLINE | Auto-timeout was 90s, too long | Reduced heartbeat 60s→15s, timeout 90s→45s |
-| Forwarder stop doesn't mark OFFLINE | No shutdown handler | Added `SIGINT/SIGTERM` handler → sends `status: offline` immediately |
-| Service status SSE not updating UI | Query key mismatch: used `["system-status"]` instead of Orval-generated key | Fixed to `getGetSystemStatusQueryKey()` |
-| `sanitizeIp` throwing on invalid IP | No try/catch | Wrapped in try/catch in `network.ts` |
-
-### Commands run on Ubuntu VM
-```bash
-# Start forwarder (all modes)
-sudo python3 /opt/aegis_forwarder.py --mode all
-
-# Check service health
-systemctl status suricata
-systemctl status snort
-systemctl status fail2ban
-```
-
----
-
-## Session 3 — Suricata Fix & Attack Testing (2026-07-03)
-
-### Problem
-Suricata installed but failing to start — `status=1/FAILURE`, restart loop
-
-### Diagnosis steps
-```bash
-journalctl -xeu suricata --no-pager | tail -20
-ip link show | grep -E "^[0-9]" | awk '{print $2}'
-sudo suricata -T -c /etc/suricata/suricata.yaml
-```
-
-### Fix
-```bash
-# 1. Check interface name (was eth0 in config, actual = enp1s0)
-ip link show
-
-# 2. Edit suricata.yaml — change interface
-sudo nano /etc/suricata/suricata.yaml
-# Find: af-packet → interface: eth0
-# Change to: interface: enp1s0
-
-# 3. Update rules (ET SCAN rules needed for nmap detection)
-sudo suricata-update
-sudo systemctl restart suricata
-
-# 4. Verify
-sudo systemctl status suricata
-# → should show: active (running)
-```
-
-### Current lab status (2026-07-03 04:50)
-| Service | Status | Notes |
-|---------|--------|-------|
-| Suricata IDS/IPS | ✅ ONLINE | Showing in Defense Center |
-| Snort IDS | ✅ ONLINE | Showing in Defense Center |
-| Fail2ban | ❌ OFFLINE | Not started |
-| Cowrie Honeypot | ❌ OFFLINE | Not installed/started |
-| ModSecurity WAF | ❓ UNKNOWN | Not configured |
-| Forwarder | ✅ Running | Connected to Render API |
-
-### Attack test — nmap from Kali
-```bash
-# Kali မှာ run
-nmap -sS 192.168.122.225
-nmap -sS -sV -O -A -p 1-65535 192.168.122.225
-
-# Result: "All 1000 scanned ports are in ignored states (reset)"
-# → Suricata/Snort running ဖြစ်ပေမဲ့ dashboard မှာ alert မပေါ်
-```
-
-### Why alerts not appearing — checklist
-```bash
-# Ubuntu မှာ ဒီ commands run ပါ
-
-# 1) Suricata eve.json မှာ entries ရှိလား
-sudo tail -f /var/log/suricata/eve.json
-
-# 2) Snort alert log ကြည့်
-sudo tail -20 /var/log/snort/alert
-
-# 3) Forwarder process + mode စစ်
-ps aux | grep aegis_forwarder
-
-# 4) ET SCAN rules loaded ဆိုတာ စစ်
-ls /etc/suricata/rules/ | grep -i "scan\|emerging"
-```
-
-### Probable root cause
-ET SCAN Nmap detection rules မ load ဖြစ်ဘဲ Suricata က nmap scan ကို detect မလုပ်နိုင်
-```bash
-# Fix
-sudo suricata-update           # ET rules download + install
-sudo systemctl restart suricata
-sudo tail -f /var/log/suricata/eve.json &   # live watch
-nmap -sS 192.168.122.225                    # trigger scan
-# → eve.json မှာ alert entries ပါလာရမည် → dashboard Active Alerts မှာ ပေါ်မည်
-```
-
-### Quick pipeline test (Suricata မလိုဘဲ)
-```bash
-# API ကို curl တိုက်ရိုက် POST → dashboard ချက်ချင်းပြမည်
-curl -X POST https://aegis-api-server-jp3b.onrender.com/api/ingest/snort \
-  -H "Content-Type: application/json" \
-  -H "X-AEGIS-Key: $AEGIS_KEY" \
-  -d '{
-    "src_ip": "192.168.122.100",
-    "dst_ip": "192.168.122.225",
-    "alert": "ET SCAN Nmap Scripting Engine User-Agent Detected",
-    "severity": "high",
-    "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"
-  }'
-```
-
----
-
-## Forwarder Quick Reference
-
-### Start forwarder
-```bash
-cd /opt
-sudo python3 aegis_forwarder.py --mode all
-```
-
-### Environment variables required
-```bash
-export AEGIS_URL="https://aegis-api-server-jp3b.onrender.com/api"
-export AEGIS_KEY="your-ingest-key-here"
-```
-
-### What forwarder does
-| Thread | Source | API Endpoint |
-|--------|--------|-------------|
-| `watch_suricata` | `/var/log/suricata/eve.json` | `POST /api/ingest/suricata` |
-| `watch_snort` | `/var/log/snort/alert` | `POST /api/ingest/snort` |
-| `watch_fail2ban` | `/var/log/fail2ban.log` | `POST /api/ingest/fail2ban` |
-| `watch_cowrie` | `/var/log/cowrie/cowrie.json` | `POST /api/ingest/cowrie` |
-| `watch_ssh` | `/var/log/auth.log` | `POST /api/ingest/ssh` |
-| `heartbeat_loop` | every 15s | `POST /api/network/hosts` |
-| `service_health_loop` | every 30s | `POST /api/system/status` |
+| Thread | Log Source | API Endpoint | Triggers When |
+|--------|-----------|-------------|---------------|
+| `watch_suricata` | `/var/log/suricata/eve.json` | `POST /api/ingest/suricata` | Suricata alert fires |
+| `watch_snort` | `/var/log/snort/alert` | `POST /api/ingest/snort` | Snort rule match |
+| `watch_fail2ban` | `/var/log/fail2ban.log` | `POST /api/ingest/fail2ban` | IP banned |
+| `watch_cowrie` | `/var/log/cowrie/cowrie.json` | `POST /api/ingest/cowrie` | Honeypot connection |
+| `watch_ssh` | `/var/log/auth.log` | `POST /api/ingest/ssh` | SSH failed/success login |
+| `watch_ftp` | `/var/log/vsftpd.log` | `POST /api/ingest/ftp` | FTP login/transfer |
+| `heartbeat_loop` | every 15s | `POST /api/network/hosts` | Always — keeps host ONLINE |
+| `service_health_loop` | every 30s | `POST /api/system/status` | Reports service up/down |
 
 ---
 
@@ -218,71 +65,373 @@ export AEGIS_KEY="your-ingest-key-here"
 | `PATCH` | `/api/network/hosts/:ip/online` | Mark host online |
 | `PATCH` | `/api/network/hosts/:ip/offline` | Mark host offline |
 | `GET` | `/api/network/hosts` | List all hosts |
-| `GET` | `/api/network/hosts/sse` | SSE stream for host changes |
+| `GET` | `/api/network/hosts/sse` | SSE real-time host changes |
 | `POST` | `/api/ingest/suricata` | Ingest Suricata alert |
+| `POST` | `/api/ingest/suricata/tls` | Ingest Suricata TLS event |
 | `POST` | `/api/ingest/snort` | Ingest Snort alert |
 | `POST` | `/api/ingest/fail2ban` | Ingest Fail2ban ban event |
 | `POST` | `/api/ingest/cowrie` | Ingest Cowrie honeypot event |
+| `POST` | `/api/ingest/ssh` | Ingest SSH auth event |
+| `POST` | `/api/ingest/ftp` | Ingest FTP session event |
 | `POST` | `/api/system/status` | Update service health |
 | `GET` | `/api/system/status` | Get service health |
-| `GET` | `/api/system/sse` | SSE stream for service changes |
+| `GET` | `/api/system/sse` | SSE real-time service changes |
 | `GET` | `/api/alerts` | List active alerts |
-| `GET` | `/api/alerts/sse` | SSE stream for new alerts |
+| `GET` | `/api/alerts/sse` | SSE real-time new alerts |
 
 ---
 
+## Session 1 — Project Bootstrap
+
+### What was built
+- Monorepo: `artifacts/aegis-dashboard` (React + Vite) + `artifacts/api-server` (Express)
+- Supabase schema: `hosts`, `security_events`, `alerts`, `system_status` tables
+- Orval OpenAPI codegen for typed API client
+- Deployed: Vercel (frontend) + Render (API)
+
 ---
 
-## Session 4 — Defender Self-Block Bug Fix (2026-07-03 10:10)
+## Session 2 — Real-time Features
+
+### Features added
+- **Network Monitor** — online/offline via heartbeat (15s interval, 45s timeout)
+- **Defense Center** — service health cards (Suricata/Snort/Fail2ban/Cowrie)
+- **Active Alerts** — enriched alert display with LEFT JOIN security_events
+- **SSE** — Server-Sent Events real-time push to dashboard
+
+### Bug fixes
+
+| Bug | Root Cause | Fix |
+|-----|-----------|-----|
+| `window.confirm()` silently fails | Cross-origin iframe blocks dialogs | Replaced with shadcn `AlertDialog` |
+| Host stuck ONLINE after forwarder stop | Auto-timeout too long (90s) | Heartbeat 60s→15s, timeout 90s→45s |
+| No OFFLINE signal on script stop | No shutdown handler | Added SIGINT/SIGTERM → sends `status: offline` |
+| Service status SSE not updating UI | Wrong query key `["system-status"]` | Fixed to `getGetSystemStatusQueryKey()` (Orval) |
+| `sanitizeIp` throwing on invalid IP | No try/catch | Wrapped in try/catch in `network.ts` |
+
+---
+
+## Session 3 — Suricata Fix (2026-07-03)
+
+### Problem
+Suricata installed but failing to start — exit-code status=1/FAILURE, restart loop
+
+### Diagnosis commands (Ubuntu)
+```bash
+journalctl -xeu suricata --no-pager | tail -20
+ip link show | grep -E "^[0-9]" | awk '{print $2}'
+sudo suricata -T -c /etc/suricata/suricata.yaml
+```
+
+### Fix — interface name mismatch
+```bash
+# 1. Check actual interface name
+ip link show
+# Result: enp1s0 (NOT eth0 as configured)
+
+# 2. Fix suricata.yaml
+sudo nano /etc/suricata/suricata.yaml
+# Find: af-packet section → interface: eth0
+# Change to: interface: enp1s0
+
+# 3. Update ET rules
+sudo suricata-update
+
+# 4. Restart
+sudo systemctl restart suricata
+sudo systemctl status suricata   # should show: active (running)
+```
+
+---
+
+## Session 4 — Defender Self-Block Bug (2026-07-03 10:10)
 
 ### What was observed
-- Dashboard Telemetry: `192.168.84.130 → 216.24.57.8/9 [Suspicious TLS]` — repeated flood
-- Forwarder log: `SURICATA/TLS → AEGIS` every few seconds
-- Command Center: `BLOCK_IP 192.168.84.130` queued (AUTO, QUEUED status) — defender being blocked!
-- Kali nmap worked: ports 21/22/80 open on `192.168.84.130`
-
-### Root cause
 ```
-Ubuntu VM (192.168.84.130)
-    │ forwarder sends heartbeat/events to Render API via HTTPS
-    ▼
-Render servers (216.24.57.8, 216.24.57.9)
-         ↑
-Suricata detects this OUTBOUND TLS connection
-→ Python requests TLS fingerprint triggers ET rules → "Suspicious TLS"
-→ auto-defense engine sees src_ip = 192.168.84.130 (our own VM)
-→ queues BLOCK_IP 192.168.84.130   ← defender blocking itself!
+Dashboard Telemetry: 192.168.84.130 → 216.24.57.8 [Suspicious TLS]  ← flood
+Command Center:      BLOCK_IP 192.168.84.130  ← defender blocking itself!
+Kali nmap result:    ports 21/22/80 open on 192.168.84.130 (nmap working)
 ```
 
-### Fixes applied
+### Root cause explained
+```
+Ubuntu forwarder (192.168.84.130)
+    │  sends HTTPS/TLS to Render API (216.24.57.8)
+    │
+    ↓ Suricata sees this OUTBOUND connection
+    → Python requests library TLS fingerprint triggers ET rules
+    → "Suspicious TLS" event with src_ip = 192.168.84.130
+    → Auto-defense engine mistakes defender VM for attacker
+    → Queues BLOCK_IP 192.168.84.130   ← catastrophic self-block
+```
 
-**Fix 1 — auto-defense.ts: RFC1918 IP whitelist**
-Added `isDefenderIp()` check at top of `evaluateEvent()`:
-- Any `src_ip` in `10.x.x.x`, `172.16-31.x.x`, `192.168.x.x`, `127.x.x.x` → skip auto-defense
-- Log: `[AutoDefense] Skipped — defender IP x.x.x.x is whitelisted (RFC1918)`
+### Fixes applied (code)
 
-**Fix 2 — ingest.ts: Outbound TLS from defender = benign**
-Added `isPrivateIp()` helper + check in `/ingest/suricata/tls`:
-- If `src_ip` is private → log to encrypted_traffic table (for telemetry) but NO alert, NO auto-defense
-- Returns `{ isSuspicious: false, skipped: "outbound_from_defender" }`
-- Genuine suspicious TLS (from external attackers with bad certs) still alerts normally
+**Fix 1 — `artifacts/api-server/src/lib/ip-classifier.ts` (NEW shared utility)**
+```typescript
+// Strict RFC1918 + loopback + link-local classifier
+// IPv4: 10/8, 172.16/12, 192.168/16, 127/8, 169.254/16
+// IPv6: ::1, fc00::/7, fe80::/10, ::ffff: mapped
+export function isDefenderIp(ip: string | null | undefined): boolean
+```
+
+**Fix 2 — `artifacts/api-server/src/lib/auto-defense.ts`**
+```typescript
+// Added at top of evaluateEvent():
+if (isDefenderIp(event.sourceIp)) {
+    console.log(`[AutoDefense] Skipped — defender IP whitelisted`);
+    return;
+}
+// → Private IPs never trigger auto-defense rules
+```
+
+**Fix 3 — `artifacts/api-server/src/routes/ingest.ts` (/ingest/suricata/tls)**
+```typescript
+// Outbound TLS from defender = log only, no alert
+if (isDefenderIp(src_ip)) {
+    // store in encrypted_traffic table (for telemetry view)
+    // but NO security_event, NO alert, NO auto-defense
+    return res.json({ isSuspicious: false, skipped: "outbound_from_defender" });
+}
+```
 
 ### Result
-- Ubuntu VM will no longer be auto-blocked
-- Forwarder→Render outbound TLS = silently logged only
-- Real external attacker TLS with weak/expired/self-signed certs = still alerts
+- Ubuntu VM (`192.168.84.130`) → never auto-blocked again
+- Forwarder→Render outbound TLS → silently logged for telemetry only
+- Real external attacker TLS (weak/self-signed cert) → still alerts normally
+
+---
+
+## Session 5 — Attack Testing & SSH Bug Fix (2026-07-03 10:30–11:00)
+
+### Attack attempts log
+
+#### Attempt 1 — nmap (failed to appear in dashboard)
+```bash
+# Kali
+nmap -sS 192.168.84.130           # SYN scan
+nmap -sS -T4 192.168.84.130       # Fast SYN scan
+
+# Result: ports 21/22/80 open, but no dashboard alert
+# Root cause: ET SCAN rules not loaded in Suricata
+# Fix needed:
+sudo suricata-update
+sudo systemctl restart suricata
+```
+
+#### Attempt 2 — Suricata eve.json check (typo found)
+```bash
+# WRONG (typed by mistake)
+tail -f /var/log/suricata/ece.json   # ← ece not eve
+
+# CORRECT
+tail -f /var/log/suricata/eve.json
+
+# If eve.json not created → enable in config
+sudo nano /etc/suricata/suricata.yaml
+# outputs: → eve-log: → enabled: yes
+sudo systemctl restart suricata
+ls /var/log/suricata/eve.json        # should appear now
+```
+
+#### Attempt 3 — FTP Brute Force with Hydra (failed — rockyou missing)
+```bash
+# Kali — WRONG (rockyou.txt not extracted)
+hydra -l ftp -P /usr/share/wordlists/rockyou.txt ftp://192.168.84.130
+
+# Error: [ERROR] File for passwords not found: /usr/share/wordlists/rockyou.txt
+# Fix:
+sudo gunzip /usr/share/wordlists/rockyou.txt.gz
+
+# Retry
+hydra -l ftp -P /usr/share/wordlists/rockyou.txt ftp://192.168.84.130 -t 4 -V
+```
+
+**Why FTP still won't show in dashboard:**
+- `vsftpd` does NOT log failed logins by default
+- `/var/log/vsftpd.log` stays empty during brute force
+- Forwarder's `watch_ftp` has no data to send
+- **Fix:** Enable vsftpd logging (see below)
+
+#### Attempt 4 — SSH Brute Force with Hydra (working at OS level, bug in API)
+```bash
+# Kali — mini password list (rockyou alternative)
+echo -e "password\n123456\nadmin\nroot\ntest\nqwerty\nletmein" > /tmp/pass.txt
+
+# SSH brute force
+hydra -l root -P /tmp/pass.txt ssh://192.168.84.130 -t 4 -V
+# OR single password:
+hydra -l root -p password ssh://192.168.84.130 -t 4 -V
+hydra -l root -p 123456 ssh://192.168.84.130 -t 4 -V
+```
+
+**Ubuntu — auth.log showed attacks arriving:**
+```bash
+sudo tail -f /var/log/auth.log | grep "Failed password"
+# Output:
+# Jul 3 10:50:14 sithu sshd[5800]: Failed password for root from 192.168.84.135 port 42290 ssh2
+# Jul 3 10:50:30 sithu sshd[5806]: Failed password for root from 192.168.84.135 port 40000 ssh2
+```
+
+**But dashboard Security Events = empty**
+
+### Bug found — SSH ingest handler (success-only)
+
+```typescript
+// OLD broken code in /ingest/ssh
+if (st === "success") {          // only success created an event
+    insertEvent(...)             // failed login → ssh_sessions only, not shown
+}
+
+// NEW fixed code
+if (st === "failed" && (failCount === 1 || failCount % 5 === 0)) {
+    insertEvent({
+        type: "network_attack",
+        subtype: "SSH Brute Force",
+        severity: failCount >= 10 ? "high" : "medium",
+        description: `SSH brute force from ${src_ip} — ${failCount} failed attempts`
+    })
+}
+```
+
+**Fix:** First failed login AND every 5th failure → creates security event in dashboard
+
+### Forwarder process check (Ubuntu)
+```bash
+# Check how many instances running
+ps aux | grep aegis_forwarder | grep -v grep
+# Found: 3 instances running (should be 1)
+
+# Fix — kill all, restart one
+pkill -f aegis_forwarder
+sleep 2
+sudo python3 /opt/aegis_forwarder.py --mode all
+```
+
+### Confirmed working pipeline (Ubuntu)
+```bash
+# Verify: forwarder running
+ps aux | grep aegis_forwarder | grep -v grep
+
+# Verify: auth.log capturing SSH attempts
+sudo tail -f /var/log/auth.log | grep "Failed password"
+
+# Verify: Suricata running
+sudo systemctl status suricata
+```
+
+---
+
+## Optional Fix — vsftpd Logging (FTP attacks)
+
+To make FTP brute force appear in dashboard:
+```bash
+# Ubuntu — enable vsftpd logging
+sudo nano /etc/vsftpd.conf
+
+# Add/enable these lines:
+# xferlog_enable=YES
+# log_ftp_protocol=YES
+# vsftpd_log_file=/var/log/vsftpd.log
+
+sudo systemctl restart vsftpd
+
+# Verify
+tail -f /var/log/vsftpd.log
+```
+
+---
+
+## Current Lab Status (2026-07-03 11:00)
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| Dashboard (Vercel) | ✅ Live | aegis-soc-dashboard.vercel.app |
+| API Server (Render) | ✅ Live | auto-deploy on git push |
+| Suricata IDS/IPS | ✅ ONLINE | Running, eve.json may need enable |
+| Snort IDS | ✅ ONLINE | Running |
+| Fail2ban | ❌ OFFLINE | Not started |
+| Cowrie Honeypot | ❌ OFFLINE | Not installed |
+| ModSecurity WAF | ❓ UNKNOWN | Not configured |
+| Forwarder | ✅ Running | `--mode all`, 1 instance |
+| Kali → Ubuntu SSH brute | ✅ Detected in auth.log | Dashboard fix deployed |
+| Kali → Ubuntu nmap | ⚠️ Partial | Needs ET SCAN rules loaded |
+| FTP brute force | ❌ Not detected | vsftpd logging not enabled |
+
+---
+
+## Code Fixes Summary (All Sessions)
+
+| Date | File | Fix | Commit |
+|------|------|-----|--------|
+| 2026-07-03 | `auto-defense.ts` | RFC1918 IP whitelist | `a5d071a` |
+| 2026-07-03 | `ingest.ts` | Outbound TLS = benign | `a5d071a` |
+| 2026-07-03 | `ip-classifier.ts` | Shared utility, IPv6 support | `5376d02` |
+| 2026-07-03 | `ingest.ts /ssh` | SSH brute force creates event | `113ee27` |
 
 ---
 
 ## Next Steps (TODO)
 
-- [ ] Load ET SCAN rules → `sudo suricata-update && sudo systemctl restart suricata`
-- [ ] Confirm: nmap from Kali now generates alerts in Security Events
-- [ ] Start: Fail2ban service on Ubuntu VM → test SSH brute-force → Fail2ban ban alert
-- [ ] Install: Cowrie honeypot → test fake SSH login
-- [ ] Deploy updated API to Render (git push → auto-deploy)
-- [ ] Document: Real IP addresses in Lab IP Reference table
+- [ ] `sudo suricata-update` → ET SCAN rules load → nmap appears in dashboard
+- [ ] Enable `eve.json` in Suricata config → `sudo nano /etc/suricata/suricata.yaml`
+- [ ] Enable vsftpd logging → FTP attacks appear
+- [ ] `sudo systemctl start fail2ban` → SSH ban event test
+- [ ] Install Cowrie honeypot → fake SSH test
+- [ ] Kali: `hydra -l root -P /usr/share/wordlists/rockyou.txt ssh://192.168.84.130` → confirm SSH alerts in dashboard
 
 ---
 
-*Last updated: 2026-07-03 (Session 4)*
+## Quick Command Reference
+
+### Ubuntu VM — Startup
+```bash
+# 1. Kill any old forwarder instances
+pkill -f aegis_forwarder ; sleep 2
+
+# 2. Start forwarder
+export AEGIS_URL="https://aegis-api-server-jp3b.onrender.com/api"
+export AEGIS_KEY="<your-ingest-key>"
+sudo -E python3 /opt/aegis_forwarder.py --mode all
+
+# 3. Verify services
+sudo systemctl status suricata snort fail2ban
+sudo tail -f /var/log/suricata/eve.json
+sudo tail -f /var/log/auth.log | grep "Failed password"
+```
+
+### Kali — Attack Commands
+```bash
+# Port scan
+nmap -sS -T4 192.168.84.130
+nmap -sS -sV -O -A -p 1-65535 192.168.84.130
+
+# SSH brute force
+echo -e "password\n123456\nadmin\nroot\ntest" > /tmp/pass.txt
+hydra -l root -P /tmp/pass.txt ssh://192.168.84.130 -t 4 -V
+
+# FTP brute force
+hydra -l ftp -P /tmp/pass.txt ftp://192.168.84.130 -t 4 -V
+
+# Web scan
+nikto -h http://192.168.84.130
+```
+
+### Pipeline Test (curl — no VM needed)
+```bash
+# Test SSH event directly to API
+curl -X POST https://aegis-api-server-jp3b.onrender.com/api/ingest/ssh \
+  -H "Content-Type: application/json" \
+  -H "X-AEGIS-Key: $AEGIS_KEY" \
+  -d '{"src_ip":"192.168.84.135","username":"root","status":"failed","failures":1}'
+
+# Test Snort/nmap event
+curl -X POST https://aegis-api-server-jp3b.onrender.com/api/ingest/snort \
+  -H "Content-Type: application/json" \
+  -H "X-AEGIS-Key: $AEGIS_KEY" \
+  -d '{"src_ip":"192.168.84.135","dst_ip":"192.168.84.130","alert":"ET SCAN Nmap","severity":"high","timestamp":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}'
+```
+
+---
+
+*Last updated: 2026-07-03 (Session 5)*
