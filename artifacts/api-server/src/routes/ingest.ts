@@ -16,6 +16,7 @@ import {
 } from "@workspace/db";
 import { broadcaster } from "../lib/broadcaster";
 import { evaluateEvent } from "../lib/auto-defense";
+import { isDefenderIp } from "../lib/ip-classifier";
 import { eq, and } from "drizzle-orm";
 
 const router = Router();
@@ -43,20 +44,6 @@ function sev(s: string): "critical" | "high" | "medium" | "low" {
   if (v === "high"     || v === "2") return "high";
   if (v === "medium"   || v === "3" || v === "warning") return "medium";
   return "low";
-}
-
-// Returns true for RFC1918 private IPs (our own defender network = outbound, not inbound attack)
-function isPrivateIp(ip: string): boolean {
-  try {
-    const parts = ip.split(".").map(Number);
-    if (parts.length !== 4 || parts.some(isNaN)) return false;
-    const [a, b] = parts;
-    if (a === 10) return true;
-    if (a === 172 && b >= 16 && b <= 31) return true;
-    if (a === 192 && b === 168) return true;
-    if (a === 127) return true;
-  } catch { /* ignore */ }
-  return false;
 }
 
 async function insertEvent(values: typeof securityEventsTable.$inferInsert) {
@@ -152,7 +139,7 @@ router.post("/ingest/suricata/tls", auth, async (req, res) => {
 
   // If src_ip is our own private/defender network making an OUTBOUND connection
   // (e.g. forwarder → Render API), treat as benign — log only, no alert/auto-defense.
-  const isOutboundFromDefender = isPrivateIp(src_ip ?? "");
+  const isOutboundFromDefender = isDefenderIp(src_ip);
   if (isOutboundFromDefender) {
     await db.insert(encryptedTrafficTable).values({
       sourceIp: src_ip ?? "unknown", destIp: dest_ip ?? "unknown",
