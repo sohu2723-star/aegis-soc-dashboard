@@ -55,6 +55,6 @@ The dashboard is **monitoring-only**. It receives real events forwarded from Ubu
 
 ## Required secrets (all must be set or server won't start)
 
-- `MYSQL_URL` — TiDB Cloud MySQL connection string
+- `SUPABASE_DB_URL` — Supabase PostgreSQL pooler connection string (port 6543, session mode)
 - `AEGIS_INGEST_KEY` — VMs authenticate ingest POST requests via `X-AEGIS-Key` header
 - `AEGIS_ADMIN_KEY` — Dashboard admin actions via `X-AEGIS-Admin-Key` header
