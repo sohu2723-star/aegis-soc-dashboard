@@ -81,6 +81,28 @@ Render free tier spins down after 15 minutes of inactivity. First request after 
 - No simulated/fake attacks — only real events from real lab VMs.
 - The dashboard monitors; the VMs do the actual attacking and defending.
 
+## Lab Setup Journal Rule (ALL AGENTS MUST FOLLOW)
+
+> `docs/lab-setup-journal.md` သည် lab setup မှတ်တမ်းစာအုပ်ဖြစ်သည်။
+
+မည်သည့် agent မဆို lab နှင့်ပတ်သက်သောအလုပ်တစ်ခုခု ပြီးဆုံးတိုင်း **ထို file ကို update လုပ်ရမည်**—
+
+1. Setup step တစ်ခု complete ဖြစ်ရင် → status `🔄 In Progress` မှ `✅ Done` ပြောင်း၊ result ရေး
+2. Error/issue တစ်ခုခု တွေ့ရင် → Troubleshooting Log section ထဲ ထည့်
+3. Setup step အသစ်တစ်ခု စမယ်ဆိုရင် → `[PENDING]` section အသစ်ထည့်
+4. Format အမြဲတမ်း အောက်ပါအတိုင်း ဖြစ်ရမည်—
+
+```
+### [Date] — [Title]
+**Status:** ✅ Done / 🔄 In Progress / ❌ Failed / ⏳ Not Started
+**What:** ဘာလုပ်ခဲ့သလဲ
+**How:** commands / steps
+**Result:** outcome
+**Next:** ဆက်လုပ်ရမည့်အဆင့်
+```
+
+ဤ journal ကို panel/judges များနှင့် project book အတွက် သုံးမည်ဖြစ်သောကြောင့် မှတ်တမ်းတင်ရေး တိကျ၊ ပြည့်စုံရမည်။
+
 ## Attack Coverage (all must be supported)
 
 - **Network attacks**: port scan, DDoS, SYN flood, ARP spoofing, ICMP flood
