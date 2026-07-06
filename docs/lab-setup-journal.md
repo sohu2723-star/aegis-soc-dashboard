@@ -1234,6 +1234,53 @@ http://10.10.10.1  →  admin / pfsense  ✅
 
 ---
 
+### 2026-07-07 — Kali → Ubuntu VM Ping Fail (Troubleshooting)
+
+**Status:** 🔄 In Progress
+
+**What:** Kali (192.168.122.132) မှ Ubuntu VMs (10.10.10.10, 10.0.23.1 etc.) ကို ping မရ
+
+**Symptom:**
+```
+From 192.168.122.132 icmp_seq=1 Destination Host Unreachable
+traceroute 10.10.10.10 → first hop: sithu (192.168.122.132) !H !H !H
+```
+
+**Route check:** `10.0.0.0/8 via 192.168.122.2 dev eth0` ✅ (route ရှိသည်)
+
+**Root cause:** "Destination Host Unreachable" **Kali ကိုယ်တိုင်** (192.168.122.132) ထွက်နေ = ARP failure — Kali က R1 (192.168.122.2) ရဲ့ MAC address ကို ARP query လုပ်သောအခါ R1 မဆိုင်ဘဲ kernel က locally unreachable ပြန်ပြောနေတာ
+
+**Possible causes (priority order):**
+1. R1 GNS3 မှာ Start မလုပ်ရသေးဘူး
+2. R1 ether1 ကို Cloud1 (vicbr0) နဲ့ topology မချိတ်ဘူး
+3. R1 ether1 မှာ 192.168.122.2/24 IP မသတ်မှတ်ဘူး
+4. pfSense WAN inbound rule မရှိဘူး (R1 ပြင်ပြီးမှ ဆက်ဖြေ)
+
+**Debug steps:**
+```bash
+# Kali မှ
+ping -c 1 192.168.122.2   # R1 direct test
+arp -n                     # MAC entry ပါလား
+
+# R1 console
+/ip address print          # ether1 = 192.168.122.2/24 ရဲ့လား
+```
+
+**Fix (R1 IP မပါရင်):**
+```routeros
+/ip address add address=192.168.122.2/24 interface=ether1
+```
+
+**Fix (pfSense WAN rule — R1 ပြင်ပြီးမှ):**
+```bash
+easyrule pass wan any 192.168.122.0/24 any
+```
+
+**Result:** ကျန်ဆောင်ရွက်ဆဲ
+**Next:** R1 status စစ်ပြီး restart/reconfigure → retest ping
+
+---
+
 ## Next Steps (ကျန်ဆောင်ရွက်ရန်)
 
 - [x] pfSense factory reset + reconfigure ✅
