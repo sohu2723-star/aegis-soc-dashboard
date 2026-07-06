@@ -1284,8 +1284,24 @@ arp -n output:
 ```
 → Kali network OK (192.168.122.1 reach ရ), R1 ether1 ARP respond မလုပ်ဘူး confirmed
 
-**Result:** R1 not running or ether1 unconfigured — fix pending
-**Next:** GNS3 မှာ R1 Start → `/ip address add address=192.168.122.2/24 interface=ether1` → retest
+**Root cause confirmed (03:45) — Duplicate connected route:**
+R1 route table မှ ether1 နှင့် ether2 နှစ်ခုလုံး 192.168.122.0/24 ပေါ်ရှိနေသည်:
+```
+DAc+  192.168.122.0/24   ether2   0   ← NAT cloud DHCP (192.168.122.135)
+DAc+  192.168.122.0/24   ether1   0   ← Cloud1/Kali (192.168.122.2)
+```
+Cloud1 (vicbr0) + GNS3 NAT cloud နှစ်ခုလုံး host libvirt bridge (192.168.122.0/24) ကိုသုံးသောကြောင့် subnet ထပ်နေသည်
+→ Kali ARP request ကို MikroTik က ether2 မှ ပြန်ဆိုသောကြောင့် Kali မမြင်ဘဲ incomplete ဖြစ်နေသည်
+
+**Fix:**
+```routeros
+/ip dhcp-client disable numbers=0
+/ip address remove [find interface=ether2]
+```
+ether2 IP ဖယ်ရှားလိုက်ခြင်းဖြင့် duplicate route ပျောက်ကွယ်သည်
+
+**Result:** fix pending
+**Next:** ether2 disable → ping -c 2 192.168.122.2 retest
 
 ---
 
