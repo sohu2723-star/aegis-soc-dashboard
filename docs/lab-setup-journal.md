@@ -1126,17 +1126,127 @@ ip a show ens3
 
 ---
 
+---
+
+### 2026-07-06 — pfSense WebGUI Port Discovery
+
+**Status:** ✅ Fixed
+
+**Problem:** Firefox → `https://10.10.10.1` = "Connection timed out"
+
+**Root cause:** pfSense WebGUI listen on **port 80 (HTTP)** only — not 443 (HTTPS)
+
+**Verified with:**
+```bash
+sockstat -l | grep -E "80|443"
+# Output: nginx *:80 *:*   (port 80 only)
+```
+
+**Fix:** Use `http://10.10.10.1` (not https)
+
+---
+
+### 2026-07-06 — pfSense WebGUI 502 Bad Gateway Fix
+
+**Status:** ✅ Fixed (repeatable fix)
+
+**Problem:** `502 Bad Gateway` from nginx
+
+**Cause:** PHP-FPM backend process crashed
+
+**Fix (pfSense console):**
+```
+Option 16 → Restart PHP-FPM   (wait 15s)
+Option 11 → Restart webConfigurator (wait 15s)
+```
+
+**Note:** This happens whenever pfSense is under load or after shell commands that modify config. If WebGUI returns 502, always run Option 16 → Option 11 first.
+
+---
+
+### 2026-07-06 — pfSense Admin Password Reset — All Methods Failed
+
+**Status:** ✅ Resolved via Factory Reset
+
+**Timeline of failed attempts:**
+- Option 3 "Reset webConfigurator password" → ran but password still rejected
+- `pfSsh.php playback changepassword` → "Invalid playback file" (wrong name)
+- `pfSsh.php playback changepassword` → ran but unknown password set
+- PHP one-liner with `$config` → "Undefined variable" error
+- Option 12 PHP shell `local_user_set_password` → ran without error but still rejected
+
+**Root cause:** Unknown — likely config.xml write succeeded but nginx/PHP-FPM cache still served old hash
+
+**Final fix:** Option 4 Factory Reset → password reset to `pfsense` guaranteed ✅
+
+**Lesson:** If password reset methods fail after 2-3 attempts → go straight to Factory Reset. Interface config can be redone in 10 minutes (all commands documented).
+
+---
+
+### 2026-07-07 — pfSense Factory Reset + Full Reconfiguration
+
+**Status:** ✅ Complete — WebGUI accessible at `http://10.10.10.1`
+
+**Steps performed:**
+
+**1. Factory Reset**
+```
+Option 4 → y
+```
+
+**2. Interface Assign (Option 1)**
+```
+VLANs: n
+WAN  → em0
+LAN  → em1
+OPT1 → em2
+OPT2 → em3
+Proceed: y
+```
+
+**3. IP Addresses (Option 2)**
+```
+WAN  (1): Static 10.0.23.2/30, gateway 10.0.23.1
+LAN  (2): 10.10.10.1/24, DHCP 100-200, HTTP webGUI: y
+OPT1 (3): 10.20.20.1/24, DHCP 100-200
+OPT2 (4): 10.30.30.1/24, DHCP 100-200
+```
+
+**4. Firewall Rules (Option 8 Shell)**
+```bash
+easyrule pass lan  any 10.10.10.0/24 any
+easyrule pass opt1 any 10.20.20.0/24 any
+easyrule pass opt2 any 10.30.30.0/24 any
+```
+
+**5. WebGUI Fix**
+```
+Option 16 → Restart PHP-FPM
+Option 11 → Restart webConfigurator
+```
+
+**Result:**
+```
+http://10.10.10.1  →  admin / pfsense  ✅
+```
+
+**Quirk:** "Killed" message during Option 2 WAN config = NORMAL. pfSense kills DHCP processes when switching to static. System auto-restarts.
+
+---
+
 ## Next Steps (ကျန်ဆောင်ရွက်ရန်)
 
-- [x] pfSense firewall rules (easyrule) ✅
+- [x] pfSense factory reset + reconfigure ✅
+- [x] pfSense WebGUI accessible ✅ (`http://10.10.10.1`)
 - [x] aegis-forwarder static IP 10.30.30.10 ✅
-- [x] bank-web static IP 10.10.10.10 (netplan apply ပြီး)
+- [x] bank-web static IP 10.10.10.10 ✅
+- [ ] pfSense WebGUI: password ပြောင်း
+- [ ] pfSense WebGUI: OPT1/OPT2 interfaces Enable
+- [ ] pfSense WebGUI: permanent firewall rules
+- [ ] Kali → Ubuntu VMs routing (route + pfSense WAN rule)
 - [ ] bank-mail static IP 10.10.10.20
 - [ ] teller-pc static IP 10.20.20.10
 - [ ] customer-db static IP 10.20.20.20
-- [ ] pfSense WebGUI ဝင် → permanent rules + OPT1/OPT2 enable
-- [ ] pfSense WebGUI password ပြောင်း
-- [ ] Suricata IPS install
 - [ ] bank-web: Apache2 + DVWA install
 - [ ] bank-mail: Postfix + Dovecot install
 - [ ] customer-db: PostgreSQL install
