@@ -1323,8 +1323,12 @@ R1 e0  ──┘
 ```
 virbr0 တစ်ကြိမ်သာ သုံး၊ Switch မှ Kali+R1 နှစ်ခုလုံး virbr0 bridge ပေါ် ရောက်စေသည်
 
-**Result:** Fix pending
-**Next:** Ethernet Switch ထည့် → links ပြောင်း → ping -c 2 192.168.122.2 retest
+**Fix applied (04:00):** GNS3 Ethernet Switch ထည့်ပြီး topology ပြောင်း:
+- R1 e0 ဟောင်းကြိုးဖြုတ်ပြီး Switch1 e1 သို့ ချိတ်သည်
+- Final: Attacker e0 → Switch1 e0 | Switch1 e1 → R1 e0 | Switch1 e2 → Cloud1(virbr0)
+
+**Result:** ✅ Done — `ping 192.168.122.2` ရပြီ (Kali → R1 ether1 reachable)
+**Next:** `ping 10.0.12.2` (R2) → `ping 10.0.23.2` (pfSense WAN) → `ping 10.10.10.10` (bank-web)
 
 ---
 
