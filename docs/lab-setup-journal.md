@@ -1300,8 +1300,15 @@ Cloud1 (vicbr0) + GNS3 NAT cloud နှစ်ခုလုံး host libvirt bri
 ```
 ether2 IP ဖယ်ရှားလိုက်ခြင်းဖြင့် duplicate route ပျောက်ကွယ်သည်
 
-**Result:** fix pending
-**Next:** ether2 disable → ping -c 2 192.168.122.2 retest
+**Fix applied (03:48):**
+```routeros
+/ip dhcp-client disable numbers=0
+```
+→ Route table clean — 192.168.122.0/24 ether1 တစ်ကြောင်းသာ ကျန်သည် ✅
+→ GNS3 topology verified: R1 e0=ether1(Kali), e1=ether2(NAT/disabled), e2=ether3(R2) — မှန်ကန်သည် ✅
+
+**Result:** R1 route table clean, duplicate route ပျောက်ပြီ
+**Next:** Kali မှ `ping -c 2 192.168.122.2` retest → ရရင် R2/pfSense/bank-web ဆက် test
 
 ---
 
