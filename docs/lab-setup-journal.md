@@ -34,36 +34,38 @@
 
 ---
 
-## Lab Topology (Final — Confirmed 2026-07-04)
+## Lab Topology (Final — Confirmed & Verified 2026-07-07)
+
+> ✅ Kali → R1 → R2 → pfSense → bank-web full path verified working on 2026-07-07
 
 ```
-[Kali Linux / Attacker]
-  e0 → 192.168.122.132/24 (vicbr0 / Cloud1)
-         │
-    [Cloud1 - vicbr0]   ← visual "Internet" on canvas
-         │ enp1s0
+[Kali Linux / Attacker]  192.168.122.132/24
+         │ e0
+    [Switch1 (GNS3 Ethernet Switch)]   ← Added 2026-07-07 (Cloud1 port fix)
+         │ e1                  │ e2
+    [Router-1 ether1]    [Cloud1 (virbr0)]  ← visual "Internet" / L2 bridge
+    192.168.122.2/24
+
     [Router-1 - MikroTik CHR 7.15.3]
-      ether1: 192.168.122.2/24    ← Attacker side
-      ether2: 192.168.122.135/24  ← NAT cloud (DHCP) / internet out
-      ether3: 10.0.12.1/30        ← Router-2 link
+      ether1 (e0): 192.168.122.2/24    ← Attacker/Switch1 side ✅
+      ether2 (e1): DHCP DISABLED       ← NAT cloud (disabled 2026-07-07 — duplicate route fix)
+      ether3 (e2): 10.0.12.1/30        ← Router-2 link ✅
          │ ether3
     [Router-2 - MikroTik CHR 7.15.3]
-      ether1: 10.0.12.2/30        ← Router-1 link
-      ether2: 10.0.23.1/30        ← pfSense WAN link
+      ether1 (e0): 10.0.12.2/30        ← Router-1 link ✅
+      ether2 (e1): 10.0.23.1/30        ← pfSense WAN link ✅
          │ ether2
-    [pfSense]
-      e0 / WAN:  10.0.23.2/30,  GW=10.0.23.1
-      e1 / DMZ:  10.10.10.1/24
-      e2 / INT:  10.20.20.1/24
-      e3 / MGMT: 10.30.30.1/24
+    [pfSense 2.7.2 CE]
+      em0 / WAN:  10.0.23.2/30,  GW=10.0.23.1   ← Block private = DISABLED ✅
+      em1 / LAN:  10.10.10.1/24  (DHCP 100-200)
+      em2 / OPT1: 10.20.20.1/24  (DHCP 100-200)
+      em3 / OPT2: 10.30.30.1/24  (DHCP 100-200)
          │
     ┌────┴──────────────────────────────┐           │
 [DMZ-Switch]                      [INT-Switch]  [aegis-forwarder]
     │         │                     │        │    10.30.30.10/24
 [bank-web] [bank-mail]        [teller-pc] [customer-db]
 10.10.10.10 10.10.10.20       10.20.20.10  10.20.20.20
-
-[NAT cloud (nat0)] → Router-1 ether2 ← internet / apt updates only
 ```
 
 **Network Segments:**
@@ -78,19 +80,22 @@
 
 ---
 
-## VM Inventory (Updated 2026-07-04)
+## VM Inventory (Updated 2026-07-07 — Verified)
 
-| VM Name | OS | Role | IP (confirmed) | Location |
+| VM Name | OS | Role | IP (confirmed) | Status |
 |---|---|---|---|---|
-| Attacker (Kali) | Kali Linux | Red Team attacker | 192.168.122.132/24 | GNS3 (Kali.qcow2) |
-| Router-1 | MikroTik CHR 7.15.3 | Edge router | ether1:192.168.122.2, ether2:DHCP, ether3:10.0.12.1/30 | GNS3 |
-| Router-2 | MikroTik CHR 7.15.3 | Transit router | ether1:10.0.12.2/30, ether2:10.0.23.1/30 | GNS3 |
-| pfSense | pfSense (FreeBSD) | Firewall/IPS/WAF | WAN:10.0.23.2/30 DMZ:10.10.10.1 INT:10.20.20.1 MGMT:10.30.30.1 | GNS3 |
-| bank-web | Ubuntu Server 22.04 | DVWA web server | 10.10.10.10/24 GW:10.10.10.1 | GNS3 |
-| bank-mail | Ubuntu Server 22.04 | Postfix mail server | 10.10.10.20/24 GW:10.10.10.1 | GNS3 |
-| teller-pc | Ubuntu Server 22.04 | Internal workstation | 10.20.20.10/24 GW:10.20.20.1 | GNS3 |
-| customer-db | Ubuntu Server 22.04 | PostgreSQL DB | 10.20.20.20/24 GW:10.20.20.1 | GNS3 |
-| aegis-forwarder | Ubuntu Server 22.04 | Sensor + forwarder | 10.30.30.10/24 GW:10.30.30.1 | GNS3 |
+| Attacker (Kali) | Kali Linux | Red Team attacker | 192.168.122.132/24, GW:192.168.122.2 | ✅ Routing working |
+| Switch1 | GNS3 Ethernet Switch | L2 bridge (Kali+Cloud1+R1) | — (L2 only) | ✅ In topology |
+| Router-1 | MikroTik CHR 7.15.3 | Edge router | ether1:192.168.122.2/24, **ether2:DISABLED**, ether3:10.0.12.1/30 | ✅ Configured |
+| Router-2 | MikroTik CHR 7.15.3 | Transit router | ether1:10.0.12.2/30, ether2:10.0.23.1/30 | ✅ Configured |
+| pfSense | pfSense 2.7.2 CE | Firewall/IPS/WAF | WAN:10.0.23.2/30 LAN:10.10.10.1 OPT1:10.20.20.1 OPT2:10.30.30.1 | ✅ WebGUI accessible |
+| bank-web | Ubuntu (Desktop) | DVWA web server | 10.10.10.10/24 GW:10.10.10.1 | ✅ Static IP set, reachable from Kali |
+| bank-mail | Ubuntu (Desktop) | Postfix mail server | 10.10.10.20/24 GW:10.10.10.1 | ⏳ IP set, services pending |
+| teller-pc | Ubuntu (Desktop) | Internal workstation | 10.20.20.10/24 GW:10.20.20.1 | ⏳ IP set, services pending |
+| customer-db | Ubuntu (Desktop) | PostgreSQL DB | 10.20.20.20/24 GW:10.20.20.1 | ⏳ IP set, services pending |
+| aegis-forwarder | Ubuntu (Desktop) | Sensor + forwarder | 10.30.30.10/24 GW:10.30.30.1 | ✅ Static IP set |
+
+> ⚠️ **Note on R1 ether2:** Initially DHCP-enabled (NAT cloud), disabled 2026-07-07 to fix duplicate 192.168.122.0/24 route. Internet out via R1 ether1→Switch1→virbr0→host now.
 
 ---
 
@@ -255,20 +260,24 @@ sudo virsh domblklist ubuntu22.04 # → /var/lib/libvirt/images/ubuntu22.04.qcow
 
 **Solution:** Cloud node ကို "Internet (simulated)" visual label အဖြစ်သာ canvas မှာ ထားမယ် — real link မဆွဲဘဲ။
 
-**Final Topology — Real Links:**
+**Initial Topology Plan (2026-07-03 — subsequently revised):**
 ```
-Kali-1       ──→  R1-1  (ether1)
-NAT-1        ──→  R1-1  (ether2)   ← VM internet access
+Kali-1       ──→  R1-1  (ether1)           ← later: Switch1 ကြားထည့်ရသည်
+NAT-1        ──→  R1-1  (ether2)           ← later: ether2 disabled (duplicate route)
 R1-1 (ether3)──→  R2-1  (ether1)
-R2-1 (ether2)──→  linux2024-1 (eth0)   ← pfSense WAN
-linux2024-1 (eth1) ──→ ubuntu-base-1 (eth0)  ← pfSense LAN → bank-web
+R2-1 (ether2)──→  pfSense (em0/WAN)
+pfSense (em1/LAN) ──→ DMZ-Switch ──→ bank-web, bank-mail
+pfSense (em2/OPT1) ──→ INT-Switch ──→ teller-pc, customer-db
+pfSense (em3/OPT2) ──→ aegis-forwarder
 ```
+
+> ⚠️ **Revised 2026-07-07:** Kali→R1 direct link had L2 segment mismatch (Cloud1 wlp0s20f3 issue). Fixed by inserting Switch1. See "Kali → Ubuntu VM Ping Fail" troubleshooting entry.
 
 **Attack flow (story for panel):**
 ```
-Kali ──→ [Internet/Cloud] ──→ R1 ──→ R2 ──→ pfSense ──→ Bank Server
+Real:      Kali ──→ Switch1 ──→ R1 ──→ R2 ──→ pfSense ──→ Bank Server
+Narrative: Kali ──→ [Internet]  ──→ R1 ──→ R2 ──→ pfSense ──→ Bank Server
 ```
-Cloud node ကို Kali ဘေးမှာ visual ထားပြီး annotation "Internet" ရေး — judges ကို flow ရှင်းပြဖို့
 
 ---
 
@@ -344,19 +353,26 @@ pfSense → aegis-forwarder (direct, eth3)  ✓
 
 **What:** Cable tool သုံးပြီး nodes တွေ ချိတ်ဆက်တာ — final confirmed topology
 
-**Confirmed links (from screenshot 01:54):**
+**Confirmed links (initial — 2026-07-04, then revised 2026-07-07):**
 ```
-Attacker(Kali) e0 ──→ Cloud1(vicbr0)(enp1s0) ──→ Router-1 e0
-NAT(nat0)             ──→ Router-1 e1
-Router-1 e2           ──→ Router-2 e0
-Router-2 e1           ──→ pfSense e0  (WAN)
-pfSense e1            ──→ DMZ-Switch
-pfSense e2            ──→ INT-Switch
-pfSense e3            ──→ aegis-forwarder
-DMZ-Switch e1         ──→ bank-web e0
-DMZ-Switch e2         ──→ bank-mail e0
-INT-Switch e1         ──→ teller-pc e0
-INT-Switch e2 (?)     ──→ customer-db e0
+[2026-07-04 initial — Kali→Cloud1 direct, later replaced with Switch1]
+Attacker(Kali) e0 ──→ Cloud1(vicbr0)(wlp0s20f3) ──→ Router-1 e0
+                         ↑ WRONG — wlp0s20f3 = WiFi no carrier
+                           Fixed 2026-07-07: Switch1 ထည့်ပြီး topology ပြောင်း
+
+[2026-07-07 FINAL — verified working]
+Attacker(Kali) e0 ──→ Switch1 e0
+Switch1 e1            ──→ Router-1 e0 (ether1)
+Switch1 e2            ──→ Cloud1 (virbr0)
+Router-1 e2 (ether3)  ──→ Router-2 e0 (ether1)
+Router-2 e1 (ether2)  ──→ pfSense em0 (WAN)
+pfSense em1 (LAN)     ──→ DMZ-Switch
+pfSense em2 (OPT1)    ──→ INT-Switch
+pfSense em3 (OPT2)    ──→ aegis-forwarder e0
+DMZ-Switch            ──→ bank-web e0
+DMZ-Switch            ──→ bank-mail e0
+INT-Switch            ──→ teller-pc e0
+INT-Switch            ──→ customer-db e0
 ```
 
 **Design rationale (2-router architecture):**
@@ -367,30 +383,32 @@ INT-Switch e2 (?)     ──→ customer-db e0
 
 ---
 
-### Cloud vs NAT — ရှင်းလင်းချက်
+### Cloud vs NAT vs Switch1 — ရှင်းလင်းချက် (Updated 2026-07-07)
 
 **Cloud node (GNS3):**
-- Host machine ရဲ့ real physical NIC (enp1s0/wip0s20f3) ကို bridge လုပ်တယ်
-- Link chain ထဲ (Kali→Cloud→R1) မထည့်နိုင် — NIC တစ်ခုကို link တစ်ခုသာ ချိတ်လို့ရတယ်
-- **ဒီ lab မှာ visual/annotation အနေနဲ့သာ သုံးတယ်**
+- Host machine ရဲ့ KVM bridge (virbr0) ကို GNS3 ထဲ expose လုပ်တယ်
+- **Problem:** Cloud1 port တစ်ခုကို interface တစ်ခုသာ assign ရ — Kali+R1 နှစ်ခုလုံး virbr0 ကို တစ်ပြိုင်နက် link မဆွဲနိုင်ဘူး
+- **Solution 2026-07-07:** GNS3 Ethernet **Switch1** ထည့်ပြီး Kali+R1+Cloud1 (virbr0) ကို L2 bridge လုပ်သည်
+- Canvas မှာ Cloud node ကို "Internet" visual label အဖြစ်သာ ထားသည် (real link = Switch1 ကနေ)
 
 **NAT node (GNS3):**
-- VM တွေ internet ဝင်ဖို့ (apt install, update) host machine ရဲ့ NAT သုံးတယ်
-- R1 နဲ့ ချိတ်ပြီး VM တွေ internet access ရတယ်
+- VM တွေ internet ဝင်ဖို့ host machine ရဲ့ NAT သုံးတယ် (apt install, update)
+- R1 ether2 နဲ့ ချိတ်ထားသည် — **2026-07-07 မှ DISABLED** (duplicate 192.168.122.0/24 route fix)
+- Internet out = Switch1 → Cloud1 (virbr0) → host gateway (192.168.122.1) မှ ဖြတ်သည်
 - **Attack path နဲ့ မဆိုင်ဘူး — VM maintenance အတွက်သာ**
 
 **Attack flow (story):**
 ```
-Real:       Kali ──→ R1 ──→ R2 ──→ pfSense ──→ Bank
-Narrative:  Kali ──→ [Internet] ──→ R1 ──→ R2 ──→ pfSense ──→ Bank
+Real:      Kali ──→ Switch1 ──→ R1 ──→ R2 ──→ pfSense ──→ Bank
+Narrative: Kali ──→ [Internet]  ──→ R1 ──→ R2 ──→ pfSense ──→ Bank
 ```
-Canvas မှာ Cloud node ကို Kali နဲ့ R1 ကြားမှာ ထားပြီး "Internet" label ရေးထားမယ် — judges တွေကို flow ရှင်းပြဖို့
+Canvas မှာ Cloud node ကို "Internet" visual label ထားပြီး — Switch1 topology real ဖြစ်ပြီး Kali→R1 path narrative အတိုင်း demo ပြနိုင်သည်
 
 ---
 
-### 🔄 IN PROGRESS — KVM VMs Copy to GNS3 + Import
+### ✅ KVM VMs Copy to GNS3 + Import (Completed 2026-07-03)
 
-**Status:** 🔄 In Progress (copy command running)
+**Status:** ✅ Done
 
 **What:** Copy existing KVM qcow2 images into GNS3 QEMU images folder, then add each as a QEMU VM template in GNS3.
 
@@ -413,78 +431,61 @@ GNS3 → Edit → Preferences → QEMU VMs → New for each:
 | `linux2024` | linux2024.qcow2 | 1024 MB | pfSense or other (TBC) |
 | `ubuntu-base` | ubuntu22.04.qcow2 | 1024 MB | Bank servers / forwarder base |
 
-**Note on linux2024:** Role not yet confirmed. Could be pfSense (FreeBSD-based) or another Linux VM. Verify after booting in GNS3.
+**Note on linux2024:** Confirmed = pfSense 2.7.2 CE (FreeBSD-based). Used as main firewall in AEGIS topology.
 
 **Next:** Wire topology in GNS3 canvas
 
 ---
 
-## Topology Wiring Plan (GNS3 Canvas)
+## ~~Topology Wiring Plan~~ (SUPERSEDED — DO NOT USE)
 
-Once all VMs are added, wire them as follows:
-
-```
-Kali (eth0/vda) ──────────────────── R1 (ether1)
-                                      R1 (ether2) ── R2 (ether1)
-                                                      R2 (ether2) ── pfSense (WAN/vtnet0)
-                                                                      pfSense (LAN1/DMZ) ── bank-web
-                                                                      pfSense (LAN1/DMZ) ── bank-mail
-                                                                      pfSense (LAN2/INT) ── teller-pc
-                                                                      pfSense (LAN2/INT) ── customer-db
-                                                                      pfSense (LAN0/MGMT) ── aegis-forwarder
-```
-
-**GNS3 wiring steps:**
-1. Drag R1, R2 (MikroTik CHR) onto canvas
-2. Drag Kali, linux2024 (pfSense), ubuntu-base clones onto canvas
-3. Draw links between nodes using the cable tool
-4. Each link = one network interface on each side
+> ❌ **SUPERSEDED** — ဤ section ၌ Switch1 မပါ၊ pfSense interface name မှား (`vtnet0` ≠ actual `em0`)၊ ether2 = R2 link (မှားသည် — ether3 ဖြစ်ရမည်)၊ `pfSense LAN0/MGMT → aegis-forwarder` ၌ MGMT = OPT2/em3 ဖြစ်ရမည်
+> ✅ **Actual wiring:** "2026-07-04 — GNS3 Final Topology Wiring Complete" + "2026-07-07 — Full Routing Chain Verified" sections တွင် ကြည့်ပါ
 
 ---
 
-## Router IP Config Plan (MikroTik CHR syntax)
+## ~~Router IP Config Plan~~ (SUPERSEDED — Wrong IPs — DO NOT USE)
 
-### R1
-```
-/ip address add address=192.168.56.1/24 interface=ether1   # Kali side
-/ip address add address=10.20.0.1/30    interface=ether2   # R2 side
-/ip route add dst-address=10.10.0.0/16 gateway=10.20.0.2
-```
+> ❌ **SUPERSEDED** — ဤ section ၌ပါသည့် IPs (192.168.56.x, 10.20.0.x) သည် early planning draft မှ မှားယွင်းသော values ဖြစ်သည်။ Actual implementation မှ မတူဘဲ ဖြစ်သည်။
+> ✅ **See instead:** "2026-07-04 — Router-1 IP Configuration Complete" and "2026-07-04 — Router-2 IP Configuration Complete" sections below.
 
-### R2
-```
-/ip address add address=10.20.0.2/30   interface=ether1   # R1 side
-/ip address add address=10.10.0.1/24   interface=ether2   # pfSense side
-/ip route add dst-address=192.168.56.0/24 gateway=10.20.0.1
-```
+**Actual confirmed IPs (2026-07-07 verified):**
 
-### Kali Static IP
-```bash
-# /etc/network/interfaces or nmcli
-ip addr add 192.168.56.101/24 dev eth0
-ip route add default via 192.168.56.1
-```
+| Router | Interface | IP | Purpose |
+|---|---|---|---|
+| R1 | ether1 | 192.168.122.2/24 | Kali/Switch1 side |
+| R1 | ether2 | **DISABLED** | NAT (duplicate route — disabled) |
+| R1 | ether3 | 10.0.12.1/30 | R2 transit link |
+| R2 | ether1 | 10.0.12.2/30 | R1 transit link |
+| R2 | ether2 | 10.0.23.1/30 | pfSense WAN link |
 
 ---
 
-## pfSense Config Plan
+## ~~pfSense Config Plan~~ (SUPERSEDED — Wrong IPs — DO NOT USE)
 
-| Interface | Assignment | IP |
-|---|---|---|
-| WAN (vtnet0) | R2 link | 10.10.0.254/24, GW 10.10.0.1 |
-| LAN1 / DMZ (vtnet1) | Bank Web + Mail | 10.10.10.1/24 |
-| LAN2 / Internal (vtnet2) | Teller + DB | 10.10.20.1/24 |
+> ❌ **SUPERSEDED** — WAN IP `10.10.0.254/24` နှင့် `vtnet0/vtnet1` interface names များသည် မှားသည်။
+> - pfSense GNS3 QEMU မှာ NIC type = e1000 → interfaces = `em0, em1, em2, em3` (`vtnet` မဟုတ်)
+> - WAN IP = `10.0.23.2/30` (not `10.10.0.254/24`)
+> ✅ **See instead:** "2026-07-07 — pfSense Factory Reset + Full Reconfiguration" section.
 
-**Suricata IPS:**
-- Install via: System → Package Manager → Suricata
-- Enable "Block Offenders" on WAN/DMZ interface
-- Syslog → 10.10.0.200:514 (AEGIS forwarder VM)
+**Actual confirmed pfSense config (2026-07-07 verified):**
+
+| Interface | GNS3 port | IP | Role |
+|---|---|---|---|
+| WAN | em0 | 10.0.23.2/30, GW=10.0.23.1 | R2 link |
+| LAN | em1 | 10.10.10.1/24 | DMZ (bank-web, bank-mail) |
+| OPT1 | em2 | 10.20.20.1/24 | Internal (teller-pc, customer-db) |
+| OPT2 | em3 | 10.30.30.1/24 | MGMT (aegis-forwarder) |
 
 ---
 
 ## Verification Checklist (End-to-End)
 
-- [ ] `traceroute 10.10.10.10` from Kali shows: R1 → R2 → pfSense → bank-web
+- [x] `ping 192.168.122.2` Kali → R1 ✅ (2026-07-07)
+- [x] `ping 10.0.12.2` Kali → R2 ✅ (2026-07-07)
+- [x] `ping 10.0.23.2` Kali → pfSense WAN ✅ (2026-07-07)
+- [x] `ping 10.10.10.10` Kali → bank-web ✅ (2026-07-07)
+- [ ] `traceroute 10.10.10.10` from Kali — confirm 4-hop path (R1→R2→pfSense→bank-web)
 - [ ] AEGIS dashboard receives live events from forwarder
 - [ ] pfSense block event appears in dashboard after attack
 - [ ] sqlmap attack succeeds before rule, fails after rule
@@ -492,9 +493,9 @@ ip route add default via 192.168.56.1
 
 ---
 
-### [PENDING] — KVM VMs Import into GNS3
+### ~~[PENDING]~~ ✅ KVM VMs Import into GNS3 (Done 2026-07-03)
 
-**Status:** ⏳ Not Started
+**Status:** ✅ Done — Kali, linux2024 (pfSense), ubuntu-base imported as QEMU VM templates in GNS3
 
 **What:** Import existing virt-manager VMs into GNS3 as QEMU appliances
 
@@ -513,21 +514,9 @@ ls /var/lib/libvirt/images/
 
 ---
 
-### [PENDING] — GNS3 Topology Wiring
+### ~~[PENDING]~~ ✅ GNS3 Topology Wiring (Done 2026-07-04, Switch1 added 2026-07-07)
 
-**Status:** ⏳ Not Started
-
-**What:** Connect all VMs and routers in GNS3 canvas
-
-**Connections:**
-```
-Kali (eth0) ──── R1 (ether1)
-R1 (ether2) ──── R2 (ether1)
-R2 (ether2) ──── pfSense (WAN)
-pfSense (LAN1/DMZ) ──── Bank Web, Bank Mail
-pfSense (LAN2/INT) ──── Teller PC, Customer DB
-pfSense (LAN0/MGMT) ──── AEGIS Forwarder VM
-```
+**Status:** ✅ Done — See "2026-07-04 — GNS3 Final Topology Wiring Complete" and "2026-07-07 — Kali → Ubuntu VM Ping Fail" entries for full details
 
 ---
 
@@ -541,7 +530,7 @@ pfSense (LAN0/MGMT) ──── AEGIS Forwarder VM
 | GNS3 | MikroTik | Connected to | IP |
 |---|---|---|---|
 | e0 | ether1 | Cloud1 / Attacker (192.168.122.0/24) | 192.168.122.2/24 |
-| e1 | ether2 | NAT cloud (nat0) | DHCP → 192.168.122.135/24 |
+| e1 | ether2 | NAT cloud (nat0) | DHCP → 192.168.122.135/24 ⚠️ **DISABLED 2026-07-07** (duplicate route fix) |
 | e2 | ether3 | Router-2 ether1 | 10.0.12.1/30 |
 
 **Commands run:**
@@ -557,7 +546,7 @@ pfSense (LAN0/MGMT) ──── AEGIS Forwarder VM
 **Result:**
 - ether1: 192.168.122.2/24 ✅
 - ether3: 10.0.12.1/30 ✅
-- ether2: 192.168.122.135/24 (DHCP from NAT cloud) ✅
+- ether2: 192.168.122.135/24 (DHCP from NAT cloud initially) → **DISABLED 2026-07-07** ✅
 - Internet: `ping 8.8.8.8` → 0% packet-loss, ~30ms ✅
 
 **Next:** Router-2 config
@@ -595,9 +584,9 @@ pfSense (LAN0/MGMT) ──── AEGIS Forwarder VM
 
 ---
 
-### [PENDING] — pfSense Interface Configuration
+### ~~[PENDING]~~ ✅ pfSense Interface Configuration (Done 2026-07-07)
 
-**Status:** ⏳ Not Started
+**Status:** ✅ Done — Factory reset + full reconfigure. See "2026-07-07 — pfSense Factory Reset + Full Reconfiguration" entry.
 
 **What:** Configure pfSense interfaces, firewall rules, Suricata IPS, syslog
 
@@ -621,19 +610,21 @@ pfSense (LAN0/MGMT) ──── AEGIS Forwarder VM
 
 ---
 
-### [PENDING] — Ubuntu VM Setup (Bank Servers)
+### Ubuntu VM Setup (Bank Servers) — Partially Done
 
-**Status:** ⏳ Not Started
+**Status:** 🔄 In Progress
 
 **What:** Configure each Ubuntu VM clone for its role
 
-| VM | Service to Install | IP |
-|---|---|---|
-| bank-web | Apache2 + DVWA (vulnerable web app) | 10.10.10.10 |
-| bank-mail | Postfix + Dovecot | 10.10.10.20 |
-| teller-pc | Desktop / client simulation | 10.10.20.10 |
-| customer-db | PostgreSQL | 10.10.20.20 |
-| aegis-forwarder | Suricata + Snort + Fail2ban + Cowrie + aegis_forwarder.py | 10.10.0.200 |
+| VM | IP | Static IP | Service | Status |
+|---|---|---|---|---|
+| bank-web | 10.10.10.10/24 GW:10.10.10.1 | ✅ Set | Apache2 + DVWA | ⏳ Services pending |
+| bank-mail | 10.10.10.20/24 GW:10.10.10.1 | ✅ Set | Postfix + Dovecot | ⏳ Services pending |
+| teller-pc | 10.20.20.10/24 GW:10.20.20.1 | ✅ Set | Desktop client sim | ⏳ Services pending |
+| customer-db | 10.20.20.20/24 GW:10.20.20.1 | ✅ Set | PostgreSQL | ⏳ Services pending |
+| aegis-forwarder | 10.30.30.10/24 GW:10.30.30.1 | ✅ Set | Suricata + AEGIS agent | ⏳ Agent pending |
+
+> ⚠️ **Old wrong IP removed:** aegis-forwarder was incorrectly noted as `10.10.0.200` in early planning. Correct IP = `10.30.30.10` (OPT2/MGMT subnet).
 
 ---
 
@@ -645,7 +636,7 @@ pfSense (LAN0/MGMT) ──── AEGIS Forwarder VM
 
 **How:**
 ```bash
-# On aegis-forwarder VM (10.10.0.200)
+# On aegis-forwarder VM (10.30.30.10)
 git clone <repo>
 pip3 install requests
 export AEGIS_URL="https://aegis-api-server-jp3b.onrender.com/api"
@@ -677,9 +668,9 @@ python3 scripts/src/aegis_forwarder.py --mode all
 
 ---
 
-### [PENDING] — End-to-End Demo Verification
+### End-to-End Demo Verification — In Progress
 
-**Status:** ⏳ Not Started
+**Status:** 🔄 In Progress
 
 **Demo Script (for panel/judges):**
 1. `traceroute` from Kali → Bank Web (prove real multi-hop path)
