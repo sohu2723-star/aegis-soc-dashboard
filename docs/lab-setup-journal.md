@@ -1307,8 +1307,24 @@ ether2 IP ဖယ်ရှားလိုက်ခြင်းဖြင့် dup
 → Route table clean — 192.168.122.0/24 ether1 တစ်ကြောင်းသာ ကျန်သည် ✅
 → GNS3 topology verified: R1 e0=ether1(Kali), e1=ether2(NAT/disabled), e2=ether3(R2) — မှန်ကန်သည် ✅
 
-**Result:** R1 route table clean, duplicate route ပျောက်ပြီ
-**Next:** Kali မှ `ping -c 2 192.168.122.2` retest → ရရင် R2/pfSense/bank-web ဆက် test
+**Result:** R1 route table clean, duplicate route ပျောက်ပြီ ✅
+
+**Further diagnosis (03:53–03:55):**
+Cloud1 node ရှိ available interfaces: enp1s0 🔴, wlp0s20f3 🔴, virbr0 🟢
+virbr0 = Kali side မှာ သုံးနေပြီ → R1 ဆီ ထပ် assign မရဘူး (GNS3 Cloud = one port per interface)
+
+**Real root cause:** R1 e0 ↔ Cloud1 link မှာ wlp0s20f3 (WiFi, no link) ကိုသုံးခဲ့ → Kali (virbr0) နဲ့ R1 ether1 (wlp0s20f3) L2 segment မတူဘဲ ARP fail ဖြစ်ခဲ့သည်
+
+**Fix:** GNS3 Ethernet Switch ထည့်ပြီး topology ပြောင်း:
+```
+Kali e0 ──┐
+           ├── [Ethernet Switch] ── Cloud1 (virbr0)
+R1 e0  ──┘
+```
+virbr0 တစ်ကြိမ်သာ သုံး၊ Switch မှ Kali+R1 နှစ်ခုလုံး virbr0 bridge ပေါ် ရောက်စေသည်
+
+**Result:** Fix pending
+**Next:** Ethernet Switch ထည့် → links ပြောင်း → ping -c 2 192.168.122.2 retest
 
 ---
 
