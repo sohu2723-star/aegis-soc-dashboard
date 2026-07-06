@@ -1276,8 +1276,16 @@ arp -n                     # MAC entry ပါလား
 easyrule pass wan any 192.168.122.0/24 any
 ```
 
-**Result:** ကျန်ဆောင်ရွက်ဆဲ
-**Next:** R1 status စစ်ပြီး restart/reconfigure → retest ping
+**ARP confirmation (03:43):**
+```
+arp -n output:
+192.168.122.1   52:54:00:25:41:83  C        ← KVM gateway ✅ reachable
+192.168.122.2   (incomplete)                ← R1 ❌ ARP reply မလာဘူး
+```
+→ Kali network OK (192.168.122.1 reach ရ), R1 ether1 ARP respond မလုပ်ဘူး confirmed
+
+**Result:** R1 not running or ether1 unconfigured — fix pending
+**Next:** GNS3 မှာ R1 Start → `/ip address add address=192.168.122.2/24 interface=ether1` → retest
 
 ---
 
