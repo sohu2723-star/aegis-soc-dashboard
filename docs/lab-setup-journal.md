@@ -1834,6 +1834,157 @@ Browser: `http://10.10.10.10/dvwa/setup.php` → **Create / Reset Database** န
 
 ---
 
+### 2026-07-08 — Kali → bank-web Connectivity + nmap Port Scan
+
+**Status:** ✅ Done
+
+**Time:** 01:46
+
+**What:** Kali (attacker) မှ bank-web (10.10.10.10) သို့ ping + nmap service scan ပြုလုပ်ကာ target reachable ကြောင်း confirm ခဲ့သည်
+
+**Commands (Kali မှ):**
+```bash
+ping 10.10.10.10
+nmap -sV 10.10.10.10
+```
+
+**Result:**
+```
+Host is up (0.0069s latency)
+PORT   STATE SERVICE VERSION
+80/tcp open  http    Apache httpd 2.4.52 ((Ubuntu))
+```
+- Ping: 64 bytes, ttl=61, time≈2–7ms ✅
+- Port 80/tcp: Apache 2.4.52 (Ubuntu) open ✅
+- 999 other ports: closed (reset) — attack surface = port 80 only
+
+**Significance:** Attacker (Kali) မှ target (bank-web) ထိ multi-hop routing အတည်ပြုပြီး attack ကို port 80 မှတစ်ဆင့် ဆက်လုပ်နိုင်မည်
+
+---
+
+### 2026-07-08 — DVWA Security Level set to Low
+
+**Status:** ✅ Done
+
+**Time:** 01:47
+
+**What:** DVWA Security page (`http://10.10.10.10/dvwa/security.php`) မှ security level ကို **Low** သို့ သတ်မှတ်ခဲ့သည် — SQL Injection, XSS, Command Injection, File Inclusion, Brute Force attack modules အားလုံး fully vulnerable mode ဖြင့် ရရှိပြီ
+
+**How:** DVWA → DVWA Security → dropdown "Low" → Submit
+
+**Confirmed modules (attack-ready):**
+- SQL Injection / SQL Injection (Blind)
+- XSS (DOM) / XSS (Reflected) / XSS (Stored)
+- Command Injection
+- File Inclusion / File Upload
+- Brute Force
+- CSRF, Weak Session IDs, CSP Bypass, JavaScript Attacks, Authorisation Bypass
+
+**Result:** "Security level set to low" message confirmed ✅
+
+---
+
+### 2026-07-08 — Suricata + Fail2ban Installation on bank-web
+
+**Status:** ✅ Done
+
+**Time:** 01:50
+
+**What:** bank-web ၌ IDS/IPS tools (Suricata, Fail2ban) တပ်ဆင်ခဲ့သည် — Kali မှ attacks များကို detect + block ဖို့
+
+**Command:**
+```bash
+sudo apt install -y suricata fail2ban
+sudo systemctl enable suricata fail2ban
+sudo systemctl start suricata fail2ban
+```
+
+**Initial Result:**
+- **Fail2ban:** ✅ `active (running)` — PID 13762, Memory 21.0M
+- **Suricata:** ❌ `failed` — exit-code status=1/FAILURE
+
+**Root Cause (Suricata fail):** Default config ၌ network interface မသတ်မှတ်ရသေး — `af-packet` mode အတွက် interface name လိုအပ်သည်
+
+---
+
+### 2026-07-08 — Suricata Interface Fix (enp0s4) → Running
+
+**Status:** ✅ Done
+
+**Time:** 01:51–01:54
+
+**What:** Suricata ကို bank-web ၏ network interface `enp0s4` ဖြင့် config ချိန်ညှိပြီး restart လုပ်ခဲ့သည်
+
+**How:**
+
+**Step 1 — Interface name ရှာ:**
+```bash
+ip link show
+# Output: altname enp0s4  ← ဤ interface name ကို မှတ်ထားသည်
+```
+
+**Step 2 — Suricata config ပြင်:**
+```bash
+sudo vim /etc/suricata/suricata.yaml
+```
+`af-packet:` section ၌:
+```yaml
+af-packet:
+  - interface: enp0s4
+```
+
+**Step 3 — Restart + verify:**
+```bash
+sudo systemctl restart suricata
+sudo systemctl status suricata
+```
+
+**Result:**
+```
+● suricata.service - Suricata IDS/IDP daemon
+   Active: active (running) since Wed 2026-07-08 01:54:25 +0630; 13s ago
+   Main PID: 13900 (Suricata-Main)
+   Memory: 41.3M
+```
+Suricata ✅ `active (running)` — interface `enp0s4` မှ network traffic monitor စပြုလုပ်ပြီ
+
+**Suricata log path:** `/var/log/suricata/eve.json` (EVE JSON format — aegis_forwarder.py ဖတ်မည်)
+**Fail2ban log path:** `/var/log/fail2ban.log`
+
+**Troubleshooting:**
+- `af-packet` + wrong/missing interface → immediate exit-code 1 failure
+- Fix: `ip link show` ဖြင့် actual interface name စစ်ဆေး၊ config ၌ တိကျစွာ ထည့်ရမည်
+
+---
+
+### 2026-07-08 — AEGIS Render API Server — Cold Start / Down Issue
+
+**Status:** 🔄 In Progress (Render secrets မသတ်မှတ်ရသေး)
+
+**What:** `https://aegis-api-server-jp3b.onrender.com` Render free tier server down + slow ဖြစ်နေသည်
+
+**Root Causes (2 ခု):**
+
+1. **Secrets မသတ်မှတ်ရသေး** — Render environment မှာ `SUPABASE_DB_URL`, `AEGIS_INGEST_KEY`, `AEGIS_ADMIN_KEY` မထည့်ရသေးသောကြောင့် API server startup ၌ crash ဖြစ်နေသည်:
+   ```
+   Error: SUPABASE_DB_URL must be set.
+   ```
+
+2. **Render Free Tier Cold Start** — 15 minutes inactivity ပြီးနောက် server spin down ဖြစ်သည်; ပထမ request = ~50 seconds အစောင့်ရသည် (Render limitation — code bug မဟုတ်)
+
+**Fix လုပ်ရမည်:**
+```
+Render Dashboard → aegis-api-server → Environment → Add variables:
+  SUPABASE_DB_URL  = [Supabase pooler URL, port 6543]
+  AEGIS_INGEST_KEY = [ingest key]
+  AEGIS_ADMIN_KEY  = [admin key]
+→ Manual Deploy trigger
+```
+
+**Next:** Render secrets set ပြီးမှ aegis_forwarder.py run ဆင့် ဆက်လုပ်ရမည်
+
+---
+
 ## Next Steps (ကျန်ဆောင်ရွက်ရန်)
 
 - [x] pfSense factory reset + reconfigure ✅
@@ -1855,6 +2006,14 @@ Browser: `http://10.10.10.10/dvwa/setup.php` → **Create / Reset Database** န
 - [x] bank-web: DVWA clone + config (db_password, permissions, apache2 restart) ✅ (2026-07-08)
 - [x] bank-web: MariaDB DVWA database + user create ✅ (2026-07-08 01:29)
 - [x] bank-web: DVWA Setup page → Create Database → login page confirmed ✅ (2026-07-08 01:43)
+- [x] bank-web: Suricata + Fail2ban install ✅ (2026-07-08 01:50)
+- [x] bank-web: Suricata interface fix (enp0s4) → active running ✅ (2026-07-08 01:54)
+- [x] Kali: nmap -sV 10.10.10.10 → port 80/tcp Apache confirmed ✅ (2026-07-08 01:46)
+- [x] bank-web: DVWA Security Level = Low ✅ (2026-07-08 01:47)
+- [ ] Render: SUPABASE_DB_URL + AEGIS_INGEST_KEY + AEGIS_ADMIN_KEY secrets set
+- [ ] aegis-forwarder VM: aegis_forwarder.py install + run
+- [ ] bank-web: Snort install (optional — Suricata covers most detection)
+- [ ] End-to-end test: Kali attack → Suricata alert → forwarder → AEGIS dashboard
 - [ ] bank-mail: Postfix + Dovecot install
 - [ ] customer-db: PostgreSQL install
 - [ ] aegis-forwarder: AEGIS agent install + systemd service
