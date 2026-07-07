@@ -1664,6 +1664,143 @@ pfSense em3 ─── aegis-forwarder
 
 ---
 
+### 2026-07-08 — R1 Masquerade Rule Bug Fix (ether2 → ether1)
+
+**Status:** ✅ Done
+
+**What:** Router-1 masquerade rule ကို ether2 (NAT cloud interface) မှ ether1 သို့ ပြောင်းပြင်ခဲ့သည် — ether2 သည် DHCP disabled ဖြစ်နေ၍ masquerade မအလုပ်လုပ်ခဲ့ဘဲ bank-web internet connectivity ပြဿနာ ဖြစ်ခဲ့သည်
+
+**How:**
+```routeros
+# Remove wrong rule
+/ip firewall nat remove [find chain=srcnat out-interface=ether2]
+# Add correct rule on ether1 (the active NAT/Cloud interface)
+/ip firewall nat add chain=srcnat out-interface=ether1 action=masquerade
+```
+
+**Result:** R1 masquerade ether1 ပေါ်တွင် အလုပ်လုပ်ပြီး bank-web မှ internet access ရသွားသည် ✅
+
+**Next:** bank-web ၌ package install ဆက်လုပ်မည်
+
+---
+
+### 2026-07-08 — R1 Default Route Confirmed (via 192.168.122.1)
+
+**Status:** ✅ Done
+
+**What:** Router-1 default route `0.0.0.0/0 via 192.168.122.1` (GNS3 NAT cloud gateway) confirm ပြုလုပ်ခဲ့သည်
+
+**How:**
+```routeros
+/ip route print
+# Expected: 0.0.0.0/0 via 192.168.122.1 ether1
+```
+
+**Result:** Default route ကောင်းမွန်ကြောင်း confirmed ✅ — bank-web မှ apt update/install အတွက် internet traffic ဤ route မှ ဖြတ်သွားသည်
+
+---
+
+### 2026-07-08 — bank-web Internet Connectivity Debugging & Restore
+
+**Status:** ✅ Done
+
+**What:** bank-web (10.10.10.10, Ubuntu) မှ internet access မရသောပြဿနာကို စစ်ဆေးပြင်ဆင်ခဲ့သည် — Root cause = R1 masquerade ether2 (wrong interface) ကြောင့် NAT မအလုပ်လုပ်ခဲ့
+
+**How:**
+- R1 masquerade interface ကို ether1 သို့ ပြောင်း (above entry ကြည့်ပါ)
+- bank-web မှ `ping 8.8.8.8` / `curl -I https://google.com` ဖြင့် connectivity test
+
+**Result:** bank-web မှ internet reachable — `apt update` အောင်မြင်ခဲ့သည် ✅
+
+---
+
+### 2026-07-08 — Package Installation Fix (i386 Architecture Removal + Cache Clear)
+
+**Status:** ✅ Done
+
+**What:** bank-web ၌ `apt install` fail ဖြစ်နေသောပြဿနာကို fix ခဲ့သည် — Root cause: i386 (32-bit) architecture ကို dpkg မှ track လုပ်နေပြီး Myanmar mirror ၌ i386 packages မရှိ၍ dependency chain fail ဖြစ်ခဲ့
+
+**How:**
+```bash
+# Step 1: i386 architecture ဖြုတ်ပါ
+dpkg --print-foreign-architectures        # confirm i386 ရှိကြောင်း
+sudo dpkg --remove-architecture i386
+
+# Step 2: APT cache အကုန် clear လုပ်ပါ
+sudo apt clean
+sudo apt autoclean
+sudo rm -rf /var/lib/apt/lists/*
+
+# Step 3: Fresh update + install
+sudo apt update
+sudo apt install -y apache2 php php-mysqli php-gd libapache2-mod-php git mariadb-server
+```
+
+**Result:** i386 ဖြုတ်ပြီးနောက် apt dependency chain ကောင်းသွားပြီး packages အောင်မြင်စွာ install ဆင်းခဲ့သည် ✅
+
+**Root Cause Summary:** i386 architecture → Myanmar mirror ၌ i386 packages မရှိ → dependency chain fail → `apt install` block ဖြစ်ခဲ့ — removing i386 registration resolves it completely
+
+---
+
+### 2026-07-08 — Apache2, PHP, MariaDB Installation on bank-web
+
+**Status:** ✅ Done
+
+**What:** bank-web (Ubuntu 10.10.10.10) ၌ DVWA အတွက် လိုအပ်သည့် web stack packages တင်ခဲ့သည်
+
+**Packages installed:**
+- `apache2` — web server
+- `php` — PHP runtime
+- `php-mysqli` — MySQL/MariaDB PHP extension
+- `php-gd` — image processing PHP extension
+- `libapache2-mod-php` — Apache PHP module
+- `git` — for DVWA clone
+- `mariadb-server` — database server
+
+**Command:**
+```bash
+sudo apt install -y apache2 php php-mysqli php-gd libapache2-mod-php git mariadb-server
+```
+
+**Result:** All packages installed successfully ✅ — Apache2 + MariaDB services running
+
+**Next:** DVWA clone + configure
+
+---
+
+### 2026-07-08 — DVWA Clone + Configuration on bank-web
+
+**Status:** ✅ Done
+
+**What:** Damn Vulnerable Web Application (DVWA) ကို bank-web ၌ clone ပြီး config ချိန်ညှိခဲ့သည် — SQL injection, XSS, brute force attack target အဖြစ် သုံးမည်
+
+**How:**
+
+**Step 1 — Clone:**
+```bash
+sudo git clone https://github.com/digininja/DVWA /var/www/html/dvwa
+sudo cp /var/www/html/dvwa/config/config.inc.php.dist /var/www/html/dvwa/config/config.inc.php
+```
+
+**Step 2 — DB password config:**
+```bash
+sudo sed -i "s/\$_DVWA\[ 'db_password' \] = 'p@ssw0rd';/\$_DVWA[ 'db_password' ] = 'p\@ssw0rd';/" \
+    /var/www/html/dvwa/config/config.inc.php
+```
+
+**Step 3 — Permissions + restart:**
+```bash
+sudo chown -R www-data:www-data /var/www/html/dvwa
+sudo chmod -R 755 /var/www/html/dvwa
+sudo systemctl restart apache2
+```
+
+**Result:** DVWA deployed at `http://10.10.10.10/dvwa` ✅ — Apache2 restarted cleanly
+
+**Next:** MariaDB ၌ DVWA database + user create၊ DVWA Setup page မှ Create Database နှိပ်ပြီး initialize လုပ်ရမည်
+
+---
+
 ## Next Steps (ကျန်ဆောင်ရွက်ရန်)
 
 - [x] pfSense factory reset + reconfigure ✅
@@ -1680,7 +1817,10 @@ pfSense em3 ─── aegis-forwarder
 - [ ] bank-mail static IP 10.10.10.20
 - [ ] teller-pc static IP 10.20.20.10
 - [ ] customer-db static IP 10.20.20.20
-- [ ] bank-web: Apache2 + DVWA install (apt update running 21:27)
+- [x] bank-web: Apache2 + DVWA install ✅ (2026-07-08)
+- [x] bank-web: i386 architecture removal + apt cache clear (package fix) ✅ (2026-07-08)
+- [x] bank-web: DVWA clone + config (db_password, permissions, apache2 restart) ✅ (2026-07-08)
+- [ ] bank-web: MariaDB DVWA database + user create; DVWA Setup page → Create Database
 - [ ] bank-mail: Postfix + Dovecot install
 - [ ] customer-db: PostgreSQL install
 - [ ] aegis-forwarder: AEGIS agent install + systemd service
