@@ -485,7 +485,7 @@ GNS3 → Edit → Preferences → QEMU VMs → New for each:
 - [x] `ping 10.0.12.2` Kali → R2 ✅ (2026-07-07)
 - [x] `ping 10.0.23.2` Kali → pfSense WAN ✅ (2026-07-07)
 - [x] `ping 10.10.10.10` Kali → bank-web ✅ (2026-07-07)
-- [ ] `traceroute 10.10.10.10` from Kali — confirm 4-hop path (R1→R2→pfSense→bank-web)
+- [x] `traceroute 10.10.10.10` — 4-hop path confirmed ✅ (2026-07-07 21:11)
 - [ ] AEGIS dashboard receives live events from forwarder
 - [ ] pfSense block event appears in dashboard after attack
 - [ ] sqlmap attack succeeds before rule, fails after rule
@@ -1415,6 +1415,39 @@ Save → Apply Changes
 
 ---
 
+### 2026-07-07 — Traceroute 4-Hop Path Confirmed ✅
+
+**Status:** ✅ Complete
+
+**Time:** 21:11 (photo confirmed)
+
+**Command (Kali):**
+```bash
+traceroute 10.10.10.10
+```
+
+**Output (confirmed from screenshot):**
+```
+traceroute to 10.10.10.10 (10.10.10.10), 30 hops max, 60 byte packets
+ 1  192.168.122.2  (192.168.122.2)   2.990 ms  2.480 ms  2.688 ms   ← Router-1 ✅
+ 2  10.0.12.2      (10.0.12.2)       3.871 ms  4.040 ms  4.362 ms   ← Router-2 ✅
+ 3  10.0.23.2      (10.0.23.2)       4.946 ms  4.922 ms  5.136 ms   ← pfSense WAN ✅
+ 4  10.10.10.10    (10.10.10.10)     5.745 ms  5.945 ms  6.162 ms   ← bank-web ✅
+```
+
+**Ping also confirmed:**
+```
+ping 10.10.10.10
+64 bytes from 10.10.10.10: icmp_seq=1 ttl=61 time=2.04 ms  ✅
+64 bytes from 10.10.10.10: icmp_seq=2 ttl=61 time=7.57 ms  ✅
+```
+
+**TTL=61 analysis:** bank-web မှ TTL=64 ထွက် → 3 hops (pfSense→R2→R1) ဖြတ်ပြီး Kali ရောက်လာသည် → routing path ကောင်းမွန်ကြောင်း confirm ✅
+
+**Milestone:** Attacker (Kali) မှ target (bank-web) ထိ full multi-hop path real routing verified — demo-ready ✅
+
+---
+
 ### 2026-07-07 — Full Routing Chain Verified ✅
 
 **Status:** ✅ **COMPLETE**
@@ -1497,8 +1530,9 @@ pfSense em3 ─── aegis-forwarder
 - [x] bank-web static IP 10.10.10.10 ✅
 - [x] Kali → R1 → R2 → pfSense → bank-web routing ✅ (2026-07-07)
 - [x] Kali permanent static route (nmcli) ✅ (2026-07-07)
+- [x] traceroute 10.10.10.10 — 4-hop path confirmed ✅ (2026-07-07 21:11)
 - [ ] pfSense WebGUI: password ပြောင်း (admin/pfsense → strong password)
-- [ ] pfSense WebGUI: OPT1/OPT2 interfaces Enable (Firewall → Rules → OPT1/OPT2 → pass rules)
+- [ ] pfSense WebGUI: permanent WAN/OPT1/OPT2 firewall rules (WebGUI → Firewall → Rules)
 - [ ] bank-mail static IP 10.10.10.20
 - [ ] teller-pc static IP 10.20.20.10
 - [ ] customer-db static IP 10.20.20.20
@@ -1506,7 +1540,6 @@ pfSense em3 ─── aegis-forwarder
 - [ ] bank-mail: Postfix + Dovecot install
 - [ ] customer-db: PostgreSQL install
 - [ ] aegis-forwarder: AEGIS agent install + systemd service
-- [ ] traceroute 10.10.10.10 from Kali → confirm 4-hop path (R1→R2→pfSense→bank-web)
 
 ---
 
