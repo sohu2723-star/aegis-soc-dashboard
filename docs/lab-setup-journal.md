@@ -1957,31 +1957,49 @@ Suricata ✅ `active (running)` — interface `enp0s4` မှ network traffic mo
 
 ---
 
-### 2026-07-08 — AEGIS Render API Server — Cold Start / Down Issue
+### 2026-07-08 — AEGIS Render API + Vercel Dashboard — Live ✅
 
-**Status:** 🔄 In Progress (Render secrets မသတ်မှတ်ရသေး)
+**Status:** ✅ Done
 
-**What:** `https://aegis-api-server-jp3b.onrender.com` Render free tier server down + slow ဖြစ်နေသည်
+**Time:** 02:00–02:01
 
-**Root Causes (2 ခု):**
+**What:** Render API server ၌ environment variables အားလုံး ရှိပြီးသားဖြစ်ကြောင်း confirm ခဲ့သည်။ AEGIS Vercel dashboard **Live Monitoring** mode ဖြင့် real data ရောက်နေသည်ကို verified
 
-1. **Secrets မသတ်မှတ်ရသေး** — Render environment မှာ `SUPABASE_DB_URL`, `AEGIS_INGEST_KEY`, `AEGIS_ADMIN_KEY` မထည့်ရသေးသောကြောင့် API server startup ၌ crash ဖြစ်နေသည်:
-   ```
-   Error: SUPABASE_DB_URL must be set.
-   ```
+**Render Environment Variables (confirmed set):**
 
-2. **Render Free Tier Cold Start** — 15 minutes inactivity ပြီးနောက် server spin down ဖြစ်သည်; ပထမ request = ~50 seconds အစောင့်ရသည် (Render limitation — code bug မဟုတ်)
+| Key | Status |
+|---|---|
+| `AEGIS_ADMIN_KEY` | ✅ Set |
+| `AEGIS_INGEST_KEY` | ✅ Set |
+| `NODE_ENV` | ✅ Set |
+| `PORT` | ✅ Set |
+| `SUPABASE_DB_URL` | ✅ Set |
 
-**Fix လုပ်ရမည်:**
+**Render Service:** `aegis-api-server` — Blueprint managed, `sohu2723-star/aegis-soc-dashboard` main branch
+**Render URL:** `https://aegis-api-server-jp3b.onrender.com`
+
+**AEGIS Dashboard (Vercel) — Live Data Confirmed:**
+
+| Metric | Value |
+|---|---|
+| Total Events | 100 |
+| Critical Threats | 0 |
+| Active Alerts | 90 |
+| Systems Online | 4 / 9 |
+
+**Events by Type (confirmed in chart):**
+- `network_attack` — SSH Brute Force events
+- `web_attack` — Suspicious TLS events
+
+**Recent Telemetry (confirmed):**
 ```
-Render Dashboard → aegis-api-server → Environment → Add variables:
-  SUPABASE_DB_URL  = [Supabase pooler URL, port 6543]
-  AEGIS_INGEST_KEY = [ingest key]
-  AEGIS_ADMIN_KEY  = [admin key]
-→ Manual Deploy trigger
+192.168.84.135 → ubuntu-server  [SSH Brute Force]  network_attack  11:27, 11:22, 11:05, 11:02
+192.168.84.130 → 216.24.57.8    [Suspicious TLS]   web_attack      10:52, 10:48, 10:42
 ```
 
-**Next:** Render secrets set ပြီးမှ aegis_forwarder.py run ဆင့် ဆက်လုပ်ရမည်
+**Note:** Render free tier = cold start ~50s after 15-min inactivity — expected behavior, not a bug
+
+**Next:** aegis-forwarder VM (10.30.30.10) ၌ `aegis_forwarder.py` setup လုပ်ပြီး bank-web Suricata/Fail2ban logs ကို Render API ထဲ forward လုပ်ရမည်
 
 ---
 
