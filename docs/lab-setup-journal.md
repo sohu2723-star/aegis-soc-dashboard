@@ -1415,6 +1415,30 @@ Save → Apply Changes
 
 ---
 
+### 2026-07-07 — pfSense WebGUI Permanent WAN Rule Added ✅
+
+**Status:** ✅ Done
+
+**Time:** 21:15
+
+**What:** pfSense WebGUI မှ permanent WAN firewall rule ထည့်ခဲ့သည် — easyrule rules (restart ဖြင့် ပျောက်နိုင်) အပြင် WebGUI permanent rule ပါ ရှိသည်
+
+**Firewall → Rules → WAN ၌ active rules (confirmed from screenshot):**
+
+| # | Protocol | Source | Destination | Description |
+|---|---|---|---|---|
+| 1 | IPv4 * (Any) | 192.168.122.0/24 | Any | **Allow Kali** ← WebGUI permanent rule ✅ |
+| 2 | IPv4 ICMP echoreq | 192.168.122.0/24 | Any | Passed via EasyRule |
+| 3 | IPv4 * | 192.168.122.0/24 | Any | Passed via EasyRule |
+
+**Message confirmed:** "The changes have been applied successfully. The firewall rules are now reloading in the background." ✅
+
+**WARNING shown:** admin account password = default value → System → User Manager မှ ပြောင်းရမည်
+
+**Rule:** "Allow Kali" (top rule) = permanent — pfSense restart ဖြင့် မပျောက်ဘဲ ကျန်မည် ✅
+
+---
+
 ### 2026-07-07 — Traceroute 4-Hop Path Confirmed ✅
 
 **Status:** ✅ Complete
@@ -1532,7 +1556,8 @@ pfSense em3 ─── aegis-forwarder
 - [x] Kali permanent static route (nmcli) ✅ (2026-07-07)
 - [x] traceroute 10.10.10.10 — 4-hop path confirmed ✅ (2026-07-07 21:11)
 - [ ] pfSense WebGUI: password ပြောင်း (admin/pfsense → strong password)
-- [ ] pfSense WebGUI: permanent WAN/OPT1/OPT2 firewall rules (WebGUI → Firewall → Rules)
+- [x] pfSense WebGUI: permanent WAN rule "Allow Kali" ✅ (2026-07-07 21:15)
+- [ ] pfSense WebGUI: permanent OPT1/OPT2 pass rules (Firewall → Rules → OPT1/OPT2)
 - [ ] bank-mail static IP 10.10.10.20
 - [ ] teller-pc static IP 10.20.20.10
 - [ ] customer-db static IP 10.20.20.20
