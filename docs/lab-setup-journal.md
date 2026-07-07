@@ -1415,6 +1415,124 @@ Save → Apply Changes
 
 ---
 
+### 2026-07-07 — pfSense WebGUI Permanent OPT1 Rule (Internal Network) ✅
+
+**Status:** ✅ Done
+
+**Time:** 21:23
+
+**What:** pfSense WebGUI → Firewall → Rules → OPT1 tab မှ permanent pass rule ထည့်ခဲ့သည်
+
+**Firewall → Rules → OPT1 confirmed rules (screenshot):**
+
+| States | Protocol | Source | Destination | Description |
+|---|---|---|---|---|
+| 239/275 KiB | IPv4 * (Any) | OPT1 subnets | Any | **Allow INT outbound** ← WebGUI permanent ✅ |
+| 0/837 KiB | IPv4 * | 10.20.20.0/24 | Any | Passed via EasyRule |
+
+**WebGUI steps:**
+```
+Firewall → Rules → OPT1 → Add (↑ top)
+  Action:      Pass
+  Interface:   OPT1
+  Protocol:    Any
+  Source:      OPT1 subnets
+  Destination: Any
+  Description: Allow INT outbound
+→ Save → Apply Changes
+```
+
+**State counters:** 239/275 KiB = traffic already passing through this rule → teller-pc/customer-db (10.20.20.x) internet access confirmed ✅
+
+---
+
+### 2026-07-07 — pfSense WebGUI Permanent OPT2 Rule (MGMT Network) ✅
+
+**Status:** ✅ Done
+
+**Time:** 21:23
+
+**What:** pfSense WebGUI → Firewall → Rules → OPT2 tab မှ permanent pass rule ထည့်ခဲ့သည်
+
+**Firewall → Rules → OPT2 confirmed rules (screenshot):**
+
+| States | Protocol | Source | Destination | Description |
+|---|---|---|---|---|
+| 12/6 KiB | IPv4 * (Any) | OPT2 subnets | Any | **Allow MGMT outbound** ← WebGUI permanent ✅ |
+| 0/25 KiB | IPv4 * | 10.30.30.0/24 | Any | Passed via EasyRule |
+
+**WebGUI steps:**
+```
+Firewall → Rules → OPT2 → Add (↑ top)
+  Action:      Pass
+  Interface:   OPT2
+  Protocol:    Any
+  Source:      OPT2 subnets
+  Destination: Any
+  Description: Allow MGMT outbound
+→ Save → Apply Changes
+```
+
+**State counters:** 12/6 KiB = aegis-forwarder (10.30.30.10) traffic passing ✅
+
+**pfSense Permanent Firewall Rules — Complete Summary (2026-07-07):**
+
+| Interface | Rule Name | Source | Protocol | Status |
+|---|---|---|---|---|
+| WAN | Allow Kali | 192.168.122.0/24 | Any | ✅ Permanent |
+| OPT1 | Allow INT outbound | OPT1 subnets | Any | ✅ Permanent |
+| OPT2 | Allow MGMT outbound | OPT2 subnets | Any | ✅ Permanent |
+| LAN | (default anti-lockout) | LAN subnets | Any | ✅ Built-in |
+
+> EasyRule entries (ICMP echoreq, subnet-specific) = supplementary rules ဖြစ်ပြီး permanent rules နဲ့ ထပ်နေသောကြောင့် redundant ဖြစ်သည်။ Permanent rules = restart-safe ✅
+
+---
+
+### 2026-07-07 — bank-web: Apache2 + PHP + MariaDB apt Install Start ⚡
+
+**Status:** 🔄 In Progress (21:27)
+
+**VM:** bank-web (10.10.10.10), Ubuntu 22.04 (Jammy)
+
+**Command run:**
+```bash
+sudo apt update && sudo apt install -y apache2 php php-mysqli php-gd libapache2-mod-php git mariadb-server
+```
+
+**apt update output observed (screenshot):**
+```
+Ign:1 http://mm.archive.ubuntu.com/ubuntu jammy InRelease
+Ign:2 http://security.ubuntu.com/ubuntu jammy-security InRelease
+Ign:3 http://mm.archive.ubuntu.com/ubuntu jammy-updates InRelease
+Ign:2 http://security.ubuntu.com/ubuntu jammy-security InRelease
+Ign:4 http://mm.archive.ubuntu.com/ubuntu jammy-backports InRelease
+Ign:2 http://security.ubuntu.com/ubuntu jammy-security InRelease
+Err:2 http://security.ubuntu.com/ubuntu jammy-security InRelease
+        Temporary failure resolving 'security.ubuntu.com'
+0% [Connecting to mm.archive.ubuntu.com]   ← still running
+```
+
+**Analysis:**
+- `mm.archive.ubuntu.com` (Myanmar mirror) = connecting ✅ (main packages)
+- `security.ubuntu.com` = "Temporary failure resolving" ⚠️
+- Root cause: pfSense DNS forwarding မသတ်မှတ်ရသေး သို့မဟုတ် security.ubuntu.com DNS ယာယီ fail
+- **Impact:** security updates မရမည် — main packages (apache2, php, mariadb) = Myanmar mirror မှ ရနိုင်သည်
+
+**If DNS fail persists — fix options:**
+```bash
+# Option 1: security.ubuntu.com ကို Myanmar mirror ဖြင့် override
+sudo sed -i 's|http://security.ubuntu.com|http://mm.archive.ubuntu.com|g' /etc/apt/sources.list
+sudo apt update
+
+# Option 2: Google DNS override (test)
+echo "nameserver 8.8.8.8" | sudo tee /etc/resolv.conf
+sudo apt update
+```
+
+**Note:** `Ign` (Ignored) = InRelease file redirect ignore → normal for mirrors. `Err` (Error) = actual failure → security.ubuntu.com DNS only.
+
+---
+
 ### 2026-07-07 — pfSense WebGUI Permanent WAN Rule Added ✅
 
 **Status:** ✅ Done
@@ -1557,11 +1675,12 @@ pfSense em3 ─── aegis-forwarder
 - [x] traceroute 10.10.10.10 — 4-hop path confirmed ✅ (2026-07-07 21:11)
 - [ ] pfSense WebGUI: password ပြောင်း (admin/pfsense → strong password)
 - [x] pfSense WebGUI: permanent WAN rule "Allow Kali" ✅ (2026-07-07 21:15)
-- [ ] pfSense WebGUI: permanent OPT1/OPT2 pass rules (Firewall → Rules → OPT1/OPT2)
+- [x] pfSense WebGUI: permanent OPT1 rule "Allow INT outbound" ✅ (2026-07-07 21:23)
+- [x] pfSense WebGUI: permanent OPT2 rule "Allow MGMT outbound" ✅ (2026-07-07 21:23)
 - [ ] bank-mail static IP 10.10.10.20
 - [ ] teller-pc static IP 10.20.20.10
 - [ ] customer-db static IP 10.20.20.20
-- [ ] bank-web: Apache2 + DVWA install
+- [ ] bank-web: Apache2 + DVWA install (apt update running 21:27)
 - [ ] bank-mail: Postfix + Dovecot install
 - [ ] customer-db: PostgreSQL install
 - [ ] aegis-forwarder: AEGIS agent install + systemd service
