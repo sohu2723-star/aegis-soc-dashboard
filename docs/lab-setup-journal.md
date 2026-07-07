@@ -1797,7 +1797,40 @@ sudo systemctl restart apache2
 
 **Result:** DVWA deployed at `http://10.10.10.10/dvwa` ✅ — Apache2 restarted cleanly
 
-**Next:** MariaDB ၌ DVWA database + user create၊ DVWA Setup page မှ Create Database နှိပ်ပြီး initialize လုပ်ရမည်
+**Next:** MariaDB ၌ DVWA database + user create — ✅ Done (2026-07-08 01:29)
+
+---
+
+### 2026-07-08 — DVWA MariaDB Setup + Database Initialized
+
+**Status:** ✅ Done
+
+**Time:** 01:29–01:43
+
+**What:** DVWA အတွက် MariaDB database + user create ပြီး DVWA setup page မှ database initialize လုပ်ခဲ့သည် — login page ပေါ်လာသည်ဖြင့် DVWA fully operational ဖြစ်ကြောင်း confirmed
+
+**How:**
+```bash
+sudo mysql -u root
+```
+```sql
+CREATE DATABASE dvwa;
+CREATE USER 'dvwa'@'localhost' IDENTIFIED BY 'p@ssw0rd';
+GRANT ALL PRIVILEGES ON dvwa.* TO 'dvwa'@'localhost';
+FLUSH PRIVILEGES;
+EXIT;
+```
+Browser: `http://10.10.10.10/dvwa/setup.php` → **Create / Reset Database** နှိပ်
+
+**Result:** DVWA login page (`http://10.10.10.10/dvwa/login.php`) ပေါ်လာသည် ✅
+- Login: `admin` / `password`
+- bank-web ၌ SQL injection, XSS, brute force attack target ready
+
+**Troubleshooting မှတ်တမ်း:**
+- `git clone` ပထမအကြိမ် fail — URL နဲ့ path ကြားမှာ space ပျောက်သွားသောကြောင့် (`https://github.com/digininja/DVWA/var/www/html/dvwa/` ဟု တစ်ကြောင်းတည်း ဆက်သွားခဲ့)
+- `sed` command fail — special character escape ပြဿနာ; DVWA default config မှာ `p@ssw0rd` already ရှိပြီးသားဖြစ်၍ sed skip လုပ်၍ ဖြေရှင်းခဲ့
+
+**Next:** Kali မှ DVWA target ကို nmap scan, SQLi, brute force attacks စနိုင်ပြီ
 
 ---
 
@@ -1820,7 +1853,8 @@ sudo systemctl restart apache2
 - [x] bank-web: Apache2 + DVWA install ✅ (2026-07-08)
 - [x] bank-web: i386 architecture removal + apt cache clear (package fix) ✅ (2026-07-08)
 - [x] bank-web: DVWA clone + config (db_password, permissions, apache2 restart) ✅ (2026-07-08)
-- [ ] bank-web: MariaDB DVWA database + user create; DVWA Setup page → Create Database
+- [x] bank-web: MariaDB DVWA database + user create ✅ (2026-07-08 01:29)
+- [x] bank-web: DVWA Setup page → Create Database → login page confirmed ✅ (2026-07-08 01:43)
 - [ ] bank-mail: Postfix + Dovecot install
 - [ ] customer-db: PostgreSQL install
 - [ ] aegis-forwarder: AEGIS agent install + systemd service
