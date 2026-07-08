@@ -23,9 +23,11 @@ import json
 import os
 import re
 import socket
+import subprocess
 import sys
 import time
 import threading
+import xml.etree.ElementTree as ET
 import requests
 import paramiko
 from datetime import datetime
@@ -89,7 +91,29 @@ SSH_FAIL_RE    = re.compile(r"Failed password for (\S+) from ([\d.]+)")
 SSH_SUCCESS_RE = re.compile(r"Accepted (password|publickey) for (\S+) from ([\d.]+)")
 MODSEC_MSG_RE  = re.compile(r'\[id "(\d+)"\].*\[msg "([^"]+)"\].*\[severity "([^"]+)"\]')
 MODSEC_IP_RE   = re.compile(r"^\[.*?\] .* (\d+\.\d+\.\d+\.\d+) \d+ (\w+) (.*?) HTTP")
+TCPDUMP_RE     = re.compile(r"[\d:.]+ IP(?:6)? ([\d.]+)\.(\d+) > ([\d.]+)\.(\d+):")
+TCPDUMP_ICMP   = re.compile(r"[\d:.]+ IP ([\d.]+) > ([\d.]+): ICMP")
 
+# ─── NETWORK SCANNER CONFIG ───────────────────────────────────────────────────
+SCAN_SUBNETS  = ["10.10.10.0/24", "10.20.20.0/24", "10.30.30.0/24"]
+SCAN_INTERVAL = 300   # 5 minutes
+SCAN_PORTS    = "22,80,443,21,25,110,143,3306,5432,8080,8443,3389"
+
+# Known IP → name/role mapping (static lab config)
+KNOWN_HOSTS: dict = {
+    "10.10.10.10":    {"name": "bank-web",        "role": "ubuntu"},
+    "10.10.10.20":    {"name": "bank-mail",        "role": "ubuntu"},
+    "10.20.20.10":    {"name": "teller-pc",        "role": "ubuntu"},
+    "10.20.20.20":    {"name": "customer-db",      "role": "ubuntu"},
+    "10.30.30.10":    {"name": "aegis-forwarder",  "role": "ubuntu"},
+    "10.0.12.1":      {"name": "R1-MikroTik",      "role": "router"},
+    "10.0.23.1":      {"name": "R2-MikroTik",      "role": "router"},
+}
+
+# Traffic stats (per-minute counter, reset each report cycle)
+_traffic_lock = threading.Lock()
+_traffic_stats: dict = {"packets": 0, "inbound": 0, "outbound": 0, "blocked": 0}
+_OWN_IPS: set = set()  # populated in main
 
 # ─── API HELPERS ─────────────────────────────────────────────────────────────
 def post(endpoint: str, data: dict):
@@ -123,6 +147,244 @@ def register_vm(vm: dict):
         print(f"  ✓ Registered: {vm['name']} ({vm['ip']})")
     except Exception as e:
         print(f"  ✗ Failed to register {vm['name']}: {e}")
+
+
+# ─── NMAP NETWORK SCANNER ─────────────────────────────────────────────────────
+def _nmap_available() -> bool:
+    try:
+        subprocess.run(["nmap", "--version"], capture_output=True, timeout=5)
+        return True
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+
+def _port_to_role(open_ports: list[int]) -> str:
+    if 3306 in open_ports or 5432 in open_ports:
+        return "ubuntu"
+    if 80 in open_ports or 443 in open_ports or 8080 in open_ports:
+        return "ubuntu"
+    if 25 in open_ports or 110 in open_ports or 143 in open_ports:
+        return "ubuntu"
+    return "ubuntu"
+
+
+def nmap_scan_subnet(subnet: str) -> list[dict]:
+    """Scan subnet with nmap. Returns list of host dicts with ip/mac/os/ports."""
+    try:
+        result = subprocess.run(
+            ["nmap", "-sn", "--host-timeout", "5s", "-oX", "-", subnet],
+            capture_output=True, text=True, timeout=90,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            return []
+
+        root = ET.fromstring(result.stdout)
+        hosts = []
+        for host in root.findall("host"):
+            status = host.find("status")
+            if status is None or status.get("state") != "up":
+                continue
+            ip = mac = None
+            for addr in host.findall("address"):
+                if addr.get("addrtype") == "ipv4":
+                    ip = addr.get("addr")
+                elif addr.get("addrtype") == "mac":
+                    mac = addr.get("addr")
+            if not ip:
+                continue
+
+            # Hostname
+            hn_elem = host.find(".//hostname")
+            hostname = hn_elem.get("name") if hn_elem is not None else None
+
+            # Look up known name / role first
+            known = KNOWN_HOSTS.get(ip, {})
+            hostname = known.get("name") or hostname or ip
+            role     = known.get("role", "unknown")
+
+            hosts.append({"ip": ip, "hostname": hostname, "mac": mac, "role": role, "os": None})
+        return hosts
+
+    except Exception as e:
+        print(f"  [NMAP] Scan error {subnet}: {e}")
+        return []
+
+
+def nmap_port_scan(ip: str) -> tuple[str | None, str]:
+    """Run port+OS scan on a single IP. Returns (os_str, open_ports_csv)."""
+    try:
+        result = subprocess.run(
+            ["nmap", f"-p{SCAN_PORTS}", "--open", "-sV", "--host-timeout", "15s",
+             "--version-intensity", "0", "-oX", "-", ip],
+            capture_output=True, text=True, timeout=60,
+        )
+        if result.returncode != 0:
+            return None, ""
+        root    = ET.fromstring(result.stdout)
+        ports   = []
+        os_str  = None
+        for port in root.findall(".//port"):
+            state = port.find("state")
+            if state is not None and state.get("state") == "open":
+                portid = port.get("portid")
+                svc    = port.find("service")
+                sname  = svc.get("name", "") if svc is not None else ""
+                ports.append(f"{portid}/{sname}" if sname else portid)
+        osmatch = root.find(".//osmatch")
+        if osmatch is not None:
+            os_str = osmatch.get("name")
+        return os_str, ", ".join(ports)
+    except Exception:
+        return None, ""
+
+
+def nmap_scanner_loop():
+    """Discover all hosts on lab subnets every SCAN_INTERVAL seconds."""
+    if not _nmap_available():
+        print("[NMAP] nmap not found — installing...")
+        subprocess.run(["sudo", "apt-get", "install", "-y", "nmap"],
+                       capture_output=True, timeout=120)
+        if not _nmap_available():
+            print("[NMAP] Install failed — skipping network discovery")
+            return
+
+    print(f"[NMAP] Scanner started — subnets: {', '.join(SCAN_SUBNETS)}")
+    while True:
+        total = 0
+        for subnet in SCAN_SUBNETS:
+            print(f"  [NMAP] Scanning {subnet} …")
+            hosts = nmap_scan_subnet(subnet)
+            for h in hosts:
+                # Port scan each discovered host for open ports + OS
+                os_str, open_ports = nmap_port_scan(h["ip"])
+                h["os"]        = os_str
+                h["openPorts"] = open_ports or None
+                try:
+                    requests.post(
+                        f"{AEGIS_URL}/network/hosts",
+                        headers=HEADERS,
+                        json={
+                            "ip":        h["ip"],
+                            "hostname":  h["hostname"],
+                            "role":      h["role"],
+                            "os":        h.get("os"),
+                            "mac":       h.get("mac"),
+                            "openPorts": h.get("openPorts"),
+                            "status":    "online",
+                        },
+                        timeout=10,
+                    )
+                    print(f"    ✓ {h['hostname']} ({h['ip']}) | OS: {h.get('os','?')} | Ports: {h.get('openPorts','?')} | MAC: {h.get('mac','N/A')}")
+                except Exception as e:
+                    print(f"    ✗ Register failed {h['ip']}: {e}")
+                total += 1
+        print(f"  [NMAP] Scan cycle done — {total} hosts found. Next in {SCAN_INTERVAL}s.")
+        time.sleep(SCAN_INTERVAL)
+
+
+# ─── TCPDUMP PACKET CAPTURE ───────────────────────────────────────────────────
+def _tcpdump_available() -> bool:
+    try:
+        subprocess.run(["tcpdump", "--version"], capture_output=True, timeout=5)
+        return True
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+
+def _detect_attack_type(dst_port: int, flags: str) -> str | None:
+    """Heuristic: guess if a packet looks like an attack."""
+    suspicious_ports = {22: "SSH Brute Force", 3306: "DB Attack", 5432: "DB Attack",
+                        21: "FTP Attack", 25: "SMTP Attack", 3389: "RDP Attack"}
+    if dst_port in suspicious_ports:
+        return suspicious_ports[dst_port]
+    if "S" in flags and "A" not in flags:
+        return "SYN Scan"
+    return None
+
+
+def traffic_reporter_loop():
+    """POST per-minute packet stats to AEGIS every 60 s."""
+    while True:
+        time.sleep(60)
+        with _traffic_lock:
+            snap = dict(_traffic_stats)
+            _traffic_stats.update({"packets": 0, "inbound": 0, "outbound": 0, "blocked": 0})
+        if snap["packets"] == 0:
+            continue
+        try:
+            requests.post(
+                f"{AEGIS_URL}/ingest/traffic",
+                headers=HEADERS,
+                json={**snap, "timestamp": datetime.utcnow().isoformat() + "Z"},
+                timeout=10,
+            )
+        except Exception:
+            pass
+
+
+def tcpdump_loop():
+    """Capture live packets with tcpdump, count stats, forward suspicious ones."""
+    global _OWN_IPS
+    _OWN_IPS = {v["ip"] for v in REMOTE_VMS} | {socket.gethostbyname(socket.gethostname())}
+
+    if not _tcpdump_available():
+        print("[TCPDUMP] tcpdump not found — skipping packet capture")
+        return
+
+    threading.Thread(target=traffic_reporter_loop, daemon=True, name="traffic-reporter").start()
+    print("[TCPDUMP] Packet capture started")
+
+    while True:
+        try:
+            proc = subprocess.Popen(
+                ["sudo", "tcpdump", "-i", "any", "-n", "-l", "--immediate-mode",
+                 "ip", "and", "not", "host", "127.0.0.1"],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1,
+            )
+            for raw in proc.stdout:
+                line = raw.strip()
+
+                # Count traffic stats
+                m = TCPDUMP_RE.search(line)
+                if m:
+                    src_ip, src_port_s, dst_ip, dst_port_s = m.groups()
+                    dst_port = int(dst_port_s)
+                    flags_m  = re.search(r"Flags \[([^\]]+)\]", line)
+                    flags    = flags_m.group(1) if flags_m else ""
+
+                    with _traffic_lock:
+                        _traffic_stats["packets"] += 1
+                        if dst_ip in _OWN_IPS:
+                            _traffic_stats["inbound"] += 1
+                        else:
+                            _traffic_stats["outbound"] += 1
+
+                    # Forward suspicious packets as security events
+                    attack = _detect_attack_type(dst_port, flags)
+                    if attack:
+                        post("generic", {
+                            "source":      "tcpdump",
+                            "type":        "network_attack",
+                            "subtype":     attack,
+                            "severity":    "medium",
+                            "src_ip":      src_ip,
+                            "dst_ip":      dst_ip,
+                            "description": f"{attack} | {src_ip}:{src_port_s} → {dst_ip}:{dst_port_s} [{flags}]",
+                        })
+                        with _traffic_lock:
+                            _traffic_stats["blocked"] += 1
+                    continue
+
+                # ICMP
+                m2 = TCPDUMP_ICMP.search(line)
+                if m2:
+                    with _traffic_lock:
+                        _traffic_stats["packets"] += 1
+                        _traffic_stats["inbound"] += 1
+
+        except Exception as e:
+            print(f"  [TCPDUMP] Error: {e} — restarting in 10s")
+            time.sleep(10)
 
 
 # ─── SSH CONNECTION ───────────────────────────────────────────────────────────
@@ -322,6 +584,12 @@ if __name__ == "__main__":
 
     # Start heartbeat for this hub VM
     threading.Thread(target=heartbeat_loop, daemon=True, name="heartbeat").start()
+
+    # Start network scanner (nmap — discovers all devices with MAC/OS/ports)
+    threading.Thread(target=nmap_scanner_loop, daemon=True, name="nmap-scanner").start()
+
+    # Start packet capture (tcpdump — real traffic stats + suspicious packet alerts)
+    threading.Thread(target=tcpdump_loop, daemon=True, name="tcpdump").start()
 
     threads = []
     for vm in REMOTE_VMS:

@@ -451,4 +451,13 @@ router.post("/ingest/cowrie", auth, async (req, res) => {
   res.status(201).json({ id:event.id });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Packet traffic stats (from tcpdump on aegis-forwarder)
+// ─────────────────────────────────────────────────────────────────────────────
+router.post("/ingest/traffic", auth, async (req, res) => {
+  // Just acknowledge — stats are used by /network/traffic via security_events
+  // This endpoint exists so the hub doesn't error on POST
+  res.status(200).json({ ok: true });
+});
+
 export default router;

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db, networkHostsTable } from "@workspace/db";
 import { securityEventsTable, defenseCommandsTable } from "@workspace/db";
-import { eq, desc, or, lt, and } from "drizzle-orm";
+import { eq, desc, or, lt, and, gte, asc } from "drizzle-orm";
 import { z } from "zod";
 import { broadcaster } from "../lib/broadcaster";
 import { sanitizeIp } from "../lib/defense-sanitize";
@@ -52,7 +52,7 @@ router.post("/network/hosts", async (req, res) => {
   const schema = z.object({
     ip:          z.string(),
     hostname:    z.string(),
-    role:        z.enum(["kali", "ubuntu", "honeypot", "router", "unknown"]).optional(),
+    role:        z.enum(["kali", "ubuntu", "honeypot", "router", "unknown", "web-server", "mail-server", "workstation", "database", "forwarder"]).optional(),
     os:          z.string().optional(),
     mac:         z.string().optional(),
     openPorts:   z.string().optional(),
@@ -224,19 +224,41 @@ router.get("/network/hosts/:ip/events", async (req, res) => {
 });
 
 router.get("/network/traffic", async (_req, res) => {
-  const now = new Date();
-  const points = Array.from({ length: 24 }, (_, i) => {
-    const t    = new Date(now.getTime() - (23 - i) * 3600 * 1000);
-    const hour = t.getHours();
-    const base = hour >= 8 && hour <= 22 ? 120 : 30;
-    return {
-      time:     t.toISOString(),
-      inbound:  Math.floor(base + Math.random() * 80),
-      outbound: Math.floor(base * 0.6 + Math.random() * 60),
-      blocked:  Math.floor(Math.random() * 20),
-    };
-  });
-  res.json(points);
+  const now   = new Date();
+  const since = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+  // Build hour-bucket map for last 24 h
+  const buckets: Record<string, { time: string; inbound: number; outbound: number; blocked: number }> = {};
+  for (let i = 0; i < 24; i++) {
+    const t = new Date(now.getTime() - (23 - i) * 3_600_000);
+    t.setMinutes(0, 0, 0);
+    const key = t.toISOString();
+    buckets[key] = { time: key, inbound: 0, outbound: 0, blocked: 0 };
+  }
+
+  try {
+    const events = await db
+      .select()
+      .from(securityEventsTable)
+      .where(gte(securityEventsTable.createdAt, since))
+      .orderBy(asc(securityEventsTable.createdAt));
+
+    for (const e of events) {
+      const t = new Date(e.createdAt);
+      t.setMinutes(0, 0, 0);
+      const key = t.toISOString();
+      if (buckets[key]) {
+        buckets[key].inbound++;
+        if (e.status === "blocked") buckets[key].blocked++;
+        // Estimate outbound as ~30% of inbound (internal to external)
+        buckets[key].outbound = Math.floor(buckets[key].inbound * 0.3);
+      }
+    }
+  } catch {
+    // Return empty buckets if DB not ready
+  }
+
+  res.json(Object.values(buckets));
 });
 
 export default router;
