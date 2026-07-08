@@ -480,11 +480,22 @@ def watch_fail2ban_remote(client: paramiko.SSHClient, vm: dict):
 
 
 def watch_ssh_remote(client: paramiko.SSHClient, vm: dict):
+    """
+    Watch auth.log on a remote VM.
+    Skips events where the source IP is our own forwarder — those are the hub's
+    own SSH management connections and must not appear as attacks.
+    """
     fail_counts: dict[str, int] = {}
+    own_ip = _get_own_ip()
+    # Build a set of all "defender" IPs that should never be flagged as attackers
+    defender_ips = {own_ip, "10.30.30.10"} | {v["ip"] for v in REMOTE_VMS}
+
     for line in ssh_tail(client, LOG_PATHS["ssh"], vm["name"]):
         m_fail = SSH_FAIL_RE.search(line)
         if m_fail:
             user, ip = m_fail.group(1), m_fail.group(2)
+            if ip in defender_ips:
+                continue  # ignore hub's own SSH connections
             fail_counts[ip] = fail_counts.get(ip, 0) + 1
             post("ssh", {
                 "src_ip":   ip,
@@ -496,6 +507,8 @@ def watch_ssh_remote(client: paramiko.SSHClient, vm: dict):
         m_ok = SSH_SUCCESS_RE.search(line)
         if m_ok:
             auth, user, ip = m_ok.group(1), m_ok.group(2), m_ok.group(3)
+            if ip in defender_ips:
+                continue  # ignore hub's own SSH connections
             fail_counts.pop(ip, None)
             post("ssh", {
                 "src_ip":      ip,
@@ -547,16 +560,29 @@ SENSOR_FUNCS = {
 
 
 # ─── HEARTBEAT ────────────────────────────────────────────────────────────────
+def _get_own_ip() -> str:
+    """Return the real outbound interface IP (not 127.0.0.1)."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return socket.gethostbyname(socket.gethostname())
+
+
 def heartbeat_loop():
     """Send periodic heartbeat for aegis-forwarder itself every 15s."""
-    ip       = socket.gethostbyname(socket.gethostname())
+    ip       = _get_own_ip()
     hostname = socket.gethostname()
+    print(f"  [HEARTBEAT] My IP = {ip}")
     while True:
         try:
             requests.post(
                 f"{AEGIS_URL}/network/hosts",
                 headers=HEADERS,
-                json={"ip": ip, "hostname": hostname, "role": "forwarder", "status": "online"},
+                json={"ip": ip, "hostname": hostname, "role": "ubuntu", "status": "online"},
                 timeout=5,
             )
         except Exception:
@@ -578,10 +604,8 @@ if __name__ == "__main__":
     if not SSH_PASS and not SSH_KEY_FILE:
         print("[WARN] SSH_PASS and SSH_KEY are both empty — will try ~/.ssh default keys")
 
-    # Register all VMs in AEGIS Network Monitor
-    print("[*] Registering remote VMs …")
-    for vm in REMOTE_VMS:
-        register_vm(vm)
+    # NOTE: VMs are registered only when SSH successfully connects — not at startup.
+    # This avoids showing offline VMs in the connected-devices list.
 
     # Start heartbeat for this hub VM
     threading.Thread(target=heartbeat_loop, daemon=True, name="heartbeat").start()
@@ -596,8 +620,11 @@ if __name__ == "__main__":
     for vm in REMOTE_VMS:
         client = make_ssh_client(vm["ip"], vm["name"])
         if not client:
-            print(f"  [SKIP] {vm['name']} — SSH failed, skipping")
+            print(f"  [SKIP] {vm['name']} — SSH failed, skipping (not added to connected devices)")
             continue
+
+        # Register VM only when SSH successfully connects → only reachable VMs appear in dashboard
+        register_vm(vm)
 
         for sensor in vm["sensors"]:
             fn = SENSOR_FUNCS.get(sensor)
