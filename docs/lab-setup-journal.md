@@ -2334,6 +2334,52 @@ Dashboard → Network Monitor showed only `10.30.30.10 (sithu)` online, with **O
 
 ---
 
+### 2026-07-08 23:10 — Ready-to-Run Fix Guide: SSH Key Auth + Remaining VM Setup ⏳
+
+**Status:** ⏳ Not Started (steps below — run on the real VMs)
+
+**Why SSH key instead of `SSH_PASS`:** password auth intermittently produced "No authentication methods available" on bank-web (password wasn't exported that run) and password auth via env var is easy to lose across terminal sessions. A key survives reboots/re-exports and is one less thing to remember.
+
+**Step 1 — Generate a key on aegis-forwarder (10.30.30.10), once:**
+```bash
+ssh-keygen -t ed25519 -N "" -f ~/.ssh/aegis_hub_key
+```
+
+**Step 2 — Copy the public key to every target VM (run once per VM, needs that VM's password once):**
+```bash
+ssh-copy-id -i ~/.ssh/aegis_hub_key.pub sithu@10.10.10.10   # bank-web
+ssh-copy-id -i ~/.ssh/aegis_hub_key.pub sithu@10.10.10.20   # bank-mail (after Step 3 below)
+ssh-copy-id -i ~/.ssh/aegis_hub_key.pub sithu@10.20.20.10   # teller-pc (after Step 3 below)
+ssh-copy-id -i ~/.ssh/aegis_hub_key.pub sithu@10.20.20.20   # customer-db (after Step 3 below)
+```
+
+**Step 3 — On bank-mail / teller-pc / customer-db, same recipe as bank-web (2026-07-08 03:15 entry):**
+```bash
+sudo apt install -y openssh-server
+sudo systemctl start ssh
+sudo systemctl enable ssh
+# static IP must already be set per the Lab Topology table (still [ ] unchecked in Next Steps)
+```
+
+**Step 4 — Passwordless sudo on aegis-forwarder (needed for nmap install + tcpdump, see 23:00 entry):**
+```bash
+echo "$USER ALL=(ALL) NOPASSWD: ALL" | sudo tee /etc/sudoers.d/aegis-hub
+```
+
+**Step 5 — Run the hub with the key instead of a password:**
+```bash
+export AEGIS_URL="https://aegis-api-server-jp3b.onrender.com/api"
+export AEGIS_KEY="<AEGIS_INGEST_KEY>"
+export SSH_KEY="/home/sithu/.ssh/aegis_hub_key"
+python3 /opt/aegis_forwarder_hub.py
+```
+
+**Step 6 — pfSense: confirm MGMT → DMZ/INT routing/firewall allows nmap discovery.** The existing rules ("Allow MGMT outbound", "Allow INT outbound", "Allow WAN Kali") only cover the paths already tested end-to-end (SSH to bank-web). If `nmap` from aegis-forwarder still finds 0 extra hosts after Steps 1–5, check pfSense → Firewall → Rules on the OPT2 (MGMT) interface for a rule allowing ICMP + TCP from `10.30.30.0/24` to `10.10.10.0/24` and `10.20.20.0/24`.
+
+**Next:** Once all 4 VMs are reachable via key auth and nmap can reach them, re-check Network Monitor — OS/Ports/MAC should populate within one scan cycle (5 min) and Traffic (Last Hr) should show non-zero once tcpdump sees packets.
+
+---
+
 ## References
 
 - GNS3 docs: https://docs.gns3.com
