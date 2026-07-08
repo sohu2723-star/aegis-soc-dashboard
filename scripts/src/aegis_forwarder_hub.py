@@ -152,8 +152,8 @@ def register_vm(vm: dict):
 # ─── NMAP NETWORK SCANNER ─────────────────────────────────────────────────────
 def _nmap_available() -> bool:
     try:
-        subprocess.run(["nmap", "--version"], capture_output=True, timeout=5)
-        return True
+        r = subprocess.run(["nmap", "--version"], capture_output=True, timeout=5)
+        return r.returncode == 0
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return False
 
@@ -234,7 +234,8 @@ def nmap_port_scan(ip: str) -> tuple[str | None, str]:
         if osmatch is not None:
             os_str = osmatch.get("name")
         return os_str, ", ".join(ports)
-    except Exception:
+    except Exception as e:
+        print(f"  [NMAP] Port scan error {ip}: {e}")
         return None, ""
 
 

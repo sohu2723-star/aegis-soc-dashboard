@@ -8,6 +8,30 @@ import { sanitizeIp } from "../lib/defense-sanitize";
 
 const router = Router();
 
+// ─── In-memory traffic stats ring buffer (last 24 hourly buckets) ─────────────
+interface TrafficBucket { time: string; inbound: number; outbound: number; blocked: number; packets: number }
+const _trafficRing: Map<string, TrafficBucket> = new Map();
+
+export function recordTrafficStats(stats: { inbound: number; outbound: number; blocked: number; packets: number; timestamp?: string }) {
+  const t = stats.timestamp ? new Date(stats.timestamp) : new Date();
+  t.setMinutes(0, 0, 0);
+  const key = t.toISOString();
+  const existing = _trafficRing.get(key);
+  if (existing) {
+    existing.inbound  += stats.inbound;
+    existing.outbound += stats.outbound;
+    existing.blocked  += stats.blocked;
+    existing.packets  += stats.packets;
+  } else {
+    _trafficRing.set(key, { time: key, ...stats, packets: stats.packets });
+    // Prune entries older than 25 hours
+    const cutoff = Date.now() - 25 * 3_600_000;
+    for (const [k] of _trafficRing) {
+      if (new Date(k).getTime() < cutoff) _trafficRing.delete(k);
+    }
+  }
+}
+
 // ─── Auto-timeout: mark hosts offline if heartbeat stopped > 90s ago ──────────
 const OFFLINE_TIMEOUT_MS = 45_000; // 45s — forwarder heartbeats every 15s, so 3 missed = offline
 
@@ -224,38 +248,38 @@ router.get("/network/hosts/:ip/events", async (req, res) => {
 });
 
 router.get("/network/traffic", async (_req, res) => {
-  const now   = new Date();
-  const since = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const now = new Date();
 
-  // Build hour-bucket map for last 24 h
-  const buckets: Record<string, { time: string; inbound: number; outbound: number; blocked: number }> = {};
+  // Build 24-hour skeleton
+  const buckets: Record<string, TrafficBucket> = {};
   for (let i = 0; i < 24; i++) {
     const t = new Date(now.getTime() - (23 - i) * 3_600_000);
     t.setMinutes(0, 0, 0);
     const key = t.toISOString();
-    buckets[key] = { time: key, inbound: 0, outbound: 0, blocked: 0 };
+    // Prefer real tcpdump stats from ring; fall back to zero
+    buckets[key] = _trafficRing.get(key) ?? { time: key, inbound: 0, outbound: 0, blocked: 0, packets: 0 };
   }
 
-  try {
-    const events = await db
-      .select()
-      .from(securityEventsTable)
-      .where(gte(securityEventsTable.createdAt, since))
-      .orderBy(asc(securityEventsTable.createdAt));
-
-    for (const e of events) {
-      const t = new Date(e.createdAt);
-      t.setMinutes(0, 0, 0);
-      const key = t.toISOString();
-      if (buckets[key]) {
-        buckets[key].inbound++;
-        if (e.status === "blocked") buckets[key].blocked++;
-        // Estimate outbound as ~30% of inbound (internal to external)
-        buckets[key].outbound = Math.floor(buckets[key].inbound * 0.3);
+  // If ring is entirely empty (hub not yet running), fall back to security_events counts
+  const hasRealData = [...Object.values(buckets)].some(b => b.packets > 0);
+  if (!hasRealData) {
+    try {
+      const since  = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      const events = await db
+        .select()
+        .from(securityEventsTable)
+        .where(gte(securityEventsTable.createdAt, since))
+        .orderBy(asc(securityEventsTable.createdAt));
+      for (const e of events) {
+        const t = new Date(e.createdAt);
+        t.setMinutes(0, 0, 0);
+        const key = t.toISOString();
+        if (buckets[key]) {
+          buckets[key].inbound++;
+          if (e.status === "blocked") buckets[key].blocked++;
+        }
       }
-    }
-  } catch {
-    // Return empty buckets if DB not ready
+    } catch { /* DB not ready */ }
   }
 
   res.json(Object.values(buckets));

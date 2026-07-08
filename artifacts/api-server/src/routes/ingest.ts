@@ -18,6 +18,7 @@ import { broadcaster } from "../lib/broadcaster";
 import { evaluateEvent } from "../lib/auto-defense";
 import { isDefenderIp } from "../lib/ip-classifier";
 import { eq, and } from "drizzle-orm";
+import { recordTrafficStats } from "./network";
 
 const router = Router();
 const INGEST_KEY = process.env.AEGIS_INGEST_KEY;
@@ -454,9 +455,24 @@ router.post("/ingest/cowrie", auth, async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // Packet traffic stats (from tcpdump on aegis-forwarder)
 // ─────────────────────────────────────────────────────────────────────────────
-router.post("/ingest/traffic", auth, async (req, res) => {
-  // Just acknowledge — stats are used by /network/traffic via security_events
-  // This endpoint exists so the hub doesn't error on POST
+router.post("/ingest/traffic", auth, (req, res) => {
+  const schema = z.object({
+    packets:   z.number().int().nonnegative().optional(),
+    inbound:   z.number().int().nonnegative(),
+    outbound:  z.number().int().nonnegative(),
+    blocked:   z.number().int().nonnegative().optional(),
+    timestamp: z.string().optional(),
+  });
+  const body = schema.safeParse(req.body);
+  if (!body.success) { res.status(400).json({ error: "Invalid input" }); return; }
+
+  recordTrafficStats({
+    inbound:   body.data.inbound,
+    outbound:  body.data.outbound,
+    blocked:   body.data.blocked  ?? 0,
+    packets:   body.data.packets  ?? (body.data.inbound + body.data.outbound),
+    timestamp: body.data.timestamp,
+  });
   res.status(200).json({ ok: true });
 });
 
