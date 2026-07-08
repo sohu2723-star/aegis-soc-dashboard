@@ -180,10 +180,17 @@ def _port_to_role(open_ports: list[int]) -> str:
 
 
 def nmap_scan_subnet(subnet: str) -> list[dict]:
-    """Scan subnet with nmap. Returns list of host dicts with ip/mac/os/ports."""
+    """Scan subnet with nmap. Returns list of host dicts with ip/mac/os/ports.
+
+    MUST run under sudo: an unprivileged ping-scan (-sn) cannot send raw ARP
+    requests, so it will NEVER return a MAC address — even for hosts on the
+    same L2 subnet. Root is required to get MAC at all."""
     try:
+        cmd = ["nmap", "-sn", "--host-timeout", "5s", "-oX", "-", subnet]
+        if _has_passwordless_sudo():
+            cmd = ["sudo", "-n"] + cmd
         result = subprocess.run(
-            ["nmap", "-sn", "--host-timeout", "5s", "-oX", "-", subnet],
+            cmd,
             capture_output=True, text=True, timeout=90,
         )
         if result.returncode != 0 or not result.stdout.strip():
@@ -222,11 +229,20 @@ def nmap_scan_subnet(subnet: str) -> list[dict]:
 
 
 def nmap_port_scan(ip: str) -> tuple[str | None, str]:
-    """Run port+OS scan on a single IP. Returns (os_str, open_ports_csv)."""
+    """Run port+OS scan on a single IP. Returns (os_str, open_ports_csv).
+
+    OS detection (-O) was missing entirely before, so <osmatch> never
+    appeared in the XML and OS stayed None for every host regardless of
+    privileges. -O also requires root, same as MAC above."""
     try:
+        cmd = ["nmap", f"-p{SCAN_PORTS}", "--open", "-sV", "--host-timeout", "15s",
+               "--version-intensity", "0", "-oX", "-", ip]
+        has_sudo = _has_passwordless_sudo()
+        if has_sudo:
+            cmd = cmd[:1] + ["-O", "--osscan-guess"] + cmd[1:]
+            cmd = ["sudo", "-n"] + cmd
         result = subprocess.run(
-            ["nmap", f"-p{SCAN_PORTS}", "--open", "-sV", "--host-timeout", "15s",
-             "--version-intensity", "0", "-oX", "-", ip],
+            cmd,
             capture_output=True, text=True, timeout=60,
         )
         if result.returncode != 0:
@@ -280,7 +296,7 @@ def nmap_scanner_loop():
                 h["os"]        = os_str
                 h["openPorts"] = open_ports or None
                 try:
-                    requests.post(
+                    resp = requests.post(
                         f"{AEGIS_URL}/network/hosts",
                         headers=HEADERS,
                         json={
@@ -294,7 +310,14 @@ def nmap_scanner_loop():
                         },
                         timeout=10,
                     )
-                    print(f"    ✓ {h['hostname']} ({h['ip']}) | OS: {h.get('os','?')} | Ports: {h.get('openPorts','?')} | MAC: {h.get('mac','N/A')}")
+                    # A 4xx/5xx response does NOT raise an exception in requests —
+                    # without this check we'd print "✓" even when the API rejected
+                    # the host (e.g. bad AEGIS key, validation error) and nothing
+                    # was actually saved.
+                    if resp.status_code in (200, 201):
+                        print(f"    ✓ {h['hostname']} ({h['ip']}) | OS: {h.get('os','?')} | Ports: {h.get('openPorts','?')} | MAC: {h.get('mac','N/A')}")
+                    else:
+                        print(f"    ✗ Register REJECTED {h['ip']} → HTTP {resp.status_code}: {resp.text[:120]}")
                 except Exception as e:
                     print(f"    ✗ Register failed {h['ip']}: {e}")
                 total += 1
