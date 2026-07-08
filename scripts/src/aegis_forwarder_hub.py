@@ -623,8 +623,8 @@ if __name__ == "__main__":
             print(f"  [SKIP] {vm['name']} — SSH failed, skipping (not added to connected devices)")
             continue
 
-        # Register VM only when SSH successfully connects → only reachable VMs appear in dashboard
-        register_vm(vm)
+        # DO NOT register remote VMs — each VM runs its own agent script
+        # Hub only registers itself via heartbeat_loop
 
         for sensor in vm["sensors"]:
             fn = SENSOR_FUNCS.get(sensor)

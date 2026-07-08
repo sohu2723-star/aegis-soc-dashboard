@@ -339,10 +339,24 @@ def watch_ssh():
     print(f"[SSH] Watching {SSH_LOG}")
     fail_counts: dict[str, int] = {}
 
+    # IPs that belong to our own lab infrastructure — never flag as attackers
+    # (aegis-forwarder hub SSHes into this VM for log collection)
+    OWN_IP = get_local_ip()
+    DEFENDER_IPS = {
+        "10.30.30.10",   # aegis-forwarder
+        "10.10.10.10",   # bank-web
+        "10.10.10.20",   # bank-mail
+        "10.20.20.10",   # teller-pc
+        "10.20.20.20",   # customer-db
+        OWN_IP,          # this VM itself
+    }
+
     for line in tail_file(SSH_LOG):
         m_fail = SSH_FAIL_RE.search(line)
         if m_fail:
             user, ip = m_fail.group(1), m_fail.group(2)
+            if ip in DEFENDER_IPS:
+                continue   # skip hub's own management SSH
             fail_counts[ip] = fail_counts.get(ip, 0) + 1
             post("ssh", {
                 "src_ip":   ip,
@@ -354,6 +368,8 @@ def watch_ssh():
         m_ok = SSH_SUCCESS_RE.search(line)
         if m_ok:
             auth, user, ip = m_ok.group(1), m_ok.group(2), m_ok.group(3)
+            if ip in DEFENDER_IPS:
+                continue   # skip hub's own management SSH
             fail_counts.pop(ip, None)
             post("ssh", {
                 "src_ip":      ip,
