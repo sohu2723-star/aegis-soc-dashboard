@@ -150,6 +150,17 @@ def register_vm(vm: dict):
 
 
 # ─── NMAP NETWORK SCANNER ─────────────────────────────────────────────────────
+def _has_passwordless_sudo() -> bool:
+    """nmap install + tcpdump both run under sudo. If SSH_USER doesn't have
+    NOPASSWD sudo, these silently fail (no tty to prompt for a password) and
+    OS/Ports/MAC/Traffic never populate — with no obvious error anywhere."""
+    try:
+        r = subprocess.run(["sudo", "-n", "true"], capture_output=True, timeout=5)
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
 def _nmap_available() -> bool:
     try:
         r = subprocess.run(["nmap", "--version"], capture_output=True, timeout=5)
@@ -242,6 +253,14 @@ def nmap_port_scan(ip: str) -> tuple[str | None, str]:
 def nmap_scanner_loop():
     """Discover all hosts on lab subnets every SCAN_INTERVAL seconds."""
     if not _nmap_available():
+        if not _has_passwordless_sudo():
+            print("[NMAP] nmap not found and sudo needs a password (no tty available "
+                  "to prompt for it) — cannot auto-install.")
+            print("[NMAP] Fix: on this VM run  sudo apt-get install -y nmap  once by hand, "
+                  "or grant NOPASSWD sudo:  echo \"$USER ALL=(ALL) NOPASSWD: ALL\" | "
+                  "sudo tee /etc/sudoers.d/aegis-hub")
+            print("[NMAP] Skipping network discovery — OS/Ports/MAC will stay empty until this is fixed.")
+            return
         print("[NMAP] nmap not found — installing...")
         subprocess.run(["sudo", "apt-get", "install", "-y", "nmap"],
                        capture_output=True, timeout=120)
@@ -330,6 +349,12 @@ def tcpdump_loop():
 
     if not _tcpdump_available():
         print("[TCPDUMP] tcpdump not found — skipping packet capture")
+        return
+    if not _has_passwordless_sudo():
+        print("[TCPDUMP] sudo needs a password (no tty available) — 'sudo tcpdump' will "
+              "fail silently and Traffic (Last Hr) will stay at 0 Mb/s.")
+        print("[TCPDUMP] Fix: grant NOPASSWD sudo for this user, e.g. "
+              "echo \"$USER ALL=(ALL) NOPASSWD: ALL\" | sudo tee /etc/sudoers.d/aegis-hub")
         return
 
     threading.Thread(target=traffic_reporter_loop, daemon=True, name="traffic-reporter").start()
@@ -645,10 +670,17 @@ if __name__ == "__main__":
                 print(f"  ► {vm['name']} / {sensor} thread started")
 
     if not threads:
-        print("\n[ERROR] No threads started — check SSH credentials and VM connectivity.")
-        sys.exit(1)
-
-    print(f"\n[AEGIS HUB] Monitoring {len(threads)} streams across {len(REMOTE_VMS)} VMs …\n")
+        # IMPORTANT: do NOT sys.exit() here. Heartbeat / nmap-scanner / tcpdump
+        # threads were already started above and run independently of SSH log
+        # tailing — killing the whole process would also kill those, which is
+        # why "OS / Ports / MAC / Traffic" never showed up in the dashboard
+        # even though nmap+tcpdump don't need SSH to any remote VM at all.
+        print("\n[WARN] No SSH log-tailing threads started — check SSH credentials "
+              "and VM connectivity (see errors above).")
+        print("[WARN] Network discovery (nmap) and traffic capture (tcpdump) will "
+              "keep running in the background regardless.\n")
+    else:
+        print(f"\n[AEGIS HUB] Monitoring {len(threads)} streams across {len(REMOTE_VMS)} VMs …\n")
 
     try:
         while True:

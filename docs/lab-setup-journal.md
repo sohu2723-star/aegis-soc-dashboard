@@ -2285,6 +2285,52 @@ sudo systemctl restart suricata   ← suricata-update ပြီးမှ run မ
 - [ ] teller-pc (10.20.20.10): static IP set + openssh-server install
 - [ ] customer-db (10.20.20.20): static IP set + openssh-server + PostgreSQL install
 - [ ] bank-web: Snort install (optional — Suricata covers most detection)
+- [ ] bank-web: SSH_PASS or SSH key auth ပြန်စစ် — hub run တိုင်း "No authentication methods available" ဖြစ်နေ (2026-07-08 23:00 run)
+- [ ] bank-mail (10.10.10.20) + teller-pc (10.20.20.10) + customer-db (10.20.20.20): openssh-server install ဆက်လုပ်ရန် (port 22 closed / timeout နေဆဲ)
+- [ ] aegis-forwarder: passwordless sudo (NOPASSWD) စစ် — nmap install + tcpdump both need sudo without a tty prompt, or OS/Ports/MAC/Traffic stay empty forever
+- [ ] pfSense: MGMT (10.30.30.0/24) → DMZ (10.10.10.0/24) / INT (10.20.20.0/24) traffic အတွက် firewall rule ရှိမရှိ confirm — nmap host-discovery packets ကို pfSense က block နေနိုင်
+
+---
+
+### 2026-07-08 23:00 — Hub Run: All Remote SSH Failed + No Traffic/OS/Ports Data ❌ → Fixed (partial)
+
+**Status:** ❌ Failed (SSH/infra side) — ✅ Fixed (script side)
+
+**Time:** 23:00–23:03
+
+**VM:** aegis-forwarder (10.30.30.10), running `aegis_forwarder_hub.py`
+
+**Symptom (from `aegis_forwarder_hub.py` console + screenshots):**
+```
+[WARN] SSH_PASS and SSH_KEY are both empty — will try ~/.ssh default keys
+[HEARTBEAT] My IP = 10.30.30.10
+[NMAP] Scanner started
+[TCPDUMP] Packet capture started
+[SSH] Cannot connect to bank-web (10.10.10.10): No authentication methods available
+[SSH] Cannot connect to bank-mail (10.10.10.20): [Errno None] Unable to connect to port 22
+[SSH] Cannot connect to teller-pc (10.20.20.10): timed out
+[SSH] Cannot connect to customer-db (10.20.20.20): timed out
+[ERROR] No threads started — check SSH credentials and VM connectivity.
+```
+Dashboard → Network Monitor showed only `10.30.30.10 (sithu)` online, with **OS: —, Open Ports: —, Traffic (Last Hr): 0 Mb/s**.
+
+**Root causes found (code review):**
+1. `SSH_PASS`/`SSH_KEY` env vars weren't exported before this run → no auth method available for bank-web (which does have `openssh-server` running).
+2. `bank-mail`/`teller-pc`/`customer-db` still don't have `openssh-server` installed/reachable (expected — see Next Steps, not yet done).
+3. **Real script bug**: when `threads` was empty (all 4 SSH connections failed), the script called `sys.exit(1)` — which killed the *entire process*, including the `heartbeat`, `nmap-scanner`, and `tcpdump` daemon threads that were already running and don't need SSH to any remote VM at all. This is why OS/Ports/MAC/Traffic never populated even on a run where SSH was never going to work.
+4. `nmap`/`tcpdump` both shell out through `sudo`. If the SSH user doesn't have NOPASSWD sudo, both fail silently with no diagnostic (no tty available to prompt for a password in a headless script).
+
+**Fix (pushed to `scripts/src/aegis_forwarder_hub.py`):**
+- Removed the `sys.exit(1)` when no SSH threads start — heartbeat/nmap/tcpdump keep running so at minimum the hub's own host stays "online" and network discovery/traffic capture continue independently of any single VM's SSH state.
+- Added a `_has_passwordless_sudo()` pre-check before the nmap install and before starting tcpdump; if sudo needs a password, it now prints an explicit fix (`echo "$USER ALL=(ALL) NOPASSWD: ALL" | sudo tee /etc/sudoers.d/aegis-hub`) instead of failing silently.
+
+**Still needs the lab side (cannot be fixed from Replit — no access to the real VMs):**
+- Re-export `SSH_PASS` (or set up an SSH key) on aegis-forwarder before re-running the hub script.
+- Install/enable `openssh-server` on bank-mail, teller-pc, customer-db (same steps as bank-web, 2026-07-08 03:15 entry above).
+- Confirm aegis-forwarder's SSH user has passwordless sudo, or nmap/tcpdump will keep failing quietly.
+- Confirm pfSense allows MGMT (10.30.30.0/24) to reach DMZ/INT subnets — if not, nmap discovery pings never reach bank-web/bank-mail/teller-pc/customer-db even after SSH is fixed.
+
+**Next:** Re-run `aegis_forwarder_hub.py` with `SSH_PASS` exported after the above lab-side fixes, then re-check Network Monitor for OS/Ports/MAC/Traffic.
 
 ---
 
