@@ -409,15 +409,17 @@ def tcpdump_loop():
                             _traffic_stats["outbound"] += 1
 
                     # Forward suspicious packets as security events
+                    # Endpoint is /ingest/event (not /ingest/generic — that doesn't exist).
+                    # Field names must match: sourceIp / targetHost (not src_ip / dst_ip).
                     attack = _detect_attack_type(dst_port, flags)
                     if attack:
-                        post("generic", {
+                        post("event", {
                             "source":      "tcpdump",
                             "type":        "network_attack",
                             "subtype":     attack,
                             "severity":    "medium",
-                            "src_ip":      src_ip,
-                            "dst_ip":      dst_ip,
+                            "sourceIp":    src_ip,
+                            "targetHost":  dst_ip,
                             "description": f"{attack} | {src_ip}:{src_port_s} → {dst_ip}:{dst_port_s} [{flags}]",
                         })
                         with _traffic_lock:

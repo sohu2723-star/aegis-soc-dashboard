@@ -77,9 +77,9 @@ router.post("/network/hosts", async (req, res) => {
     ip:          z.string(),
     hostname:    z.string(),
     role:        z.enum(["kali", "ubuntu", "honeypot", "router", "unknown", "web-server", "mail-server", "workstation", "database", "forwarder"]).optional(),
-    os:          z.string().optional(),
-    mac:         z.string().optional(),
-    openPorts:   z.string().optional(),
+    os:          z.string().nullish(),
+    mac:         z.string().nullish(),
+    openPorts:   z.string().nullish(),
     status:      z.enum(["online", "offline"]).optional(),
     isMonitored: z.boolean().optional(),
   });
