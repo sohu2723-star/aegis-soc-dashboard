@@ -5,10 +5,19 @@ import { Button } from "@/components/ui/button";
 import { Server, Activity, AlertTriangle, CheckCircle, HelpCircle, Network, HardDrive, Shield, RefreshCcw } from "lucide-react";
 import { format } from "date-fns";
 import { useQueryClient } from "@tanstack/react-query";
+import { useDeviceContext } from "@/lib/device-context";
 
 export default function SystemStatus() {
   const qc = useQueryClient();
-  const { data: systems, isLoading } = useGetSystemStatus({ query: { queryKey: getGetSystemStatusQueryKey(), refetchInterval: 15000 } });
+  const { selectedIp, selectedDevice } = useDeviceContext();
+  const { data: allSystems, isLoading } = useGetSystemStatus({ query: { queryKey: getGetSystemStatusQueryKey(), refetchInterval: 15000 } });
+
+  // Global components (AEGIS core/dashboard/attacker) have no hostIp and always show.
+  // Per-VM sensors (Suricata, Fail2ban, ...) are scoped to the selected device's IP
+  // once that VM's forwarder has reported a hostIp-tagged heartbeat.
+  const systems = selectedIp
+    ? allSystems?.filter((s: any) => !s.hostIp || s.hostIp === selectedIp)
+    : allSystems;
 
   function handleRefresh() {
     qc.invalidateQueries({ queryKey: getGetSystemStatusQueryKey() });
@@ -51,7 +60,10 @@ export default function SystemStatus() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-primary uppercase">System Status</h1>
-          <p className="text-sm text-muted-foreground">Health and metrics for all AEGIS architecture components.</p>
+          <p className="text-sm text-muted-foreground">
+            Health and metrics for all AEGIS architecture components.
+            {selectedDevice && <span className="text-cyan-400 font-mono"> — scoped to {selectedDevice.hostname} ({selectedDevice.ip})</span>}
+          </p>
         </div>
         <Button variant="outline" size="sm" onClick={handleRefresh} className="border-border">
           <RefreshCcw className="w-4 h-4 mr-2" /> Refresh
@@ -95,6 +107,7 @@ export default function SystemStatus() {
         <p className="font-bold text-primary uppercase tracking-wider text-[10px]">ℹ️ System Status ဆိုတာ ဘာလဲ?</p>
         <p>Ubuntu VM ပေါ်မှာ run နေတဲ့ Suricata, Snort, Fail2ban, Cowrie စတဲ့ security sensors တွေရဲ့ health ကို ဒီမှာ မြင်ရမည်။</p>
         <p>Status က <span className="text-yellow-400 font-mono">unknown</span> ဖြစ်နေတာ = forwarder မှ heartbeat မပို့ရသေးဘူး။ Forwarder run ပြီး VM ချိတ်ဆက်လိုက်တာနဲ့ status update ဖြစ်မည်။</p>
+        <p>Device selector နဲ့ VM တစ်ခုချင်းရဲ့ sensor health ကို ခွဲကြည့်နိုင်တယ် — VM ရဲ့ forwarder က IP ပါတဲ့ heartbeat ပို့ပြီးမှသာ ခွဲခြားပြမည်။</p>
       </div>
 
       {isLoading ? (

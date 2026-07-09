@@ -8,19 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar } from "recharts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format, formatDistanceToNow } from "date-fns";
-
-interface NetworkHost {
-  id: number;
-  ip: string;
-  hostname: string;
-  role: string;
-  os: string | null;
-  mac: string | null;
-  openPorts: string | null;
-  status: string;
-  isMonitored: boolean;
-  lastSeen: string;
-}
+import { useDeviceContext, type NetworkHost } from "@/lib/device-context";
 
 interface TrafficPoint {
   time: string;
@@ -308,8 +296,18 @@ function HostDetailPanel({ host, onClose }: { host: NetworkHost; onClose: () => 
 }
 
 export default function Network() {
-  const { data: hosts = [], isLoading: hostsLoading } = useNetworkHosts();
+  const { data: allHosts = [], isLoading: hostsLoading } = useNetworkHosts();
   const { data: traffic = [] } = useNetworkTraffic();
+  const { selectedIp } = useDeviceContext();
+  const { data: hostEvents } = useHostEvents(selectedIp);
+
+  // Device selector scopes the whole page: pick the one selected device,
+  // or every non-attacker device when "All Devices" is chosen. Kali (attacker)
+  // is only ever shown as the source of attacks, never as a monitorable device.
+  const hosts = selectedIp
+    ? allHosts.filter(h => h.ip === selectedIp)
+    : allHosts.filter(h => h.role !== "kali");
+
   const [selectedHost, setSelectedHost] = useState<NetworkHost | null>(null);
   const [loadingId, setLoadingId] = useState<number | null>(null);
   const [flashedIds, setFlashedIds] = useState<Set<number>>(new Set());
@@ -403,6 +401,11 @@ export default function Network() {
     blocked:  p.blocked,
   }));
 
+  // When a single device is selected, the global traffic ring buffer has no
+  // per-IP breakdown — so show real attack-event counts for that device instead
+  // (from /network/hosts/:ip/events, already tracked per host).
+  const deviceEventChart = (hostEvents?.byType ?? []).slice(0, 8);
+
   return (
     <>
     <AlertDialog open={!!deleteTarget} onOpenChange={open => { if (!open) setDeleteTarget(null); }}>
@@ -488,11 +491,25 @@ export default function Network() {
       <Card className="bg-card border-border">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-            <Activity className="w-4 h-4" /> Traffic (Last 12h)
+            <Activity className="w-4 h-4" />
+            {selectedIp ? `Attack Events — ${selectedIp}` : "Traffic (Last 12h)"}
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {chartData.length === 0 ? (
+          {selectedIp ? (
+            deviceEventChart.length === 0 ? (
+              <div className="h-48 flex items-center justify-center text-muted-foreground text-sm">No events recorded for this device yet</div>
+            ) : (
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={deviceEventChart} layout="vertical" margin={{ left: 0, right: 30, top: 4, bottom: 4 }}>
+                  <XAxis type="number" tick={{ fill: "#6b7280", fontSize: 10 }} />
+                  <YAxis dataKey="type" type="category" tick={{ fill: "#94a3b8", fontSize: 10 }} width={110} />
+                  <Tooltip contentStyle={{ background: "#111827", border: "1px solid #374151", fontSize: 11 }} />
+                  <Bar dataKey="count" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )
+          ) : chartData.length === 0 ? (
             <div className="h-48 flex items-center justify-center text-muted-foreground text-sm">No traffic data</div>
           ) : (
             <ResponsiveContainer width="100%" height={200}>

@@ -254,6 +254,7 @@ export const GetSystemStatusResponseItem = zod.object({
   "status": zod.enum(['online', 'offline', 'warning', 'unknown']),
   "description": zod.string(),
   "metrics": zod.string().nullish(),
+  "hostIp": zod.string().nullish(),
   "lastCheck": zod.string()
 })
 export const GetSystemStatusResponse = zod.array(GetSystemStatusResponseItem)

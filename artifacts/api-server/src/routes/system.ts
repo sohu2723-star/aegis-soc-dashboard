@@ -41,9 +41,9 @@ router.get("/system/status", async (_req, res) => {
 });
 
 router.post("/system/status", async (req, res) => {
-  const { component, layer, status, description, metrics } = req.body as {
+  const { component, layer, status, description, metrics, hostIp } = req.body as {
     component: string; layer: string; status: string;
-    description?: string; metrics?: string;
+    description?: string; metrics?: string; hostIp?: string;
   };
   if (!component || !layer || !status) {
     res.status(400).json({ error: "component, layer, status required" });
@@ -51,14 +51,17 @@ router.post("/system/status", async (req, res) => {
   }
 
   const existing = await db.select().from(systemStatusTable);
-  const match = existing.find(s => s.component === component);
+  // Match on (component, hostIp) so multiple VMs reporting the same service
+  // (e.g. Fail2ban on two Ubuntu hosts) don't overwrite each other. Rows
+  // without a hostIp (legacy/global components) still match by component name.
+  const match = existing.find(s => s.component === component && (hostIp ? s.hostIp === hostIp : !s.hostIp));
 
   let result;
   if (match) {
     const prevStatus = match.status;
     const [updated] = await db
       .update(systemStatusTable)
-      .set({ status, metrics: metrics ?? null, lastCheck: new Date() })
+      .set({ status, metrics: metrics ?? null, hostIp: hostIp ?? match.hostIp, lastCheck: new Date() })
       .where(eq(systemStatusTable.id, match.id))
       .returning();
     result = { ...updated, lastCheck: updated.lastCheck.toISOString() };
@@ -70,6 +73,7 @@ router.post("/system/status", async (req, res) => {
         status,
         prevStatus,
         layer,
+        hostIp: hostIp ?? null,
         lastCheck: result.lastCheck,
       });
     }
@@ -78,6 +82,7 @@ router.post("/system/status", async (req, res) => {
       component, layer, status,
       description: description ?? component,
       metrics: metrics ?? null,
+      hostIp: hostIp ?? null,
     }).returning();
     result = { ...row, lastCheck: row.lastCheck.toISOString() };
 
@@ -86,6 +91,7 @@ router.post("/system/status", async (req, res) => {
       status,
       prevStatus: "unknown",
       layer,
+      hostIp: hostIp ?? null,
       lastCheck: result.lastCheck,
     });
   }

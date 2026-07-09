@@ -16,5 +16,7 @@ export interface SystemStatus {
   description: string;
   /** @nullable */
   metrics?: string | null;
+  /** @nullable */
+  hostIp?: string | null;
   lastCheck: string;
 }

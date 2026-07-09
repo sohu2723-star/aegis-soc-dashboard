@@ -7,6 +7,8 @@ import { Shield, ShieldOff, Lock, Unlock, Bot, UserCheck, AlertTriangle, Refresh
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
+import { useDeviceContext } from "@/lib/device-context";
+import { Switch } from "@/components/ui/switch";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -15,6 +17,7 @@ interface BlockedIp {
   ip: string;
   reason: string;
   blockedBy: string;
+  targetHost: string | null;
   isActive: boolean;
   blockedAt: string;
   unblockedAt: string | null;
@@ -25,6 +28,7 @@ interface DefenseAction {
   type: string;
   action: string;
   targetIp: string;
+  targetHost: string | null;
   reason: string;
   performedBy: string;
   status: string;
@@ -39,11 +43,12 @@ interface DefenseStatus {
   recentActions: DefenseAction[];
 }
 
-function useBlocks() {
+function useBlocks(device: string | null) {
   return useQuery<BlockedIp[]>({
-    queryKey: ["defense-blocks"],
+    queryKey: ["defense-blocks", device],
     queryFn: async () => {
-      const r = await fetch(`${BASE}/api/defense/blocks`);
+      const qs = device ? `?device=${encodeURIComponent(device)}` : "";
+      const r = await fetch(`${BASE}/api/defense/blocks${qs}`);
       return r.json();
     },
     refetchInterval: 8000,
@@ -61,11 +66,12 @@ function useDefenseStatus() {
   });
 }
 
-function useDefenseActions() {
+function useDefenseActions(device: string | null) {
   return useQuery<DefenseAction[]>({
-    queryKey: ["defense-actions"],
+    queryKey: ["defense-actions", device],
     queryFn: async () => {
-      const r = await fetch(`${BASE}/api/defense/actions`);
+      const qs = device ? `?device=${encodeURIComponent(device)}` : "";
+      const r = await fetch(`${BASE}/api/defense/actions${qs}`);
       return r.json();
     },
     refetchInterval: 8000,
@@ -141,10 +147,19 @@ export default function Defense() {
   const [blockReason, setBlockReason] = useState("");
   const { toast } = useToast();
   const qc = useQueryClient();
+  const { selectedDevice } = useDeviceContext();
+  // Devices are matched against blocked_ips/defense_actions.targetHost by IP —
+  // most ingest routes populate targetHost from the real destination IP
+  // (dest_ip/target_ip), which is the same identity network_hosts.ip uses.
+  // A minority of ingest paths still fall back to a generic label (e.g.
+  // "mail-server") when no real IP is known; those actions won't match any
+  // specific device and only appear under "All Devices" — expected until every
+  // sensor forwards a concrete destination IP.
+  const deviceFilter = selectedDevice ? selectedDevice.ip : null;
 
-  const { data: blocks = [], refetch: refetchBlocks } = useBlocks();
+  const { data: blocks = [], refetch: refetchBlocks } = useBlocks(deviceFilter);
   const { data: status } = useDefenseStatus();
-  const { data: actions = [] } = useDefenseActions();
+  const { data: actions = [] } = useDefenseActions(deviceFilter);
 
   // Track which services just changed state for visual flash
   const prevStatusRef = useRef<{ fail2ban?: boolean; suricata?: boolean }>({});
@@ -177,7 +192,7 @@ export default function Defense() {
       const r = await fetch(`${BASE}/api/defense/block`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ip, reason }),
+        body: JSON.stringify({ ip, reason, targetHost: deviceFilter ?? undefined }),
       });
       if (!r.ok) {
         const e = await r.json();
@@ -215,6 +230,28 @@ export default function Defense() {
     },
   });
 
+  const toggleAutoDefenseMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const r = await fetch(`${BASE}/api/defense/settings`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ autoDefenseEnabled: enabled }),
+      });
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}));
+        throw new Error(e.error ?? "Failed to update auto-defense setting");
+      }
+      return r.json();
+    },
+    onSuccess: (data: { autoDefenseEnabled: boolean }) => {
+      toast({ title: data.autoDefenseEnabled ? "Auto Defense Enabled" : "Auto Defense Disabled" });
+      qc.invalidateQueries({ queryKey: ["defense-status"] });
+    },
+    onError: (e: Error) => {
+      toast({ title: "Toggle Failed", description: e.message, variant: "destructive" });
+    },
+  });
+
   const handleBlock = () => {
     if (!blockIp || !blockReason) return;
     blockMutation.mutate({ ip: blockIp, reason: blockReason });
@@ -225,7 +262,10 @@ export default function Defense() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-primary uppercase">Defense Center</h1>
-          <p className="text-sm text-muted-foreground">Auto and manual threat response controls.</p>
+          <p className="text-sm text-muted-foreground">
+            Auto and manual threat response controls.
+            {deviceFilter && <span className="text-cyan-400 font-mono"> — scoped to {deviceFilter}</span>}
+          </p>
         </div>
         <Button variant="outline" size="sm" onClick={() => refetchBlocks()} className="border-border">
           <RefreshCcw className="w-4 h-4 mr-2" />
@@ -234,15 +274,22 @@ export default function Defense() {
       </div>
 
       <div className="grid grid-cols-4 gap-4">
-        {/* Auto Defense */}
+        {/* Auto Defense — real, persisted toggle (app_settings table) */}
         <Card className="bg-card border-border">
           <CardContent className="p-4 flex items-center gap-3">
             <Bot className="w-8 h-8 text-cyan-400" />
-            <div>
+            <div className="flex-1">
               <p className="text-xs text-muted-foreground uppercase tracking-wider">Auto Defense</p>
-              <p className={`text-sm font-bold ${status?.autoDefenseEnabled ? "text-green-400" : "text-red-400"}`}>
-                {status?.autoDefenseEnabled ? "ENABLED" : "DISABLED"}
-              </p>
+              <div className="flex items-center gap-2 mt-0.5">
+                <Switch
+                  checked={status?.autoDefenseEnabled ?? false}
+                  disabled={toggleAutoDefenseMutation.isPending || !status}
+                  onCheckedChange={checked => toggleAutoDefenseMutation.mutate(checked)}
+                />
+                <p className={`text-sm font-bold ${status?.autoDefenseEnabled ? "text-green-400" : "text-red-400"}`}>
+                  {status?.autoDefenseEnabled ? "ENABLED" : "DISABLED"}
+                </p>
+              </div>
             </div>
           </CardContent>
         </Card>

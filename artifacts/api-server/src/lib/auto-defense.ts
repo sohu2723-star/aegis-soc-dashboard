@@ -32,6 +32,7 @@ import {
   parseActionParams,
 } from "./defense-sanitize";
 import { isDefenderIp } from "./ip-classifier";
+import { isAutoDefenseEnabled } from "./app-settings";
 
 // ─── Attack-type normaliser ───────────────────────────────────────────────────
 function toTriggerType(eventType: string, eventSubtype: string): string {
@@ -170,6 +171,12 @@ export interface IngestEvent {
 export async function evaluateEvent(event: IngestEvent): Promise<void> {
   if (!event.sourceIp || event.sourceIp === "unknown") return;
 
+  // Global kill switch — toggled from the dashboard, persisted in app_settings.
+  if (!(await isAutoDefenseEnabled())) {
+    console.log(`[AutoDefense] Skipped — auto-defense is disabled globally`);
+    return;
+  }
+
   // Skip auto-defense for private/defender IPs — never self-block
   if (isDefenderIp(event.sourceIp)) {
     console.log(`[AutoDefense] Skipped — defender IP ${event.sourceIp} is whitelisted (RFC1918)`);
@@ -235,10 +242,11 @@ async function executeAutoDefense(rule: DefenseRule, event: IngestEvent) {
       .where(and(eq(blockedIpsTable.ip, event.sourceIp), eq(blockedIpsTable.isActive, true)));
     if (exists.length === 0) {
       await db.insert(blockedIpsTable).values({
-        ip:        event.sourceIp,
-        reason:    `Auto-defense: ${rule.name}`,
-        blockedBy: "auto",
-        isActive:  true,
+        ip:         event.sourceIp,
+        reason:     `Auto-defense: ${rule.name}`,
+        blockedBy:  "auto",
+        targetHost: event.targetHost ?? null,
+        isActive:   true,
       });
     }
   }
@@ -247,6 +255,7 @@ async function executeAutoDefense(rule: DefenseRule, event: IngestEvent) {
     type:           "auto",
     action:         rule.defenseType,
     targetIp:       event.sourceIp,
+    targetHost:     event.targetHost ?? null,
     reason:         `Rule: ${rule.name} — ${event.subtype} from ${event.sourceIp}`,
     performedBy:    "aegis-auto-defense",
     status:         "queued",

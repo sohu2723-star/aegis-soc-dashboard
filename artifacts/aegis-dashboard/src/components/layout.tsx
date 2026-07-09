@@ -24,7 +24,9 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarProvider,
+  SidebarTrigger,
 } from "@/components/ui/sidebar";
+import { DeviceSelector } from "@/components/device-selector";
 
 const opsItems = [
   { title: "Command Center", url: "/", icon: Activity },
@@ -116,6 +118,13 @@ export function Layout({ children }: { children: ReactNode }) {
           </SidebarContent>
         </Sidebar>
         <main className="flex-1 flex flex-col h-screen overflow-hidden">
+          <div className="flex items-center justify-between gap-3 px-6 py-3 border-b border-border bg-card/60 shrink-0">
+            <div className="flex items-center gap-2">
+              <SidebarTrigger />
+              <span className="text-xs text-muted-foreground uppercase tracking-wider">Viewing</span>
+            </div>
+            <DeviceSelector />
+          </div>
           <div className="flex-1 overflow-auto p-6">
             {children}
           </div>

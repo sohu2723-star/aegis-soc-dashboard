@@ -195,6 +195,7 @@ def service_health_loop():
     Updates system_status table → triggers SSE service_status_change → Defense Center updates in real time.
     """
     print("[SERVICE HEALTH] Monitoring: fail2ban, suricata, snort, cowrie")
+    own_ip = get_local_ip()
     while True:
         for svc_name, component, layer in SERVICE_MAP:
             status = get_service_status(svc_name)
@@ -206,6 +207,7 @@ def service_health_loop():
                         "component": component,
                         "layer":     layer,
                         "status":    status,
+                        "hostIp":    own_ip,
                         "metrics":   json.dumps({
                             "service":    svc_name,
                             "checked_at": datetime.now().isoformat(),

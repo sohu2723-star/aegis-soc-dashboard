@@ -527,6 +527,8 @@ components:
           type: string
         metrics:
           type: ["string", "null"]
+        hostIp:
+          type: ["string", "null"]
         lastCheck:
           type: string
       required:

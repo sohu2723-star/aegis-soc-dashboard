@@ -6,6 +6,7 @@ import NotFound from "@/pages/not-found";
 import { Layout } from "@/components/layout";
 import { useSSE } from "@/hooks/use-sse";
 import { useKeepAlive } from "@/hooks/use-keep-alive";
+import { DeviceProvider } from "@/lib/device-context";
 
 import Dashboard from "@/pages/dashboard";
 import Events from "@/pages/events";
@@ -57,9 +58,11 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-          <Router />
-        </WouterRouter>
+        <DeviceProvider>
+          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+            <Router />
+          </WouterRouter>
+        </DeviceProvider>
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>
