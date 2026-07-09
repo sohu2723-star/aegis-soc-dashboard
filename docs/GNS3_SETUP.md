@@ -1,6 +1,6 @@
 # AEGIS-SecureBank — GNS3 Setup Guide
 > Last updated: 2026-07-10
-> IP plan matches: scripts/src/aegis_forwarder_hub.py (canonical source of truth)
+> IP plan matches: per-VM scripts/src/aegis_forwarder.py deployments (canonical source of truth)
 
 ---
 
@@ -232,44 +232,18 @@ ping 10.0.23.2      # ping pfSense WAN to confirm routing
 
 ---
 
-## Step 6 — SSH Prerequisites (Required for Hub Collection)
+## Step 6 — Passwordless sudo on aegis-forwarder (Required for nmap + tcpdump)
 
-The hub SSHes into every VM to tail logs. Do this on **bank-web, bank-mail, teller-pc, customer-db**:
+There is no central SSH hub — each VM runs its own local `aegis_forwarder.py` (Step 8) and
+reads only its own log files, so no cross-VM SSH access or shared user is required.
 
-### 6a. Consistent SSH user
-
-All VMs must have the same username with the same password (or key):
-
-```bash
-# Create user 'sithu' on each VM (matches SSH_USER default in hub script)
-sudo adduser sithu
-sudo usermod -aG sudo sithu
-
-# Test from aegis-forwarder:
-ssh sithu@10.10.10.10
-```
-
-> Default SSH_USER in `aegis_forwarder_hub.py` is **`sithu`**. Change with `SSH_USER` env var if different.
-
-### 6b. Passwordless sudo (required for nmap + tcpdump)
-
-On aegis-forwarder:
-```bash
-echo "sithu ALL=(ALL) NOPASSWD: ALL" | sudo tee /etc/sudoers.d/aegis-hub
-```
-
-### 6c. Log read permissions on target VMs
-
-The SSH user must read protected log files:
+The **aegis-forwarder** VM still needs passwordless sudo locally, because its own
+`aegis_forwarder.py --mode all` process also runs the nmap network scanner and tcpdump
+traffic capture for itself:
 
 ```bash
-# On bank-web, bank-mail, teller-pc, customer-db:
-sudo usermod -aG adm sithu          # grants read access to /var/log/*
-sudo chmod o+r /var/log/suricata/eve.json 2>/dev/null
-sudo chmod o+r /var/log/apache2/modsec_audit.log 2>/dev/null
-
-# Cowrie log (teller-pc) — owned by cowrie user
-sudo chmod o+r /home/cowrie/cowrie/var/log/cowrie/cowrie.json 2>/dev/null
+# On aegis-forwarder only
+echo "$USER ALL=(ALL) NOPASSWD: ALL" | sudo tee /etc/sudoers.d/aegis-forwarder
 ```
 
 ---
@@ -340,91 +314,58 @@ sudo systemctl enable --now fail2ban
 
 ---
 
-## Step 8 — Deploy aegis_forwarder_hub.py (aegis-forwarder VM)
+## Step 8 — Deploy aegis_forwarder.py on EVERY VM (agent mode — no central hub)
 
-### 8a. Install dependencies
+Each VM (bank-web, bank-mail, teller-pc, customer-db, aegis-forwarder) runs its **own**
+local copy of `aegis_forwarder.py`, tailing only its own log files. There is no SSH between
+VMs and no shared user — just repeat these steps on each of the five VMs.
+
+### 8a. Install dependencies (on each VM)
 
 ```bash
 sudo apt update
-sudo apt install python3-pip nmap tcpdump sshpass -y
-pip3 install paramiko requests
+sudo apt install python3-pip -y
+pip3 install requests
+
+# aegis-forwarder VM only (runs the network scanner + traffic capture for itself):
+sudo apt install nmap tcpdump -y
 ```
 
-### 8b. Download script
+### 8b. Download script (on each VM)
 
 ```bash
-sudo wget -O /opt/aegis_forwarder_hub.py \
-  https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/scripts/src/aegis_forwarder_hub.py
-sudo chmod +x /opt/aegis_forwarder_hub.py
+sudo wget -O /opt/aegis_forwarder.py \
+  https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/scripts/src/aegis_forwarder.py
+sudo chmod +x /opt/aegis_forwarder.py
 ```
 
-### 8c. Verify REMOTE_VMS in script matches your IPs
-
-Open `/opt/aegis_forwarder_hub.py` and confirm lines 50–75:
-
-```python
-REMOTE_VMS = [
-    {
-        "name":    "bank-web",
-        "ip":      "10.10.10.10",       # ← must match your VM
-        "role":    "web-server",
-        "sensors": ["suricata", "fail2ban", "ssh", "http"],
-    },
-    {
-        "name":    "bank-mail",
-        "ip":      "10.10.10.20",
-        "role":    "mail-server",
-        "sensors": ["suricata", "fail2ban", "ssh"],
-    },
-    {
-        "name":    "teller-pc",
-        "ip":      "10.20.20.10",       # ← Internal subnet
-        "role":    "workstation",
-        "sensors": ["suricata", "fail2ban", "ssh"],
-    },
-    {
-        "name":    "customer-db",
-        "ip":      "10.20.20.20",
-        "role":    "database",
-        "sensors": ["suricata", "fail2ban", "ssh"],
-    },
-]
-```
-
-Also confirm SCAN_SUBNETS on line 98:
-```python
-SCAN_SUBNETS = ["10.10.10.0/24", "10.20.20.0/24", "10.30.30.0/24"]
-```
-
-### 8d. Configure environment
+### 8c. Configure environment (on each VM)
 
 ```bash
 sudo tee /etc/environment.aegis << 'EOF'
 AEGIS_URL=https://aegis-api-server-jp3b.onrender.com/api
 AEGIS_KEY=<value of AEGIS_INGEST_KEY from Replit Secrets>
-SSH_USER=sithu
-SSH_PASS=<common SSH password for all VMs>
 EOF
 
 # Test manually first
 source /etc/environment.aegis
-python3 /opt/aegis_forwarder_hub.py
-# Should print: Connected → bank-web (10.10.10.10), etc.
+python3 /opt/aegis_forwarder.py --mode all
+# Should print heartbeat + sensor watch lines for THIS VM's own logs
 ```
 
-### 8e. Run as systemd service
+### 8d. Run as systemd service (on each VM)
 
 ```bash
-sudo tee /etc/systemd/system/aegis-hub.service << 'EOF'
+sudo tee /etc/systemd/system/aegis-forwarder.service << 'EOF'
 [Unit]
-Description=AEGIS Forwarder Hub
+Description=AEGIS Forwarder (local agent)
 After=network.target
 
 [Service]
 Type=simple
 User=root
 EnvironmentFile=/etc/environment.aegis
-ExecStart=/usr/bin/python3 /opt/aegis_forwarder_hub.py
+ExecStart=/usr/bin/python3 /opt/aegis_forwarder.py --mode all
 Restart=always
 RestartSec=10
 StandardOutput=journal
@@ -435,9 +376,9 @@ WantedBy=multi-user.target
 EOF
 
 sudo systemctl daemon-reload
-sudo systemctl enable --now aegis-hub
-sudo systemctl status aegis-hub
-sudo journalctl -u aegis-hub -f   # watch live output
+sudo systemctl enable --now aegis-forwarder
+sudo systemctl status aegis-forwarder
+sudo journalctl -u aegis-forwarder -f   # watch live output
 ```
 
 ---
@@ -509,12 +450,13 @@ curl -s -X POST https://aegis-api-server-jp3b.onrender.com/api/ingest/ssh \
 ```
 → Open dashboard → **Security Events** — SSH brute-force event appears.
 
-### Test 3: Verify hub is collecting (check journal on aegis-forwarder)
+### Test 3: Verify each VM's forwarder is running
 ```bash
-sudo journalctl -u aegis-hub --since "1 min ago"
-# Should show: [TAIL] bank-web:/var/log/suricata/eve.json
-#              [TAIL] teller-pc:/var/log/auth.log
-#              [HEARTBEAT] My IP = 10.30.30.10
+# On each VM (bank-web, bank-mail, teller-pc, customer-db, aegis-forwarder)
+sudo journalctl -u aegis-forwarder --since "1 min ago"
+# Should show sensor watch lines for that VM's own logs, e.g.:
+#   [TAIL] /var/log/suricata/eve.json
+#   [HEARTBEAT] My IP = 10.10.10.10
 ```
 
 ### Test 4: Kali → Suricata → Dashboard
@@ -546,26 +488,19 @@ sudo nmap -sn 10.10.10.0/24 -oG - | grep Up | awk '{print $2}'
 
 ## Troubleshooting
 
-### Hub can't SSH into a VM?
+### Forwarder not reading its own log files?
 ```bash
-# From aegis-forwarder
-ssh sithu@10.10.10.10 "id && echo OK"
-# If fail: check pfSense MGMT→DMZ rule, check VM SSH service
-sudo systemctl status ssh  # on target VM
-```
-
-### "Permission denied" reading log files?
-```bash
-# On the target VM
-sudo usermod -aG adm sithu
-sudo chmod o+r /var/log/suricata/eve.json
-# Then restart aegis-hub service on forwarder
+# On the affected VM — the forwarder runs as root via systemd, so it should
+# already have read access. If a log lives under a non-root owner (e.g. Cowrie):
+sudo chmod o+r /var/log/suricata/eve.json 2>/dev/null
+sudo chmod o+r /home/cowrie/cowrie/var/log/cowrie/cowrie.json 2>/dev/null
+sudo systemctl restart aegis-forwarder
 ```
 
 ### Events not appearing on dashboard?
 ```bash
-# 1. Check hub logs
-sudo journalctl -u aegis-hub -f
+# 1. Check forwarder logs on the specific VM
+sudo journalctl -u aegis-forwarder -f
 
 # 2. Test API key manually
 curl -s -X POST $AEGIS_URL/ingest/event \
@@ -579,10 +514,10 @@ curl https://aegis-api-server-jp3b.onrender.com/api/health
 
 ### tcpdump / nmap not working (Traffic shows 0)?
 ```bash
-# aegis-forwarder needs passwordless sudo
+# aegis-forwarder VM needs passwordless sudo (it's the only VM running the scanner)
 sudo -n true && echo "sudo OK" || echo "NEEDS PASSWORD"
 # Fix:
-echo "sithu ALL=(ALL) NOPASSWD: ALL" | sudo tee /etc/sudoers.d/aegis-hub
+echo "$USER ALL=(ALL) NOPASSWD: ALL" | sudo tee /etc/sudoers.d/aegis-forwarder
 ```
 
 ### Kali can't reach DMZ?
@@ -616,6 +551,5 @@ sudo iptables -L INPUT -n | grep DROP   # see active blocks
 | Admin env var | `AEGIS_ADMIN_KEY` (value = AEGIS_ADMIN_KEY from Replit Secrets) |
 | Ingest request header | `X-AEGIS-Key: <value>` |
 | Admin request header | `X-AEGIS-Admin-Key: <value>` |
-| Default SSH user | `sithu` (change with `SSH_USER` env var) |
-| Hub script location | `/opt/aegis_forwarder_hub.py` on aegis-forwarder |
+| Forwarder script location | `/opt/aegis_forwarder.py` on every VM |
 | Defense agent | `/opt/defense_agent.py` on bank-web / teller-pc |

@@ -2514,6 +2514,29 @@ PORT=3000 pnpm --filter @workspace/api-server run dev  # port 3000
 
 ---
 
+### 2026-07-09 — Reverted to Per-VM Agent Mode, Removed Central SSH Hub ✅
+**Status:** ✅ Done
+**What:** Decided against the central SSH-hub collector. Each VM (bank-web, bank-mail,
+teller-pc, customer-db, aegis-forwarder) now runs its own local `aegis_forwarder.py`
+instance and posts directly to the API — no SSH between VMs for log collection.
+**How:**
+- Deleted `scripts/src/aegis_forwarder_hub.py` (no longer used).
+- Updated `docs/SYSTEM_ARCHITECTURE.md` — data-flow diagram, node table, and monorepo
+  structure now describe the per-VM agent model instead of the SSH hub.
+- Updated `docs/GNS3_SETUP.md` — Step 6 (SSH prerequisites for hub) replaced with a much
+  smaller "passwordless sudo on aegis-forwarder" step; Step 8 now deploys
+  `aegis_forwarder.py` identically on every VM instead of the hub script; troubleshooting
+  and quick-reference sections updated to drop hub/SSH-user (`sithu`) references.
+- Removed the "How to Connect This Device" per-host connection-guide panel from the
+  Network Monitor page (`network.tsx`) at the user's request.
+- `aegis_forwarder.py` (per-VM agent) itself was not touched — it already supports this
+  model. `aegis-forwarder` VM still runs nmap/tcpdump locally for itself only.
+**Result:** Docs and dashboard now consistently describe the same architecture: no central
+hub, no cross-VM SSH, one forwarder process per VM.
+**Next:** Re-verify against the live GNS3 lab once VMs are redeployed with the agent script.
+
+---
+
 ## References
 
 - GNS3 docs: https://docs.gns3.com

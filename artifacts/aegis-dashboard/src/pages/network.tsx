@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { RefreshCcw, Wifi, Monitor, Shield, Activity, X, Terminal, AlertTriangle, Trash2, WifiOff, WifiIcon } from "lucide-react";
+import { RefreshCcw, Wifi, Monitor, Shield, Activity, X, AlertTriangle, Trash2, WifiOff, WifiIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar } from "recharts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -126,53 +126,6 @@ function StatusDot({ status, size = "sm" }: { status: string; size?: "sm" | "lg"
   return <span className={`${dim} rounded-full bg-gray-500`} />;
 }
 
-function ConnectionGuide({ host }: { host: NetworkHost }) {
-  const apiUrl = "https://aegis-api-server-jp3b.onrender.com/api";
-  const guides: Record<string, { icon: string; label: string; desc: string; cmd: string }> = {
-    ubuntu: {
-      icon: "🛡", label: "DEFENDER (Ubuntu)",
-      desc: "Snort/Suricata/Fail2ban/Cowrie events ကို AEGIS ဆီ forward လုပ်ဖို့:",
-      cmd: `# Ubuntu VM မှာ run ပါ\nexport AEGIS_URL="${apiUrl}"\nexport AEGIS_KEY="your-aegis-ingest-key"\npython3 /opt/aegis_forwarder.py --mode all`,
-    },
-    kali: {
-      icon: "💀", label: "ATTACKER (Kali Linux)",
-      desc: "Kali က attack source — forwarder မလိုဘူး။ Ubuntu/Suricata က Kali ရဲ့ attacks တွေ detect လုပ်ပြီး forward လုပ်တယ်။",
-      cmd: `# Kali မှာ attack run ပါ\nnmap -sS <UBUNTU_IP>\nsqlmap -u "http://<UBUNTU_IP>/login.php" --forms\nhping3 -S --flood -p 80 <UBUNTU_IP>`,
-    },
-    honeypot: {
-      icon: "🍯", label: "HONEYPOT (Cowrie)",
-      desc: "Cowrie honeypot events ကို AEGIS ဆီ forward လုပ်ဖို့:",
-      cmd: `# Honeypot VM မှာ run ပါ\nexport AEGIS_URL="${apiUrl}"\nexport AEGIS_KEY="your-aegis-ingest-key"\npython3 /opt/aegis_forwarder.py --mode cowrie`,
-    },
-    router: {
-      icon: "⊕", label: "ROUTER (pfSense)",
-      desc: "Defense Center မှ firewall rules တွေကို execute လုပ်ဖို့ defense agent install ပါ:",
-      cmd: `# pfSense မှာ defense agent run ပါ\nexport AEGIS_URL="${apiUrl}"\nexport AEGIS_KEY="your-aegis-ingest-key"\npython3 /opt/defense_agent.py`,
-    },
-  };
-
-  const g = guides[host.role] ?? {
-    icon: "❓", label: "UNKNOWN Device",
-    desc: "Device role မသိဘူး — role set ဖို့ forwarder ကနေ heartbeat ပို့ပါ:",
-    cmd: `curl -X POST "${apiUrl}/network/hosts" \\\n  -H "Content-Type: application/json" \\\n  -H "X-AEGIS-Key: your-aegis-ingest-key" \\\n  -d '{"ip":"${host.ip}","hostname":"${host.hostname}","role":"ubuntu","status":"online","isMonitored":true}'`,
-  };
-
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2 text-sm font-bold text-primary uppercase tracking-wider">
-        <span>{g.icon}</span> {g.label}
-      </div>
-      <p className="text-xs text-muted-foreground">{g.desc}</p>
-      <div className="bg-black/40 rounded border border-border p-3">
-        <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground mb-2 uppercase tracking-widest">
-          <Terminal className="w-3 h-3" /> bash
-        </div>
-        <pre className="text-xs font-mono text-primary/90 whitespace-pre-wrap break-all">{g.cmd}</pre>
-      </div>
-    </div>
-  );
-}
-
 function HostDetailPanel({ host, onClose }: { host: NetworkHost; onClose: () => void }) {
   const { data: eventsData, isLoading } = useHostEvents(host.ip);
 
@@ -282,13 +235,6 @@ function HostDetailPanel({ host, onClose }: { host: NetworkHost; onClose: () => 
               <p className="text-xs mt-1 opacity-60">Events appear when forwarder sends data.</p>
             </div>
           )}
-
-          <div className="border-t border-border/50 pt-4">
-            <p className="text-xs uppercase tracking-wider text-muted-foreground mb-3 font-bold flex items-center gap-2">
-              <Terminal className="w-3.5 h-3.5" /> How to Connect This Device
-            </p>
-            <ConnectionGuide host={host} />
-          </div>
         </div>
       </div>
     </div>

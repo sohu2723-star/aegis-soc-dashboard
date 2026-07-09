@@ -1,7 +1,7 @@
 # AEGIS-SecureBank — System Architecture
-> Last updated: 2026-07-10
+> Last updated: 2026-07-09
 > Topology source: GNS3 project "AEGIS-SecureBank" (photo 2026-07-10 02:10)
-> IP source of truth: scripts/src/aegis_forwarder_hub.py KNOWN_HOSTS + REMOTE_VMS
+> IP source of truth: per-VM `scripts/src/aegis_forwarder.py` deployments (agent mode — no central hub, no SSH collection)
 
 ---
 
@@ -41,6 +41,13 @@
 > but its IP (10.20.20.10) is in the Internal (10.20.20.0/24) segment routed by pfSense INT interface.
 > aegis-forwarder is on INT-Switch with IP 10.30.30.10 (MGMT subnet, pfSense vtnet3 routes it).
 
+> **Forwarder model (current):** There is no central SSH hub. Each VM (bank-web, bank-mail,
+> teller-pc, customer-db, aegis-forwarder) runs its **own local copy** of `aegis_forwarder.py`,
+> tailing its own log files and POSTing directly to the API server. No SSH between VMs is
+> required for log collection. `aegis-forwarder` (10.30.30.10) still runs the nmap network
+> scanner, tcpdump traffic capture, and heartbeat for itself — it no longer SSHes into the
+> other VMs to collect their logs.
+
 ---
 
 ## 2. Network Segments & IP Plan
@@ -54,7 +61,7 @@
 | Internal | 10.20.20.0/24 | vtnet2 / e2 | Internal bank systems |
 | Management | 10.30.30.0/24 | vtnet3 / e3 | AEGIS monitoring segment |
 
-### Node IP Reference (canonical — matches aegis_forwarder_hub.py)
+### Node IP Reference (canonical — matches per-VM aegis_forwarder.py deployments)
 
 | Node | IP | Subnet | Role |
 |---|---|---|---|
@@ -72,7 +79,7 @@
 | bank-mail | 10.10.10.20/24 | DMZ | Postfix mail server |
 | teller-pc | 10.20.20.10/24 | Internal | Teller workstation + Cowrie honeypot |
 | customer-db | 10.20.20.20/24 | Internal | PostgreSQL database |
-| aegis-forwarder | 10.30.30.10/24 | Management | AEGIS hub collector |
+| aegis-forwarder | 10.30.30.10/24 | Management | Runs its own local agent + nmap/tcpdump scanner |
 
 ---
 
@@ -95,7 +102,7 @@
 | bank-mail | 10.10.10.20 | Postfix, Fail2ban, Suricata | `/var/log/fail2ban.log`, `/var/log/suricata/eve.json` |
 | teller-pc | 10.20.20.10 | Cowrie honeypot, Fail2ban, Suricata, SSH | `/var/log/cowrie/cowrie.json`, `/var/log/auth.log`, `/var/log/fail2ban.log` |
 | customer-db | 10.20.20.20 | PostgreSQL, Fail2ban, SSH audit | `/var/log/auth.log` |
-| aegis-forwarder | 10.30.30.10 | aegis_forwarder_hub.py, nmap, tcpdump | Central collector — SSH into all VMs |
+| aegis-forwarder | 10.30.30.10 | aegis_forwarder.py (local mode), nmap, tcpdump | Runs its own local forwarder + network scanner/traffic capture — no SSH into other VMs |
 
 ### AEGIS Platform
 | Component | Host | URL |
@@ -136,26 +143,27 @@
 │  ├── Fail2ban     → /var/log/fail2ban.log                            │  actual path in script:
 │  └── SSH auth     → /var/log/auth.log                                │  /home/cowrie/cowrie/var/log/cowrie/cowrie.json
 └──────────────────────────────────────────────────────────────────────┘
-                          │  SSH (from aegis-forwarder)
+                          │  each VM tails its OWN logs locally
                           ▼
 ┌──────────────────────────────────────────────────────────────────────┐
-│               FORWARDING PHASE (aegis-forwarder 10.30.30.10)         │
+│           FORWARDING PHASE (per-VM agent — no central hub)           │
 │                                                                       │
-│  aegis_forwarder_hub.py                                              │
+│  aegis_forwarder.py runs locally on EACH VM (bank-web, bank-mail,    │
+│  teller-pc, customer-db, aegis-forwarder) — no SSH between VMs.      │
 │                                                                       │
-│  Per VM, per sensor → dedicated SSH client → tail -F <log>           │
-│  ├── bank-web   : sensors = [suricata, fail2ban, ssh, http]          │
-│  ├── bank-mail  : sensors = [suricata, fail2ban, ssh]                │
-│  ├── teller-pc  : sensors = [suricata, fail2ban, ssh]                │
-│  └── customer-db: sensors = [suricata, fail2ban, ssh]                │
+│  Per VM, `--mode` selects which local sensors to tail:               │
+│  ├── bank-web   : --mode all      (suricata, fail2ban, ssh, http)   │
+│  ├── bank-mail  : --mode all      (suricata, fail2ban, ssh)         │
+│  ├── teller-pc  : --mode all      (suricata, fail2ban, ssh, cowrie) │
+│  └── customer-db: --mode all      (suricata, fail2ban, ssh)         │
 │                                                                       │
-│  Background threads:                                                  │
+│  aegis-forwarder VM additionally runs, for itself only:              │
 │  ├── nmap_scanner_loop  — scan 10.10.10.0/24, 10.20.20.0/24, 10.30.30.0/24 │
 │  ├── tcpdump_loop       — capture on any iface, count packets        │
 │  ├── traffic_reporter   — POST /api/ingest/traffic every 60s         │
 │  └── heartbeat_loop     — POST /api/network/hosts every 15s          │
 │                                                                       │
-│  Each parsed event → POST to API Server                              │
+│  Each VM's parsed events → POST directly to API Server               │
 │  Header: X-AEGIS-Key: $AEGIS_KEY                                     │
 └──────────────────────────────────────────────────────────────────────┘
                           │ HTTPS (Render)
@@ -284,11 +292,13 @@ aegis-soc-dashboard/
 │   ├── api-client-react/             ← Generated React Query hooks
 │   └── api-zod/                      ← Generated Zod schemas
 └── scripts/src/
-    ├── aegis_forwarder.py            ← Agent mode: runs ON a VM, reads local logs
-    ├── aegis_forwarder_hub.py        ← Hub mode: SSH into VMs, central collection
+    ├── aegis_forwarder.py            ← Agent mode: runs locally on EVERY VM, reads local logs
     ├── pfsense_forwarder.py          ← UDP syslog receiver for pfSense filterlog
     ├── defense_agent.py              ← Polls command queue, executes iptables
     └── aegis-fail2ban-action.conf    ← Fail2ban action → direct API curl call
+
+> `aegis_forwarder_hub.py` (central SSH-based collector) has been removed — every VM now
+> runs its own local `aegis_forwarder.py` instance instead.
 ```
 
 ---
