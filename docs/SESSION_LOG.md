@@ -434,4 +434,87 @@ curl -X POST https://aegis-api-server-jp3b.onrender.com/api/ingest/snort \
 
 ---
 
-*Last updated: 2026-07-03 (Session 5)*
+## Session 6 — Full Stack Expansion & Defense Engine (2026-07-10)
+
+### Overview
+Major expansion across schema, backend routes, forwarder scripts, and frontend pages. Auto-defense engine hardened with attack counters. Three highlight UI boxes added to System Status, Network Monitor, and Quick Connect sections.
+
+### Schema Changes (lib/db/src/schema/)
+
+| New Table / File | Purpose |
+|---|---|
+| `incidents.ts` — `incidents` | Groups related security events into trackable tickets with status/severity |
+| `connections.ts` — `ssh_sessions` | Tracks SSH login attempts, source IPs, usernames, success/fail |
+| `connections.ts` — `ftp_sessions` | FTP login/transfer events |
+| `connections.ts` — `encrypted_traffic` | TLS metadata (cipher, cert validity, SNI) |
+| `connections.ts` — `http_attacks` | WAF/ModSecurity events (SQLi, XSS, LFI, RFI) |
+| `defense_engine.ts` — `defense_rules` | Configurable auto-defense rules (threshold, action) |
+| `defense_engine.ts` — `defense_commands` | Command queue polled by on-VM defense agent |
+| `defense_engine.ts` — `attack_counters` | Per-IP hit counters used for threshold-based escalation |
+| `reports.ts` — `reports` | Metadata for generated security summary reports |
+
+### New Backend Routes (artifacts/api-server/src/routes/)
+
+| Route | Description |
+|---|---|
+| `GET/POST /api/incidents` | Incident CRUD — list, create, update status |
+| `GET /api/reports` | Generated report retrieval |
+| `GET /api/connections/ssh` | SSH session history |
+| `GET /api/connections/ftp` | FTP session history |
+| `GET /api/connections/tls` | TLS/encrypted traffic log |
+| `GET /api/connections/tls/suspicious` | Suspicious TLS entries (weak cipher / self-signed) |
+| `GET /api/connections/http-attacks` | HTTP attack log (WAF/ModSec) |
+| `GET/POST /api/firewall/rules` | Firewall rule list and creation |
+| `DELETE /api/firewall/rules/:id` | Deactivate a rule |
+| `GET /api/firewall/rules/export` | Export active rules as bash script |
+| `GET /api/defense/commands/pending` | Defense agent polls for pending commands |
+| `POST /api/defense/commands/:id/done` | Defense agent marks command executed |
+| `GET /api/stream` | Unified SSE stream endpoint |
+
+### New Forwarder Scripts (scripts/src/)
+
+| Script | Purpose |
+|---|---|
+| `aegis_forwarder_hub.py` | Central relay — aggregates multi-VM log sources, SSH-based collection, nmap scanning, tcpdump traffic capture |
+| `pfsense_forwarder.py` | Ingests pfSense firewall logs, forwards to API |
+| `defense_agent.py` | On-VM agent — polls `/api/defense/commands/pending`, executes iptables/ufw commands locally |
+| `aegis-fail2ban-action.conf` | Fail2ban action config — directly calls AEGIS ingest API on ban event |
+
+### New Frontend Pages (artifacts/aegis-dashboard/src/pages/)
+
+| Page | Description |
+|---|---|
+| `incidents.tsx` / `incident-detail.tsx` | Incident management — lists grouped attack incidents, detail view with timeline |
+| `reports.tsx` | Security reports — auto-generated summaries |
+| `setup.tsx` | Guided setup/onboarding for new deployments; forwarder example commands use Render API URL |
+| `architecture.tsx` | Lab topology visualizer — shows data flow: Sensors → Forwarder → API → Supabase → SSE → Dashboard |
+
+### UI Improvements
+
+- **Quick Connect box** — Ubuntu VM quick-connect helper on Dashboard and Network Monitor pages
+- **Device Selector** — global device filter component (`device-selector.tsx`) added to layout; filters events by host
+- **Highlight boxes** — 3 new status highlight boxes added: System Status summary, Network Monitor overview, Quick Connect section
+- **`/pages/defense-center.tsx`** — full defense management UI: block/unblock IPs, rule creation, auto-defense toggle, pending command queue
+
+### Auto-Defense Engine Hardening (artifacts/api-server/src/lib/auto-defense.ts)
+
+- `attack_counters` table integration — per-IP event counts tracked across requests
+- Threshold-based escalation: first hit → low, repeated hits → medium/high, threshold exceeded → auto-block
+- `isDefenderIp()` whitelist from Session 4 kept; RFC1918 IPs never trigger auto-defense
+- All IPs/ports sanitized through `defense-sanitize.ts` before building any shell command
+
+### Data-Gap Caveats (known limitations)
+
+- `targetHost` in ingest events is a mix of real destination IPs and generic labels (e.g. `"mail-server"`) — device filter matches on IP, some events won't scope to a specific device
+- `encrypted_traffic` / TLS events from the forwarder itself (outbound to Render API) are logged but not alerted (outbound-from-defender filter)
+- `attack_counters` are in-memory scoped per process restart — counters reset on Render cold start (free tier)
+
+### Code Review Fixes Applied
+
+- Removed `sys.exit(1)` from `aegis_forwarder_hub.py` when SSH threads fail — heartbeat/nmap/tcpdump keep running independently of SSH state
+- Added `_has_passwordless_sudo()` pre-check before nmap install and tcpdump start — explicit error message instead of silent failure
+- `setup.tsx` forwarder examples: all use `https://aegis-api-server-jp3b.onrender.com` (Render URL) — no Replit URLs
+
+---
+
+*Last updated: 2026-07-10 (Session 6)*

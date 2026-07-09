@@ -2380,6 +2380,83 @@ python3 /opt/aegis_forwarder_hub.py
 
 ---
 
+### 2026-07-10 — Session 6: Full Stack Expansion (Schema + Routes + Forwarders + UI)
+
+**Status:** ✅ Done
+**What:** Major codebase expansion — new DB tables, backend routes, forwarder scripts, frontend pages, and defense engine hardening. Three highlight boxes added to System Status, Network Monitor, and Quick Connect sections.
+**How:**
+
+*Schema changes (lib/db/src/schema/):*
+- `incidents.ts` → `incidents` table (grouped attack tickets)
+- `connections.ts` → `ssh_sessions`, `ftp_sessions`, `encrypted_traffic`, `http_attacks` tables
+- `defense_engine.ts` → `defense_rules`, `defense_commands`, `attack_counters` tables
+- `reports.ts` → `reports` table
+
+*New backend routes (artifacts/api-server/src/routes/):*
+- `/api/incidents` — Incident CRUD
+- `/api/reports` — Report retrieval
+- `/api/connections/ssh`, `/ftp`, `/tls`, `/tls/suspicious`, `/http-attacks` — Connection history
+- `/api/firewall/rules` — Firewall rule management + bash export
+- `/api/defense/commands/pending` + `/:id/done` — Defense agent queue
+- `/api/stream` — Unified SSE endpoint
+
+*New forwarder scripts (scripts/src/):*
+- `aegis_forwarder_hub.py` — Multi-VM SSH aggregator + nmap scanner + tcpdump
+- `pfsense_forwarder.py` — pfSense log ingest
+- `defense_agent.py` — On-VM agent, polls command queue, executes iptables/ufw
+- `aegis-fail2ban-action.conf` — Fail2ban → AEGIS API direct integration
+
+*New frontend pages (artifacts/aegis-dashboard/src/pages/):*
+- `incidents.tsx` / `incident-detail.tsx` — Incident management UI
+- `reports.tsx` — Security reports page
+- `setup.tsx` — Guided setup / forwarder onboarding (uses Render URL, not Replit)
+- `architecture.tsx` — Lab topology visualizer
+
+*UI improvements:*
+- Quick Connect box (Ubuntu VM helper) on Dashboard + Network Monitor
+- Device Selector global filter component (`device-selector.tsx`)
+- 3 highlight status boxes: System Status summary, Network Monitor overview, Quick Connect
+- Defense Center page — block/unblock IPs, rule creation, auto-defense toggle
+
+*Auto-defense engine hardening:*
+- `attack_counters` table integration — threshold-based escalation per IP
+- RFC1918 whitelist (`isDefenderIp()`) preserved from Session 4
+- All IPs/ports pass through `defense-sanitize.ts` before shell command construction
+
+*Code review fixes:*
+- Removed `sys.exit(1)` when SSH threads fail in hub script — heartbeat/nmap/tcpdump keep running
+- Added `_has_passwordless_sudo()` pre-check with explicit error instead of silent failure
+- `setup.tsx` forwarder examples use Render URL only
+
+**Result:** All routes deployed to Render, frontend deployed to Vercel, full pipeline functional. Known data gaps: `targetHost` is a mix of real IPs and generic labels; `attack_counters` reset on Render cold start (free tier limitation).
+**Next:** Push DB schema to Supabase (`pnpm --filter @workspace/db run push`), test defense agent on Ubuntu VM, verify forwarder hub SSH collection once VMs have openssh-server + key auth.
+
+---
+
+### 2026-07-10 01:38 — Replit Import & Secrets Setup
+
+**Status:** ✅ Done
+**What:** Imported project from GitHub to Replit for code editing. Configured all required secrets in Replit Secrets. Verified both dev workflows start cleanly.
+**How:**
+```bash
+# Replit Secrets configured:
+# SUPABASE_DB_URL — Supabase pooler URL (port 6543, aws-1-ap-southeast-2)
+# AEGIS_INGEST_KEY — sensor auth key (X-AEGIS-Key header)
+# AEGIS_ADMIN_KEY  — admin key (X-AEGIS-Admin-Key header)
+# SESSION_SECRET   — Express session secret
+
+# Dependencies installed:
+pnpm install
+
+# Workflows running:
+pnpm --filter @workspace/aegis-dashboard run dev   # port 5000
+PORT=3000 pnpm --filter @workspace/api-server run dev  # port 3000
+```
+**Result:** Dashboard visible at port 5000, API server running at port 3000, connected to Supabase. Command Center shows live event data.
+**Next:** Run `pnpm --filter @workspace/db run push` to ensure Supabase schema is fully up to date after Session 6 schema additions.
+
+---
+
 ## References
 
 - GNS3 docs: https://docs.gns3.com
