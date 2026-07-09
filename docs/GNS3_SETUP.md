@@ -280,6 +280,24 @@ sudo systemctl enable --now fail2ban
 sudo fail2ban-client status   # verify
 ```
 
+### customer-db (10.20.20.20) — PostgreSQL + Fail2ban
+
+```bash
+sudo apt install postgresql postgresql-contrib fail2ban -y
+
+# Allow remote connections (lab only — never do this on a real prod DB)
+sudo sed -i "s/#listen_addresses = 'localhost'/listen_addresses = '*'/" /etc/postgresql/*/main/postgresql.conf
+echo "host all all 10.20.20.0/24 md5" | sudo tee -a /etc/postgresql/*/main/pg_hba.conf
+sudo systemctl restart postgresql
+
+# Seed a demo "customers" table so an attacker has something to actually steal
+sudo -u postgres psql -c "CREATE DATABASE bankdb;"
+sudo -u postgres psql -d bankdb -c "CREATE TABLE customers (id serial, name text, account_no text, balance numeric);"
+sudo -u postgres psql -d bankdb -c "INSERT INTO customers (name, account_no, balance) VALUES ('Demo User','1234567890', 5000.00);"
+
+sudo systemctl enable --now fail2ban
+```
+
 ### teller-pc (10.20.20.10) — Cowrie Honeypot + Fail2ban
 
 ```bash
