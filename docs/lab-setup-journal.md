@@ -2470,6 +2470,50 @@ PORT=3000 pnpm --filter @workspace/api-server run dev  # port 3000
 
 ---
 
+---
+
+## 2026-07-10 — Architecture & GNS3 Setup Guide Rewrite
+
+**Session:** Replit code editor session
+**What changed:**
+
+- Created `docs/SYSTEM_ARCHITECTURE.md` — full system architecture matching GNS3 topology:
+  - Complete topology diagram (Switch1 → R1 → R2 → pfSense → DMZ/INT/MGMT)
+  - Network segments & IP plan (all 6 subnets, all node IPs)
+  - Component roles table per VM
+  - Full data flow diagram: attack → detection → forwarding → API → DB → dashboard
+  - Code flow: ingest → auto-defense pipeline (evaluateEvent → sanitize → command queue)
+  - API endpoint reference table (all /api/ingest/* routes)
+  - Monorepo code structure map
+  - SSE real-time architecture diagram
+  - Required secrets table
+
+- Created `docs/GNS3_SETUP.md` — complete GNS3-specific setup guide (replaces VirtualBox SETUP.md):
+  - Node placement & cable connections matching topology photo
+  - Router-1 full MikroTik CHR config (ether1/2/3, DHCP NAT, masquerade)
+  - Router-2 full MikroTik CHR config (static routes to all segments)
+  - pfSense initial console config (WAN/DMZ/INT/MGMT interface assignment)
+  - pfSense firewall rules per zone
+  - Ubuntu VM static IP via netplan (all 5 VMs)
+  - Security tools install: Suricata, ModSecurity, Cowrie, Fail2ban per VM
+  - aegis_forwarder_hub.py deploy on aegis-forwarder (10.10.30.10)
+  - defense_agent.py deploy as systemd service
+  - Kali route setup through R1
+  - 4 end-to-end test procedures
+  - Troubleshooting section
+
+```bash
+# Topology: GNS3 AEGIS-SecureBank (2026-07-10 02:10 photo)
+# Switch1 → R1(192.168.122.2) → R2 → pfSense(WAN:10.10.0.2)
+# pfSense DMZ(10.10.10.1): bank-web(.10), bank-mail(.20), teller-pc(.30)
+# pfSense INT(10.10.20.1): customer-db(.20)
+# pfSense MGMT(10.10.30.1): aegis-forwarder(.10)
+```
+
+**Result:** Two new docs created. Architecture fully matches GNS3 topology photo. Setup guide is GNS3-native (no VirtualBox references).
+
+---
+
 ## References
 
 - GNS3 docs: https://docs.gns3.com
