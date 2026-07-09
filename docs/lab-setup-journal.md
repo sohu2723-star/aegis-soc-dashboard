@@ -2433,6 +2433,19 @@ python3 /opt/aegis_forwarder_hub.py
 
 ---
 
+### 2026-07-10 01:33 — UI Fix: Remove Info Boxes + Fix Traffic Metric
+
+**Status:** ✅ Done
+**What:** Network Monitor နှင့် System Status page မှ highlight info box ၂ ခုဖြုတ်ပြီး Traffic (Last Hr) metric ၀ ပြနေသည့် ပြဿနာကိုဖြေရှင်းခဲ့သည်။
+**How:**
+- `system.tsx` — "SYSTEM STATUS ဆိုတာ ဘာလဲ?" explanation box ဖြုတ်ပြီ (lines 106-111)
+- `network.tsx` — "QUICK CONNECT — UBUNTU VM" box ကို empty-hosts state မှ ဖြုတ်ပြီ
+- `network.tsx` — Traffic (Last Hr) metric: `traffic[last].inbound` (current hour, ၀ ဖြစ်တတ်) အစား last non-zero hourly bucket ကိုရှာပြီး `events/hr` ပြနည်းသို့ ပြောင်းပြီ; real tcpdump data ရှိရင် `Mb/s` label ပြမည်
+**Result:** Box ၂ ခုပေျာက်ပြီ။ Traffic metric က "1 events/hr" (Supabase event data မှ) ပြနေပြီ — forwarder VM ချိတ်ဆက်ပြီး tcpdump data ပို့လာသောအခါ Mb/s mode ကို automatic switch ဖြစ်မည်။
+**Next:** ပြင်ချင်တာ နောက်တစ်ခု ဆက်ပြောပါ။
+
+---
+
 ### 2026-07-10 01:38 — Replit Import & Secrets Setup
 
 **Status:** ✅ Done
