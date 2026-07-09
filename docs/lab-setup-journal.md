@@ -2537,6 +2537,31 @@ hub, no cross-VM SSH, one forwarder process per VM.
 
 ---
 
+### 2026-07-09 — Removed Old VirtualBox Docs & Cleaned Up Repo ✅
+**Status:** ✅ Done
+**What:** The repo still had leftover docs and the in-dashboard Setup Guide describing the
+original 3-VM VirtualBox lab (Kali/Ubuntu Server/pfSense on 192.168.56.x) from before the
+project moved to the 9-node GNS3 AEGIS-SecureBank topology. Removed to avoid confusion
+between old and current setups, and to shrink the workspace (old screenshots).
+**How:**
+- Deleted `docs/SETUP.md`, `docs/testing-setup.md`, `docs/attack-defense-playbook.md`,
+  `docs/system-flow.md`, `docs/aegis-flowchart.html` — all described the old VirtualBox
+  3-VM lab and were superseded by `docs/GNS3_SETUP.md` / `docs/SYSTEM_ARCHITECTURE.md`.
+- Rewrote the in-dashboard Setup Guide (`setup.tsx`) from the VirtualBox 3-VM content to
+  the current GNS3 9-node topology (Kali, Router-1/2, pfSense, bank-web, bank-mail,
+  teller-pc, customer-db, aegis-forwarder) — IPs, node table, and all example commands
+  now match the real lab.
+- Updated `README.md`'s Network Monitor description away from "VirtualBox lab".
+- Removed old screenshot attachments from `attached_assets/` (untracked workspace files,
+  not referenced anywhere in code).
+- Kept `docs/API.md`, `docs/attack-testing-guide.md`, `docs/defense-testing-guide.md` —
+  their example IPs are illustrative only, not tied to the old topology, so left as-is.
+**Result:** No doc or in-app page still describes the retired VirtualBox lab; everything
+now points at the GNS3 AEGIS-SecureBank architecture. Verified nothing in code referenced
+the deleted files before removing them.
+
+---
+
 ## References
 
 - GNS3 docs: https://docs.gns3.com

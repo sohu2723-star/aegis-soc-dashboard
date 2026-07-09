@@ -1,6 +1,6 @@
 # AEGIS Security Operations Center Dashboard
 
-A full-stack real-time cybersecurity SOC (Security Operations Center) dashboard built for a 5-person internship team. Monitors Red Team (Kali Linux) attacks and Blue Team (Ubuntu/Snort/Suricata/Fail2ban/Cowrie) defenses live.
+A full-stack real-time cybersecurity SOC (Security Operations Center) dashboard built for a 5-person internship team. Monitors Red Team (Kali Linux) attacks against the GNS3 AEGIS-SecureBank lab and Blue Team (Suricata/Fail2ban/Cowrie, one agent per bank VM) defenses live.
 
 ---
 
@@ -14,7 +14,7 @@ A full-stack real-time cybersecurity SOC (Security Operations Center) dashboard 
 - **System Status** — Health monitoring for all defense components
 
 ### Network & Defense
-- **Network Monitor** — Live topology map of VirtualBox lab (Kali, Ubuntu, Honeypot), connected hosts table, 12h traffic chart
+- **Network Monitor** — Live topology map of the GNS3 AEGIS-SecureBank lab (Kali attacker, pfSense, bank-web, bank-mail, teller-pc, customer-db, aegis-forwarder), connected hosts table, 12h traffic chart
 - **Defense Center** — Auto defense status (Fail2ban, Suricata IDS) + Admin manual IP block/unblock with full action log
 
 ### Intelligence
@@ -48,12 +48,14 @@ A full-stack real-time cybersecurity SOC (Security Operations Center) dashboard 
                     ▲
                     │ POST /api/ingest/*  (X-AEGIS-Key auth)
 ┌───────────────────┴─────────────────────────────────────┐
-│            aegis_forwarder.py  (on Ubuntu VM)           │
-│  Watches: Suricata eve.json, Snort alerts,              │
-│           Fail2ban.log, Cowrie cowrie.json              │
+│   aegis_forwarder.py  (its OWN copy on EVERY bank VM)    │
+│  bank-web, bank-mail, teller-pc, customer-db,            │
+│  aegis-forwarder — each watches its own local logs:      │
+│  Suricata eve.json, Fail2ban.log, Cowrie cowrie.json     │
+│  (no central hub, no SSH between VMs)                    │
 └─────────────────────────────────────────────────────────┘
                     ▲
-                    │ Attacks
+                    │ Attacks (routed via GNS3 routers + pfSense)
 ┌───────────────────┴─────────────────────────────────────┐
 │        Red Team — Kali Linux VM                         │
 │  Tools: nmap, sqlmap, nikto, gobuster, hydra, metasploit│
@@ -103,9 +105,10 @@ aegis-soc-dashboard/
 │   └── api-zod/                # Generated Zod schemas
 ├── scripts/
 │   └── src/
-│       └── aegis_forwarder.py  # Ubuntu VM sensor forwarder
+│       └── aegis_forwarder.py  # per-VM sensor forwarder (runs locally on every VM)
 └── docs/
-    ├── SETUP.md                # VM setup guide
+    ├── GNS3_SETUP.md           # GNS3 lab setup guide
+    ├── SYSTEM_ARCHITECTURE.md  # Real lab topology & data flow
     ├── API.md                  # API reference
     └── ARCHITECTURE.md         # Architecture decisions
 ```
@@ -162,11 +165,11 @@ pnpm --filter @workspace/api-spec run codegen
 
 ## Connecting Real VMs
 
-See [docs/SETUP.md](docs/SETUP.md) for complete step-by-step instructions.
+See [docs/GNS3_SETUP.md](docs/GNS3_SETUP.md) for complete step-by-step instructions.
 
 **Quick summary:**
-1. Ubuntu VM — install Suricata, Fail2ban, Cowrie
-2. Run `aegis_forwarder.py` with your AEGIS URL and API key
+1. Each bank VM (bank-web, bank-mail, teller-pc, customer-db, aegis-forwarder) — install Suricata, Fail2ban, Cowrie as applicable
+2. Run `aegis_forwarder.py` locally on every VM with your AEGIS URL and API key — no central hub or SSH required
 3. Kali VM — start attacking, watch dashboard update live
 
 ---
@@ -203,7 +206,7 @@ All endpoints require `X-AEGIS-Key` header.
 
 Internship project — 5-person team
 - Red Team: Kali Linux attack simulation
-- Blue Team: Ubuntu defense, monitoring, incident response
+- Blue Team: bank-VM defense (Suricata/Fail2ban/Cowrie), monitoring, incident response
 
 ---
 

@@ -72,7 +72,7 @@ Generic security event from any source.
   "type": "network_scan | web_attack | brute_force | malware | honeypot | dos",
   "subtype": "Port Scan",
   "severity": "critical | high | medium | low",
-  "sourceIp": "192.168.56.101",
+  "sourceIp": "192.168.122.132",
   "targetHost": "ubuntu-server",
   "description": "nmap SYN scan detected",
   "toolUsed": "nmap"
@@ -86,8 +86,8 @@ Snort IDS alert format.
 ```json
 {
   "alert": "[1:1000001:1] ET SCAN nmap SYN scan",
-  "sourceIp": "192.168.56.101",
-  "destIp": "192.168.56.102",
+  "sourceIp": "192.168.122.132",
+  "destIp": "10.10.10.10",
   "protocol": "TCP",
   "srcPort": 54321,
   "destPort": 22
@@ -106,7 +106,7 @@ Fail2ban ban/unban event.
 ```json
 {
   "action": "Ban",
-  "ip": "192.168.56.101",
+  "ip": "192.168.122.132",
   "jail": "sshd",
   "timestamp": "2026-07-01T08:00:00Z"
 }
@@ -156,7 +156,7 @@ Register or update a host (upsert by IP).
 **Body:**
 ```json
 {
-  "ip": "192.168.56.101",
+  "ip": "192.168.122.132",
   "hostname": "kali-attacker",
   "role": "kali | ubuntu | honeypot | router | unknown",
   "os": "Kali Linux 2024",
@@ -197,7 +197,7 @@ Block an IP address.
 **Body:**
 ```json
 {
-  "ip": "192.168.56.101",
+  "ip": "192.168.122.132",
   "reason": "Port scan detected",
   "blockedBy": "manual | auto"
 }

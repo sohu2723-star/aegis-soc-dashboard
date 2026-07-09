@@ -331,7 +331,7 @@ export default function Defense() {
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Input
-                placeholder="IP Address (e.g. 192.168.56.101)"
+                placeholder="IP Address (e.g. 192.168.122.132)"
                 value={blockIp}
                 onChange={e => setBlockIp(e.target.value)}
                 className="bg-background border-border font-mono text-sm"
