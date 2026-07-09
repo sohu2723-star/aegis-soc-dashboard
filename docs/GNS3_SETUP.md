@@ -488,6 +488,37 @@ sudo nmap -sn 10.10.10.0/24 -oG - | grep Up | awk '{print $2}'
 
 ## Troubleshooting
 
+### Forwarder can't reach the API at all ("Temporary failure in name resolution")?
+```
+ERROR service_health/suricata: HTTPSConnectionPool(host='aegis-api-server-jp3b.onrender.com', ...)
+Failed to establish a new connection: [Errno -3] Temporary failure in name resolution
+```
+This means the VM cannot resolve DNS — it never even reaches the internet routing question,
+so the dashboard will show the host going stale/OFFLINE and **no real attack data is being
+recorded**, even if Kali is actively attacking.
+
+```bash
+# 1. Isolate DNS vs. routing — run on the affected VM
+ping -c 2 8.8.8.8          # tests raw internet routing (by IP)
+ping -c 2 google.com       # tests DNS resolution specifically
+
+# If (1) works but (2) fails → DNS-only problem. Fix:
+cat /etc/resolv.conf       # check current nameservers
+sudo nano /etc/netplan/00-installer-config.yaml
+#   add under the interface:
+#     nameservers:
+#       addresses: [8.8.8.8, 1.1.1.1]
+sudo netplan apply
+ping -c 2 google.com       # should now resolve
+
+# If (1) ALSO fails → no internet route at all, check upstream:
+#   - On Router-1 (MikroTik): /ip dhcp-client print   → status should be "bound"
+#   - On pfSense: confirm the MGMT (or relevant zone) outbound rule is "Pass | any"
+#   - GNS3 NAT cloud must be attached and the host machine's virbr0/NAT must be up
+```
+Once DNS resolves, restart the forwarder (`sudo systemctl restart aegis-forwarder`) and the
+health-check errors should clear within one cycle.
+
 ### Forwarder not reading its own log files?
 ```bash
 # On the affected VM — the forwarder runs as root via systemd, so it should

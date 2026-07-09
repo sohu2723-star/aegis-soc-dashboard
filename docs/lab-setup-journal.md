@@ -2562,6 +2562,26 @@ the deleted files before removing them.
 
 ---
 
+### 2026-07-09 (cont.) — Diagnosed DNS Resolution Failure on aegis-forwarder ⚠️
+**Status:** ⚠️ Diagnosed, fix pending user action on the real VM
+**What:** User reported the forwarder script erroring on `aegis-forwarder` (10.30.30.10) and
+the dashboard showing that device going OFFLINE. Screenshots showed:
+`HTTPSConnectionPool(...): Failed to establish a new connection: [Errno -3] Temporary
+failure in name resolution` for every sensor (Suricata, Snort, Cowrie, Fail2ban).
+**Diagnosis:** This is a DNS resolution failure on the VM itself, not an app/dashboard bug —
+the forwarder can't even look up `aegis-api-server-jp3b.onrender.com`, so nothing it collects
+ever reaches the API. Dashboard "OFFLINE" is the correct/expected result of a missed
+heartbeat, not a dashboard defect. Also confirmed via screenshot that only `aegis-forwarder`
+is registered as a connected host so far — no attack events have reached the dashboard yet
+because bank-web/bank-mail/teller-pc/customer-db forwarders are not confirmed running,
+and the one forwarder that is running (aegis-forwarder) can't reach the internet by name.
+**Next:** User to run `ping 8.8.8.8` vs `ping google.com` on the VM to isolate DNS-vs-routing,
+then either fix netplan nameservers or check Router-1 DHCP / pfSense outbound rule. Added a
+troubleshooting entry to `docs/GNS3_SETUP.md` ("Forwarder can't reach the API at all") so this
+is documented for next time.
+
+---
+
 ## References
 
 - GNS3 docs: https://docs.gns3.com
