@@ -103,13 +103,6 @@ export default function SystemStatus() {
         </div>
       )}
 
-      <div className="bg-card border border-border rounded-lg p-4 text-xs text-muted-foreground space-y-1">
-        <p className="font-bold text-primary uppercase tracking-wider text-[10px]">ℹ️ System Status ဆိုတာ ဘာလဲ?</p>
-        <p>Ubuntu VM ပေါ်မှာ run နေတဲ့ Suricata, Snort, Fail2ban, Cowrie စတဲ့ security sensors တွေရဲ့ health ကို ဒီမှာ မြင်ရမည်။</p>
-        <p>Status က <span className="text-yellow-400 font-mono">unknown</span> ဖြစ်နေတာ = forwarder မှ heartbeat မပို့ရသေးဘူး။ Forwarder run ပြီး VM ချိတ်ဆက်လိုက်တာနဲ့ status update ဖြစ်မည်။</p>
-        <p>Device selector နဲ့ VM တစ်ခုချင်းရဲ့ sensor health ကို ခွဲကြည့်နိုင်တယ် — VM ရဲ့ forwarder က IP ပါတဲ့ heartbeat ပို့ပြီးမှသာ ခွဲခြားပြမည်။</p>
-      </div>
-
       {isLoading ? (
         <div className="text-center py-12 text-muted-foreground border border-border rounded-lg bg-card border-dashed">
           Polling system components...

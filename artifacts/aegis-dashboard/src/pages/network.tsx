@@ -480,9 +480,29 @@ export default function Network() {
             <Activity className="w-8 h-8 text-primary" />
             <div>
               <p className="text-xs text-muted-foreground uppercase tracking-wider">Traffic (last hr)</p>
-              <p className="text-3xl font-bold text-primary">
-                {traffic.length > 0 ? traffic[traffic.length - 1].inbound : "—"} <span className="text-base">Mb/s</span>
-              </p>
+              {(() => {
+                // Use real Mb/s from tcpdump if available; otherwise fall back to event counts
+                const hasPackets = traffic.some(p => (p as any).packets > 0);
+                const oneHourAgo = Date.now() - 3_600_000;
+                if (hasPackets) {
+                  // Real Mb/s from hub tcpdump
+                  const lastHr = traffic.filter(p => new Date(p.time).getTime() >= oneHourAgo);
+                  const total = lastHr.reduce((s, p) => s + p.inbound, 0);
+                  return (
+                    <p className="text-3xl font-bold text-primary">
+                      {total.toFixed(1)} <span className="text-base">Mb/s</span>
+                    </p>
+                  );
+                }
+                // Fallback: security-event counts — show last non-zero hour
+                const lastActive = [...traffic].reverse().find(p => p.inbound > 0);
+                const val = lastActive?.inbound ?? 0;
+                return (
+                  <p className="text-3xl font-bold text-primary">
+                    {val} <span className="text-base text-muted-foreground">events/hr</span>
+                  </p>
+                );
+              })()}
             </div>
           </CardContent>
         </Card>
@@ -542,12 +562,6 @@ export default function Network() {
               <Monitor className="w-10 h-10 mx-auto mb-3 opacity-30" />
               <p className="text-sm">No hosts registered yet.</p>
               <p className="text-xs mt-1">Hosts appear when forwarder scripts connect from your VMs.</p>
-              <div className="mt-4 bg-card border border-border rounded p-4 text-left max-w-md mx-auto">
-                <p className="text-xs font-bold uppercase text-primary mb-2">Quick Connect — Ubuntu VM</p>
-                <pre className="text-xs font-mono text-muted-foreground whitespace-pre-wrap">{`export AEGIS_URL="https://aegis-api-server-jp3b.onrender.com/api"
-export AEGIS_KEY="your-aegis-ingest-key"
-python3 /opt/aegis_forwarder.py --mode all`}</pre>
-              </div>
             </div>
           ) : (
             <div className="overflow-x-auto">
