@@ -47,3 +47,4 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+scripts/src/defense_agent.local.conf

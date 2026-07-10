@@ -22,22 +22,44 @@ import time
 import requests
 from datetime import datetime
 
+# ─── LOCAL CONFIG FILE (set-once, not committed to git) ───────────────────────
+# Real keys go in defense_agent.local.conf next to this script (gitignored) —
+# never in this file and never in the repo — so you only type them once on the
+# machine that actually runs the agent, instead of exporting env vars every
+# session. Copy defense_agent.local.conf.example to get started.
+_LOCAL_CONF = os.path.join(os.path.dirname(os.path.abspath(__file__)), "defense_agent.local.conf")
+_local_values = {}
+if os.path.exists(_LOCAL_CONF):
+    with open(_LOCAL_CONF) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            _local_values[k.strip()] = v.strip().strip('"').strip("'")
+
+
+def _cfg(key: str, default: str = "") -> str:
+    """Env var wins if set, else the local conf file, else the default."""
+    return os.environ.get(key) or _local_values.get(key, default)
+
+
 # ─── CONFIG ──────────────────────────────────────────────────────────────────
-AEGIS_URL  = os.environ.get("AEGIS_URL",  "http://<YOUR_AEGIS_DOMAIN>/api")
-AEGIS_KEY  = os.environ.get("AEGIS_KEY",  "aegis-demo-key-change-me")
-VM_NAME    = os.environ.get("VM_NAME",    "ubuntu")   # ubuntu | pfsense
-POLL_SECS  = int(os.environ.get("POLL_SECS", "5"))    # poll interval
+AEGIS_URL  = _cfg("AEGIS_URL",  "http://<YOUR_AEGIS_DOMAIN>/api")
+AEGIS_KEY  = _cfg("AEGIS_KEY",  "aegis-demo-key-change-me")
+VM_NAME    = _cfg("VM_NAME",    "ubuntu")   # ubuntu | pfsense
+POLL_SECS  = int(_cfg("POLL_SECS", "5"))    # poll interval
 
 HEADERS = {
     "Content-Type":     "application/json",
     "X-AEGIS-Key":      AEGIS_KEY,
     # Admin key is required for command queue polling
-    "X-AEGIS-Admin-Key": os.environ.get("AEGIS_ADMIN_KEY", ""),
+    "X-AEGIS-Admin-Key": _cfg("AEGIS_ADMIN_KEY", ""),
 }
 
 # pfSense API (if running on pfSense)
-PFSENSE_API_URL  = os.environ.get("PFSENSE_API_URL",  "http://localhost/api/v1")
-PFSENSE_API_KEY  = os.environ.get("PFSENSE_API_KEY",  "")
+PFSENSE_API_URL  = _cfg("PFSENSE_API_URL",  "http://localhost/api/v1")
+PFSENSE_API_KEY  = _cfg("PFSENSE_API_KEY",  "")
 
 
 def ts():
