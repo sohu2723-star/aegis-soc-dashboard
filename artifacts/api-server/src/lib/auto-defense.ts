@@ -112,30 +112,34 @@ function buildCommand(rule: DefenseRule, sourceIp: string, _eventId: number) {
 
     case "pfsense_block":
       return {
-        commandType: "pfsense_api",
-        // Structured JSON — agent parses and calls pfSense API (no shell execution)
-        commandText: JSON.stringify({
-          action: "block_ip",
-          ip:     safeIp,
-          reason: rule.name,
-          ttl:    params.durationSecs,
-        }),
-        undoCommand: JSON.stringify({ action: "unblock_ip", ip: safeIp }),
+        commandType: "pfsense_rule",
+        // Human-readable — no automated agent runs on the real pfSense box,
+        // so this is read by a person and applied by hand in the pfSense GUI.
+        commandText:
+          `pfSense GUI steps:\n` +
+          `1. Firewall > Aliases > Add — Name: AEGIS_BLOCK, Type: Host(s), Address: ${safeIp}\n` +
+          `2. Firewall > Rules > [WAN or the interface facing this attacker] > Add\n` +
+          `   Action: Block   Protocol: any   Source: AEGIS_BLOCK   Destination: any\n` +
+          `   Description: ${rule.name}\n` +
+          `3. Apply Changes\n` +
+          `CLI equivalent (pfSense shell / pfctl):\n` +
+          `   pfctl -t aegis_blocklist -T add ${safeIp}`,
+        undoCommand: `pfctl -t aegis_blocklist -T delete ${safeIp}`,
       };
 
     case "pfsense_port_block": {
       const port  = sanitizePort(params.port || "80");
       const proto = sanitizeProtocol(params.protocol);
       return {
-        commandType: "pfsense_api",
-        commandText: JSON.stringify({
-          action:   "block_port",
-          ip:       safeIp,
-          port,
-          protocol: proto,
-          reason:   rule.name,
-        }),
-        undoCommand: JSON.stringify({ action: "unblock_port", ip: safeIp, port }),
+        commandType: "pfsense_rule",
+        commandText:
+          `pfSense GUI steps:\n` +
+          `1. Firewall > Rules > [interface facing this attacker] > Add\n` +
+          `   Action: Block   Protocol: ${proto.toUpperCase()}   Source: ${safeIp}\n` +
+          `   Destination port range: ${port} - ${port}\n` +
+          `   Description: ${rule.name}\n` +
+          `2. Apply Changes`,
+        undoCommand: `Remove the "${rule.name}" rule from Firewall > Rules`,
       };
     }
 
@@ -305,7 +309,7 @@ async function suggestManualDefense(rule: DefenseRule, event: IngestEvent) {
 // ─── Seed default rules ───────────────────────────────────────────────────────
 export async function seedDefaultRules() {
   const existing = await db.select().from(defenseRulesTable);
-  if (existing.length > 0) return;
+  const existingNames = new Set(existing.map(r => r.name));
 
   const defaults: Array<typeof defenseRulesTable.$inferInsert> = [
     {
@@ -365,12 +369,20 @@ export async function seedDefaultRules() {
       targetVm: "ubuntu", priority: 30, isActive: true,
     },
     {
-      name: "Critical Attack → pfSense Block",
-      description: "Any critical severity attack → block at pfSense too",
+      name: "Critical Attack → pfSense Block (Suggested)",
+      description: "Any critical severity attack → suggest blocking at pfSense (manual — no auto-agent on the real router)",
       triggerAttackType: "any", triggerSeverity: "critical",
       triggerThreshold: 1, triggerWindowSecs: 60,
-      actionType: "auto", defenseType: "pfsense_block",
+      actionType: "suggest", defenseType: "pfsense_block",
       targetVm: "pfsense", priority: 50, isActive: true,
+    },
+    {
+      name: "Web Attack (SQLi/XSS/etc) → pfSense Block (Suggested)",
+      description: "High/critical web attack on a bank VM → suggest a pfSense block rule",
+      triggerAttackType: "web_attack", triggerSeverity: "high",
+      triggerThreshold: 1, triggerWindowSecs: 60,
+      actionType: "suggest", defenseType: "pfsense_block",
+      targetVm: "pfsense", priority: 45, isActive: true,
     },
     {
       name: "MITM / ARP Spoof → Suggest Rule",
@@ -383,6 +395,7 @@ export async function seedDefaultRules() {
   ];
 
   for (const rule of defaults) {
+    if (existingNames.has(rule.name)) continue; // already seeded — don't duplicate
     await db.insert(defenseRulesTable).values(rule);
   }
 }
