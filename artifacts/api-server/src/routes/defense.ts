@@ -1,8 +1,9 @@
 import { Router } from "express";
-import { db, blockedIpsTable, defenseActionsTable, systemStatusTable } from "@workspace/db";
+import { db, blockedIpsTable, defenseActionsTable, systemStatusTable, defenseCommandsTable } from "@workspace/db";
 import { eq, desc, and } from "drizzle-orm";
 import { z } from "zod";
 import { isAutoDefenseEnabled, setSetting } from "../lib/app-settings";
+import { sanitizeIp } from "../lib/defense-sanitize";
 
 const router = Router();
 
@@ -49,6 +50,31 @@ router.post("/defense/block", async (req, res) => {
     status:      "success",
   });
 
+  // Also push the block out to the real infrastructure — queue commands for
+  // whichever agents are polling (Ubuntu VM iptables + pfSense REST API).
+  // defense_agent.py claims these via GET /defense/commands/pending and
+  // executes them; if no agent is running yet the commands just sit as
+  // "pending" and cause no harm.
+  try {
+    const safeIp = sanitizeIp(body.data.ip);
+    await db.insert(defenseCommandsTable).values({
+      targetVm:    "ubuntu",
+      commandType: "iptables",
+      commandText: `iptables -I INPUT -s ${safeIp} -j DROP`,
+      undoCommand: `iptables -D INPUT -s ${safeIp} -j DROP`,
+      targetIp:    safeIp,
+      status:      "pending",
+    });
+    await db.insert(defenseCommandsTable).values({
+      targetVm:    "pfsense",
+      commandType: "pfsense_api",
+      commandText: JSON.stringify({ action: "block_ip", ip: safeIp, reason: body.data.reason }),
+      undoCommand: JSON.stringify({ action: "unblock_ip", ip: safeIp }),
+      targetIp:    safeIp,
+      status:      "pending",
+    });
+  } catch { /* invalid IP already rejected by zod above — defensive only */ }
+
   const [blocked] = await db.select().from(blockedIpsTable).where(eq(blockedIpsTable.id, row.id));
   res.json({ ...blocked, blockedAt: blocked.blockedAt.toISOString(), unblockedAt: null });
 });
@@ -70,6 +96,24 @@ router.delete("/defense/block/:ip", async (req, res) => {
     performedBy: "admin",
     status:      "success",
   });
+
+  try {
+    const safeIp = sanitizeIp(ip);
+    await db.insert(defenseCommandsTable).values({
+      targetVm:    "ubuntu",
+      commandType: "iptables",
+      commandText: `iptables -D INPUT -s ${safeIp} -j DROP`,
+      targetIp:    safeIp,
+      status:      "pending",
+    });
+    await db.insert(defenseCommandsTable).values({
+      targetVm:    "pfsense",
+      commandType: "pfsense_api",
+      commandText: JSON.stringify({ action: "unblock_ip", ip: safeIp }),
+      targetIp:    safeIp,
+      status:      "pending",
+    });
+  } catch { /* invalid IP format — nothing to unblock on agents */ }
 
   res.json({ success: true, ip });
 });

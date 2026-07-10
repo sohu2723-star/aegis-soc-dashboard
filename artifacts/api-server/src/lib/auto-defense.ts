@@ -112,34 +112,32 @@ function buildCommand(rule: DefenseRule, sourceIp: string, _eventId: number) {
 
     case "pfsense_block":
       return {
-        commandType: "pfsense_rule",
-        // Human-readable — no automated agent runs on the real pfSense box,
-        // so this is read by a person and applied by hand in the pfSense GUI.
-        commandText:
-          `pfSense GUI steps:\n` +
-          `1. Firewall > Aliases > Add — Name: AEGIS_BLOCK, Type: Host(s), Address: ${safeIp}\n` +
-          `2. Firewall > Rules > [WAN or the interface facing this attacker] > Add\n` +
-          `   Action: Block   Protocol: any   Source: AEGIS_BLOCK   Destination: any\n` +
-          `   Description: ${rule.name}\n` +
-          `3. Apply Changes\n` +
-          `CLI equivalent (pfSense shell / pfctl):\n` +
-          `   pfctl -t aegis_blocklist -T add ${safeIp}`,
-        undoCommand: `pfctl -t aegis_blocklist -T delete ${safeIp}`,
+        commandType: "pfsense_api",
+        // Structured JSON — defense_agent.py running on pfSense (or with network
+        // access to it) parses this and calls the pfSense REST API to add the
+        // firewall rule. Only executed for actionType="auto" rules.
+        commandText: JSON.stringify({
+          action: "block_ip",
+          ip:     safeIp,
+          reason: rule.name,
+          ttl:    params.durationSecs,
+        }),
+        undoCommand: JSON.stringify({ action: "unblock_ip", ip: safeIp }),
       };
 
     case "pfsense_port_block": {
       const port  = sanitizePort(params.port || "80");
       const proto = sanitizeProtocol(params.protocol);
       return {
-        commandType: "pfsense_rule",
-        commandText:
-          `pfSense GUI steps:\n` +
-          `1. Firewall > Rules > [interface facing this attacker] > Add\n` +
-          `   Action: Block   Protocol: ${proto.toUpperCase()}   Source: ${safeIp}\n` +
-          `   Destination port range: ${port} - ${port}\n` +
-          `   Description: ${rule.name}\n` +
-          `2. Apply Changes`,
-        undoCommand: `Remove the "${rule.name}" rule from Firewall > Rules`,
+        commandType: "pfsense_api",
+        commandText: JSON.stringify({
+          action:   "block_port",
+          ip:       safeIp,
+          port,
+          protocol: proto,
+          reason:   rule.name,
+        }),
+        undoCommand: JSON.stringify({ action: "unblock_port", ip: safeIp, port }),
       };
     }
 
@@ -280,9 +278,42 @@ async function executeAutoDefense(rule: DefenseRule, event: IngestEvent) {
   broadcaster.broadcast("stats_update", { timestamp: new Date().toISOString() });
 }
 
+// ─── Render a pfSense JSON action as human-readable GUI steps ─────────────────
+// Used when suggesting (not auto-executing) a pfSense defense — a person reads
+// this and applies it by hand in the pfSense web GUI, since no automated
+// executor may be running against the real router.
+function humanizePfSenseAction(commandText: string): string {
+  try {
+    const p = JSON.parse(commandText);
+    if (p.action === "block_ip") {
+      return (
+        `pfSense GUI steps:\n` +
+        `1. Firewall > Aliases > Add — Name: AEGIS_BLOCK, Type: Host(s), Address: ${p.ip}\n` +
+        `2. Firewall > Rules > [interface facing this attacker] > Add\n` +
+        `   Action: Block   Protocol: any   Source: AEGIS_BLOCK   Destination: any\n` +
+        `   Description: ${p.reason ?? "AEGIS suggested block"}\n` +
+        `3. Apply Changes\n` +
+        `CLI equivalent (pfSense shell): pfctl -t aegis_blocklist -T add ${p.ip}`
+      );
+    }
+    if (p.action === "block_port") {
+      return (
+        `pfSense GUI steps:\n` +
+        `1. Firewall > Rules > [interface facing this attacker] > Add\n` +
+        `   Action: Block   Protocol: ${String(p.protocol ?? "tcp").toUpperCase()}   Source: ${p.ip}\n` +
+        `   Destination port range: ${p.port} - ${p.port}\n` +
+        `   Description: ${p.reason ?? "AEGIS suggested block"}\n` +
+        `2. Apply Changes`
+      );
+    }
+  } catch { /* not JSON — fall through to raw text below */ }
+  return commandText;
+}
+
 // ─── Suggest manual defense ───────────────────────────────────────────────────
 async function suggestManualDefense(rule: DefenseRule, event: IngestEvent) {
   const { commandText } = buildCommand(rule, event.sourceIp, event.id);
+  const readableCommand = rule.targetVm === "pfsense" ? humanizePfSenseAction(commandText) : commandText;
 
   const [incRow] = await db.insert(incidentsTable).values({
     title:       `[ACTION NEEDED] ${rule.name} — ${event.sourceIp}`,
@@ -290,7 +321,7 @@ async function suggestManualDefense(rule: DefenseRule, event: IngestEvent) {
     status:      "open",
     description: `Rule "${rule.name}" triggered for ${event.sourceIp}. Manual action required.`,
     responder:   "admin",
-    notes:       `Suggested command (on ${rule.targetVm}):\n${commandText}`,
+    notes:       `Attack: ${event.subtype} (${event.type}) from ${event.sourceIp} → ${event.targetHost}\n\nSuggested defense (apply on ${rule.targetVm}):\n${readableCommand}`,
     eventCount:  1,
   }).returning();
 
