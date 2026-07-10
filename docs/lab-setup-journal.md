@@ -2552,6 +2552,38 @@ between old and current setups, and to shrink the workspace (old screenshots).
   teller-pc, customer-db, aegis-forwarder) — IPs, node table, and all example commands
   now match the real lab.
 - Updated `README.md`'s Network Monitor description away from "VirtualBox lab".
+
+### 2026-07-09 — pfSense Manual Block Made Real (Suggest vs Auto Defense) ✅
+**Status:** ✅ Code done, pfSense-side agent setup pending on the real lab.
+**What:** User wants two things working end-to-end: (1) when a bank VM is attacked,
+the dashboard should show the attack type *and* a ready-to-use pfSense defense rule
+next to the alert, which they then apply by hand in the pfSense GUI; (2) clicking
+"Block IP" on the dashboard should actually push a real block to pfSense via its
+REST API, not just record the block in the database.
+**How:**
+- `auto-defense.ts`: added `humanizePfSenseAction()` — when a defense rule's
+  `actionType` is `"suggest"`, the pfSense JSON action (`block_ip`/`block_port`) is
+  rendered as human-readable pfSense GUI steps + CLI equivalent and written into the
+  incident's `notes` field (shown in Incident Detail → Investigation Notes). Kept the
+  underlying `commandType: "pfsense_api"` JSON format unchanged for `actionType:
+  "auto"` rules, so `defense_agent.py`'s existing pfSense REST API executor still works.
+- Added default rule "Web Attack (SQLi/XSS/etc) → pfSense Block (Suggested)" (high+
+  severity web_attack → suggest, not auto) and changed "Critical Attack → pfSense
+  Block" from auto to suggest — no automated executor is assumed to be running
+  against the real router unless the user sets one up.
+- `seedDefaultRules()` now upserts by name instead of skipping entirely when the
+  rules table is non-empty, so new default rules reach already-seeded deployments.
+- `POST /defense/block` and `DELETE /defense/block/:ip` (manual block/unblock from
+  the dashboard) now also queue `defense_commands` rows for both `ubuntu` (iptables)
+  and `pfsense` (`pfsense_api` JSON) — `defense_agent.py --vm pfsense` polls
+  `/defense/commands/pending` and calls the pfSense REST API to apply/remove the
+  rule for real. If no agent is polling yet, the commands just sit as "pending"
+  and don't break anything.
+**Still needed on the real lab (not yet done by user):**
+- Install the community "pfsense-api" package on pfSense (System > Package Manager).
+- Run `defense_agent.py --vm pfsense` on pfSense (or a box that can reach its API)
+  with `PFSENSE_API_URL` / `PFSENSE_API_KEY` env vars set. No pfSense credentials
+  are stored in the dashboard itself — only the agent process holds them.
 - Removed old screenshot attachments from `attached_assets/` (untracked workspace files,
   not referenced anywhere in code).
 - Kept `docs/API.md`, `docs/attack-testing-guide.md`, `docs/defense-testing-guide.md` —
