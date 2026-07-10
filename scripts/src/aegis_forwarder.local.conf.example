@@ -1,0 +1,29 @@
+# AEGIS aegis_forwarder.py — local, machine-specific config.
+#
+# Copy to "aegis_forwarder.local.conf" (same folder) on the machine that runs
+# this script and fill in real values there. That file is gitignored — never
+# committed or pushed.
+#
+#   cp aegis_forwarder.local.conf.example aegis_forwarder.local.conf
+#   nano aegis_forwarder.local.conf
+#   python3 aegis_forwarder.py --mode all
+#
+# This script now also runs the defense-agent loop in the background (merged
+# from defense_agent.py) — so one script does both log forwarding AND applies
+# defense commands (iptables / pfSense block) queued from the dashboard.
+# Pass --no-defense to skip that thread if you only want log forwarding.
+
+AEGIS_URL=https://aegis-api-server-jp3b.onrender.com/api
+AEGIS_KEY=
+AEGIS_ADMIN_KEY=
+
+# VM_NAME controls how the merged defense-agent thread executes commands:
+#   ubuntu  -> runs iptables shell commands locally
+#   pfsense -> calls the pfSense REST API instead (needs the two keys below)
+VM_NAME=ubuntu
+DEFENSE_POLL_SECS=5
+
+# Only needed when VM_NAME=pfsense, once the pfsense-api / REST API package is
+# installed and you've generated a token under System > REST API.
+PFSENSE_API_URL=http://127.0.0.1/api/v1
+PFSENSE_API_KEY=

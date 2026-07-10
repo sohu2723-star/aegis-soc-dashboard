@@ -48,3 +48,4 @@ Thumbs.db
 .cache/
 .local/
 scripts/src/defense_agent.local.conf
+scripts/src/aegis_forwarder.local.conf

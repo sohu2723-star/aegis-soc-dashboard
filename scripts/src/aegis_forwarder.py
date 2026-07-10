@@ -28,14 +28,48 @@ import requests
 from pathlib import Path
 from datetime import datetime
 
+# ─── LOCAL CONFIG FILE (set-once, not committed to git) ───────────────────────
+# Real keys go in aegis_forwarder.local.conf next to this script (gitignored),
+# so you type them once on the machine that runs this and never again — same
+# mechanism defense_agent.py uses. Copy aegis_forwarder.local.conf.example.
+_LOCAL_CONF = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aegis_forwarder.local.conf")
+_local_values = {}
+if os.path.exists(_LOCAL_CONF):
+    with open(_LOCAL_CONF) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            _local_values[k.strip()] = v.strip().strip('"').strip("'")
+
+
+def _cfg(key: str, default: str = "") -> str:
+    return os.environ.get(key) or _local_values.get(key, default)
+
+
 # ─── CONFIG ──────────────────────────────────────────────────────────────────
-AEGIS_URL = os.environ.get("AEGIS_URL", "http://<YOUR_AEGIS_DOMAIN>/api")
-AEGIS_KEY = os.environ.get("AEGIS_KEY", "aegis-demo-key-change-me")
+AEGIS_URL = _cfg("AEGIS_URL", "http://<YOUR_AEGIS_DOMAIN>/api")
+AEGIS_KEY = _cfg("AEGIS_KEY", "aegis-demo-key-change-me")
+VM_NAME   = _cfg("VM_NAME",   "ubuntu")   # ubuntu | pfsense — used by the defense-agent thread
 
 HEADERS = {
     "Content-Type": "application/json",
     "X-AEGIS-Key": AEGIS_KEY,
 }
+
+# Admin-key headers for the defense-command queue (separate from ingest HEADERS
+# above, since /defense/commands endpoints require X-AEGIS-Admin-Key too)
+DEFENSE_HEADERS = {
+    "Content-Type":      "application/json",
+    "X-AEGIS-Key":       AEGIS_KEY,
+    "X-AEGIS-Admin-Key": _cfg("AEGIS_ADMIN_KEY", ""),
+}
+
+# pfSense REST API (only used when VM_NAME == "pfsense")
+PFSENSE_API_URL = _cfg("PFSENSE_API_URL", "http://127.0.0.1/api/v1")
+PFSENSE_API_KEY = _cfg("PFSENSE_API_KEY", "")
+DEFENSE_POLL_SECS = int(_cfg("DEFENSE_POLL_SECS", "5"))
 
 
 def get_local_ip() -> str:
@@ -93,6 +127,122 @@ def get_os_info() -> str:
     except Exception:
         pass
     return "Ubuntu"
+
+
+# ─── Defense agent (merged from defense_agent.py) ─────────────────────────────
+# Polls the AEGIS API for pending defense commands (issued when someone clicks
+# "Block IP" on the dashboard, or an auto-defense rule fires) and executes them
+# on this machine — iptables locally, or the pfSense REST API when VM_NAME is
+# "pfsense". Runs as its own thread alongside the log-forwarding sensors.
+
+def _report_defense_result(cmd_id: int, success: bool, error: str = None):
+    try:
+        requests.post(
+            f"{AEGIS_URL}/defense/commands/{cmd_id}/result",
+            json={"success": success, "error": error},
+            headers=DEFENSE_HEADERS,
+            timeout=5,
+        )
+    except Exception as e:
+        print(f"[defense] [WARN] could not report result for cmd {cmd_id}: {e}")
+
+
+def _exec_defense_shell(command: str, cmd_id: int):
+    print(f"[defense] Executing: {command}")
+    try:
+        result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=30)
+        if result.returncode == 0:
+            print(f"[defense] ✓ Success: {result.stdout.strip()}")
+            _report_defense_result(cmd_id, True)
+        else:
+            err = result.stderr.strip()
+            print(f"[defense] ✗ Failed: {err}")
+            _report_defense_result(cmd_id, False, err)
+    except subprocess.TimeoutExpired:
+        print("[defense] ✗ Timeout")
+        _report_defense_result(cmd_id, False, "Timeout")
+    except Exception as e:
+        print(f"[defense] ✗ Error: {e}")
+        _report_defense_result(cmd_id, False, str(e))
+
+
+def _exec_defense_pfsense(payload_json: str, cmd_id: int):
+    try:
+        payload = json.loads(payload_json)
+        action = payload.get("action")
+
+        if action == "block_ip":
+            rule = {
+                "type": "block", "interface": "wan", "ipprotocol": "inet",
+                "protocol": "any", "src": payload["ip"], "dst": "any",
+                "descr": f"AEGIS auto-block: {payload.get('reason', '')}",
+            }
+            r = requests.post(f"{PFSENSE_API_URL}/firewall/rule", json=rule,
+                               headers={"Authorization": f"Bearer {PFSENSE_API_KEY}"},
+                               verify=False, timeout=10)
+            if r.status_code in (200, 201):
+                print(f"[defense] ✓ pfSense blocked {payload['ip']}")
+                _report_defense_result(cmd_id, True)
+            else:
+                print(f"[defense] ✗ pfSense error {r.status_code}: {r.text[:80]}")
+                _report_defense_result(cmd_id, False, r.text[:200])
+
+        elif action == "unblock_ip":
+            print(f"[defense] pfSense unblock {payload['ip']} — implement rule lookup by description")
+            _report_defense_result(cmd_id, True)
+
+        elif action == "block_port":
+            rule = {
+                "type": "block", "interface": "wan", "ipprotocol": "inet",
+                "protocol": payload.get("protocol", "tcp"), "src": payload["ip"], "dst": "any",
+                "dstport": str(payload.get("port", "")),
+                "descr": f"AEGIS port-block: {payload.get('reason', '')}",
+            }
+            r = requests.post(f"{PFSENSE_API_URL}/firewall/rule", json=rule,
+                               headers={"Authorization": f"Bearer {PFSENSE_API_KEY}"},
+                               verify=False, timeout=10)
+            if r.status_code in (200, 201):
+                print(f"[defense] ✓ pfSense blocked {payload['ip']}:{payload.get('port')}")
+                _report_defense_result(cmd_id, True)
+            else:
+                _report_defense_result(cmd_id, False, r.text[:200])
+        else:
+            print(f"[defense] Unknown pfSense action: {action}")
+            _report_defense_result(cmd_id, False, f"Unknown action: {action}")
+    except Exception as e:
+        print(f"[defense] ✗ pfSense error: {e}")
+        _report_defense_result(cmd_id, False, str(e))
+
+
+def _dispatch_defense(cmd: dict):
+    cmd_id, command_type, command_text = cmd["id"], cmd.get("commandType", ""), cmd.get("commandText", "")
+    print(f"[defense] Command #{cmd_id}: [{command_type}] for {cmd.get('targetIp', '')}")
+    if command_type == "pfsense_api":
+        _exec_defense_pfsense(command_text, cmd_id)
+    else:
+        _exec_defense_shell(command_text, cmd_id)
+
+
+def defense_agent_loop():
+    """Poll for pending defense commands and execute them. Runs forever."""
+    print(f"[defense] agent started — vm={VM_NAME}, polling every {DEFENSE_POLL_SECS}s")
+    while True:
+        try:
+            r = requests.get(f"{AEGIS_URL}/defense/commands/pending",
+                              params={"vm": VM_NAME}, headers=DEFENSE_HEADERS, timeout=10)
+            if r.status_code == 200:
+                commands = r.json()
+                if commands:
+                    print(f"[defense] → {len(commands)} pending command(s)")
+                    for cmd in commands:
+                        _dispatch_defense(cmd)
+            else:
+                print(f"[defense] [WARN] poll returned {r.status_code}")
+        except requests.exceptions.ConnectionError:
+            print("[defense] [WARN] cannot reach AEGIS API — retrying...")
+        except Exception as e:
+            print(f"[defense] [ERROR] poll error: {e}")
+        time.sleep(DEFENSE_POLL_SECS)
 
 
 def register_host():
@@ -490,6 +640,8 @@ if __name__ == "__main__":
     parser.add_argument("--mode", choices=list(MODES.keys()) + ["all"], default="all")
     parser.add_argument("--url", help="AEGIS API URL override")
     parser.add_argument("--key", help="AEGIS API key override")
+    parser.add_argument("--no-defense", action="store_true",
+                         help="Don't start the merged defense-agent thread (log forwarding only)")
     args = parser.parse_args()
 
     if args.url:
@@ -528,6 +680,11 @@ if __name__ == "__main__":
     import signal as _signal
     _signal.signal(_signal.SIGINT,  shutdown)
     _signal.signal(_signal.SIGTERM, shutdown)
+
+    if not args.no_defense:
+        dt = threading.Thread(target=defense_agent_loop, daemon=True, name="defense_agent")
+        dt.start()
+        print(f"  ► defense_agent thread started (vm={VM_NAME})")
 
     if args.mode == "all":
         threads = []
