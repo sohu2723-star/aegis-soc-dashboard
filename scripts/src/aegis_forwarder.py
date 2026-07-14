@@ -53,6 +53,18 @@ AEGIS_URL = _cfg("AEGIS_URL", "http://<YOUR_AEGIS_DOMAIN>/api")
 AEGIS_KEY = _cfg("AEGIS_KEY", "aegis-demo-key-change-me")
 VM_NAME   = _cfg("VM_NAME",   "ubuntu")   # ubuntu | pfsense — used by the defense-agent thread
 
+# ─── REMOTE MODE CONFIG ───────────────────────────────────────────────────────
+# Used when running with --mode remote on the aegis-forwarder hub VM.
+# Hub SSHes into each bank VM and tails their log files.
+# Override REMOTE_SSH_USER in aegis_forwarder.local.conf if your user differs.
+REMOTE_SSH_USER = _cfg("REMOTE_SSH_USER", "sithu")
+REMOTE_HOSTS = [
+    {"name": "bank-web",     "ip": "10.10.10.10"},
+    {"name": "bank-mail",    "ip": "10.10.10.20"},
+    {"name": "teller-pc",    "ip": "10.20.20.10"},
+    {"name": "customer-db",  "ip": "10.20.20.20"},
+]
+
 HEADERS = {
     "Content-Type": "application/json",
     "X-AEGIS-Key": AEGIS_KEY,
@@ -624,6 +636,153 @@ def watch_cowrie():
             pass
 
 
+# ─── REMOTE MODE (hub SSHes into bank VMs) ───────────────────────────────────
+
+def _ssh_tail(host_name: str, host_ip: str, log_path: str):
+    """
+    Generator: SSHes into host_ip and yields lines from `tail -F log_path`.
+    Reconnects automatically on disconnect. Uses key-based auth (no password).
+    """
+    ssh_cmd = [
+        "ssh", "-T",
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "ConnectTimeout=10",
+        "-o", "ServerAliveInterval=15",
+        "-o", "ServerAliveCountMax=3",
+        "-o", "BatchMode=yes",        # fail immediately if key auth not set up
+        f"{REMOTE_SSH_USER}@{host_ip}",
+        f"tail -F {log_path} 2>/dev/null",
+    ]
+    while True:
+        try:
+            proc = subprocess.Popen(
+                ssh_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+            )
+            print(f"[SSH] Connected → {REMOTE_SSH_USER}@{host_ip}:{log_path}")
+            for line in proc.stdout:
+                line = line.strip()
+                if line:
+                    yield line
+            proc.wait()
+            print(f"[{host_name}] SSH disconnected from {host_ip} — reconnecting in 10s")
+        except Exception as e:
+            print(f"[{host_name}] SSH error ({host_ip}): {e} — retrying in 10s")
+        time.sleep(10)
+
+
+def _remote_register_host(host_name: str, host_ip: str):
+    """Register a remote bank VM in the AEGIS Network Monitor."""
+    try:
+        r = requests.post(
+            f"{AEGIS_URL}/network/hosts",
+            json={
+                "ip":          host_ip,
+                "hostname":    host_name,
+                "role":        "ubuntu",
+                "status":      "online",
+                "isMonitored": True,
+            },
+            headers=HEADERS,
+            timeout=10,
+        )
+        if r.status_code in (200, 201):
+            print(f"  ✓ Remote host registered: {host_name} ({host_ip})")
+        else:
+            print(f"  WARN Remote host registration {host_name}: HTTP {r.status_code}")
+    except Exception as e:
+        print(f"  WARN Remote host registration {host_name} failed: {e}")
+
+
+def _watch_remote_suricata(host_name: str, host_ip: str):
+    """Tail Suricata eve.json on a remote VM via SSH and forward events."""
+    print(f"[{host_name}] suricata thread started")
+    for line in _ssh_tail(host_name, host_ip, "/var/log/suricata/eve.json"):
+        try:
+            evt = json.loads(line)
+            etype = evt.get("event_type")
+            # Stamp the source VM so the dashboard knows which host triggered it
+            evt.setdefault("src_ip", host_ip)
+            if etype == "alert":
+                post("suricata", evt)
+            elif etype == "tls":
+                post("suricata/tls", {
+                    "src_ip":    evt.get("src_ip", host_ip),
+                    "dest_ip":   evt.get("dest_ip"),
+                    "dest_port": evt.get("dest_port"),
+                    "tls":       evt.get("tls", {}),
+                })
+        except json.JSONDecodeError:
+            pass
+
+
+def _watch_remote_snort(host_name: str, host_ip: str):
+    """Tail Snort alert_fast on a remote VM via SSH and forward events."""
+    print(f"[{host_name}] snort thread started")
+    for line in _ssh_tail(host_name, host_ip, "/var/log/snort/alert"):
+        if "[**]" not in line:
+            continue
+        sig_match = re.findall(r"\[\*\*\] \[\S+\] (.*?) \[\*\*\]", line)
+        prio_match = re.search(r"\[Priority: (\d+)\]", line)
+        net_match  = re.search(r"\{(\w+)\}\s+([\d.]+):\d+\s+->\s+([\d.]+)", line)
+        if not sig_match or not net_match:
+            continue
+        post("snort", {
+            "msg":      sig_match[0],
+            "priority": prio_match.group(1) if prio_match else "3",
+            "proto":    net_match.group(1),
+            "src":      net_match.group(2),
+            "dst":      net_match.group(3),
+        })
+
+
+def _watch_remote_fail2ban(host_name: str, host_ip: str):
+    """Tail fail2ban.log on a remote VM via SSH and forward ban events."""
+    print(f"[{host_name}] fail2ban thread started")
+    for line in _ssh_tail(host_name, host_ip, "/var/log/fail2ban.log"):
+        m = FAIL2BAN_RE.search(line)
+        if not m:
+            continue
+        post("fail2ban", {
+            "jail":     m.group(1),
+            "ip":       m.group(2),
+            "failures": 5,
+        })
+
+
+def run_remote_mode():
+    """
+    Hub mode: aegis-forwarder SSHes into each bank VM and tails their logs.
+    Spawns (suricata + snort + fail2ban) threads per remote host.
+    """
+    print(f"\n  Remote hosts ({len(REMOTE_HOSTS)}):")
+    for h in REMOTE_HOSTS:
+        print(f"    {h['name']:15s} {h['ip']}")
+        _remote_register_host(h["name"], h["ip"])
+    print()
+
+    threads = []
+    for h in REMOTE_HOSTS:
+        for label, fn in [
+            ("suricata", _watch_remote_suricata),
+            ("snort",    _watch_remote_snort),
+            ("fail2ban", _watch_remote_fail2ban),
+        ]:
+            t = threading.Thread(
+                target=fn,
+                args=(h["name"], h["ip"]),
+                daemon=True,
+                name=f"{h['name']}-{label}",
+            )
+            t.start()
+            threads.append(t)
+
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        shutdown()
+
+
 # ─── MAIN ────────────────────────────────────────────────────────────────────
 MODES = {
     "suricata":    watch_suricata,
@@ -637,7 +796,7 @@ MODES = {
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="AEGIS Forwarder")
-    parser.add_argument("--mode", choices=list(MODES.keys()) + ["all"], default="all")
+    parser.add_argument("--mode", choices=list(MODES.keys()) + ["all", "remote"], default="all")
     parser.add_argument("--url", help="AEGIS API URL override")
     parser.add_argument("--key", help="AEGIS API key override")
     parser.add_argument("--no-defense", action="store_true",
@@ -686,7 +845,11 @@ if __name__ == "__main__":
         dt.start()
         print(f"  ► defense_agent thread started (vm={VM_NAME})")
 
-    if args.mode == "all":
+    if args.mode == "remote":
+        print(f"  SSH user : {REMOTE_SSH_USER}")
+        print()
+        run_remote_mode()
+    elif args.mode == "all":
         threads = []
         for name, fn in MODES.items():
             t = threading.Thread(target=fn, daemon=True, name=name)
