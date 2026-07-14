@@ -2614,6 +2614,43 @@ is documented for next time.
 
 ---
 
+### 2026-07-14 — Remote Mode: aegis-forwarder Hub SSHes into Bank VMs ✅
+**Status:** ✅ Done
+**What:** Previous architecture had one `aegis_forwarder.py` per VM. Switched to hub model:
+`aegis-forwarder` (10.30.30.10) runs a single forwarder process that SSHes into each bank VM
+and tails their Suricata/Snort logs remotely. This avoids deploying the script on every VM.
+Also fixed internet access on aegis-forwarder so it can reach the Render API, and confirmed
+pfSense GUI accessible via `w3m` from the forwarder VM.
+**How:**
+- Added `--mode remote` flag to `aegis_forwarder.py`: spawns one SSH+tail thread per remote
+  VM (bank-web, bank-mail, teller-pc, customer-db) instead of reading local log files.
+- Generated SSH key on aegis-forwarder (`ssh-keygen`), copied public key to all four bank VMs
+  (`ssh-copy-id sithu@<ip>`) — passwordless SSH now works from the hub.
+- Confirmed static IPs for teller-pc (10.20.20.10) and customer-db (10.20.20.20).
+- Verified pfSense network map reflects current topology.
+- pfSense GUI reachable via `w3m http://10.30.30.1` from aegis-forwarder.
+- Used `--no-defense` flag so defense agent thread doesn't start on the hub
+  (defense agents run locally on each bank VM, not via SSH).
+**Result:** Ran `python3 aegis_forwarder.py --mode remote --no-defense` on aegis-forwarder.
+All threads started:
+```
+[bank-web]   suricata thread started
+[bank-web]   snort thread started
+[bank-mail]  suricata thread started
+[teller-pc]  suricata thread started
+[customer-db] suricata thread started
+[SSH] Connected → sithu@10.10.10.10:/var/log/suricata/eve.json
+```
+SSH key access confirmed for all 4 VMs:
+- bank-web     (10.10.10.10) ✅
+- bank-mail    (10.10.10.20) ✅
+- teller-pc    (10.20.20.10) ✅
+- customer-db  (10.20.20.20) ✅
+**Next:** Install Suricata/Snort on each bank VM if not already running; verify events appear
+in the AEGIS dashboard Security Events page once the Render API server is up.
+
+---
+
 ## References
 
 - GNS3 docs: https://docs.gns3.com
