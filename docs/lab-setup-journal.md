@@ -2651,6 +2651,337 @@ in the AEGIS dashboard Security Events page once the Render API server is up.
 
 ---
 
+### 2026-07-14 (Session 2) — Live Attack Testing: Kali → bank-web via GNS3
+
+**Status:** 🔄 In Progress (events pipeline established; Suricata rules pending)
+
+---
+
+#### ① Auto-Defense Engine ရှင်းလင်းချက်
+
+**ပြဿနာ:** Dashboard မှာ auto-block event တွေ ပေါ်နေသည် — `--no-defense` flag နဲ့ run နေပေမဲ့။
+
+**Root Cause:**
+- `--no-defense` = forwarder ပေါ်မှာ `defense_agent_loop` thread မ start ဘူး → iptables command မ execute ဘူး
+- ဒါပေမဲ့ **API server (Render) ထဲမှာ auto-defense engine သီးခြား run နေတယ်** — event တိုင်း `evaluateEvent()` ကို server side က ခေါ်နေတယ်
+- `app-settings.ts` မှာ `autoDefenseEnabled` DB setting က `null` ဆိုရင် default = `true` ဖြင့် treat လုပ်တာကြောင့် rule တွေ trigger ဖြစ်ပြီး `defense_commands` + `blocked_ips` table မှာ record တွေ ထည့်နေတာ
+- Command status = `"pending"` ဖြင့် ကျန်နေတာ (forwarder က execute မလုပ်ဘဲ)
+
+**Fix (committed):** `artifacts/api-server/src/lib/app-settings.ts`
+```typescript
+// Before: default true (auto-blocks even without dashboard toggle)
+return v === null ? true : v === "true";
+
+// After: default false (must explicitly enable from dashboard)
+return v === "true";
+```
+
+**Auto-block အလုပ်လုပ်ဖို့ လိုအပ်တာ:**
+| Component | လိုအပ်တဲ့ action |
+|---|---|
+| Server-side rules | Dashboard → Settings → Auto Defense → ON |
+| VM-side executor | `--no-defense` မပါဘဲ forwarder run |
+| `AEGIS_ADMIN_KEY` | `aegis_forwarder.local.conf` မှာ set ထားရမည် |
+
+---
+
+#### ② Forwarder Command Error Fix
+
+**ပြဿနာ:** `python3 aegis_forwarder.py --mode --no-defense` → `error: expected one argument`
+
+**Fix:** `--mode` နောက် value (remote) ထည့်ရမည်:
+```bash
+# မှားတာ
+python3 aegis_forwarder.py --mode --no-defense
+
+# မှန်တာ
+python3 aegis_forwarder.py --mode remote --no-defense
+```
+
+---
+
+#### ③ Forwarder Remote Mode — Successfully Started
+
+**Command:**
+```bash
+export AEGIS_URL="https://aegis-api-server-jp3b.onrender.com/api"
+export AEGIS_KEY="<ingest_key>"
+python3 /opt/aegis_forwarder.py --mode remote --no-defense
+```
+
+**Result — All 4 bank VMs connected:**
+```
+[*] Collecting sysinfo from bank-web (10.10.10.10)...
+  ✓ bank-web   OS=Ubuntu 22.04.5 LTS  MAC=0c:a6:61:e9:00:00  Ports=22,53,80,631
+[*] Collecting sysinfo from bank-mail (10.10.10.20)...
+  ✓ bank-mail  OS=Ubuntu 22.04.5 LTS  MAC=0c:3f:fe:e5:00:00  Ports=22,53,631
+[*] Collecting sysinfo from teller-pc (10.20.20.10)...
+  ✓ teller-pc  OS=Ubuntu 22.04.5 LTS  MAC=0c:91:6c:0f:00:00  Ports=22,53,631
+[*] Collecting sysinfo from customer-db (10.20.20.20)...
+  ✓ customer-db OS=Ubuntu 22.04.5 LTS MAC=0c:cc:8d:d6:00:00  Ports=22,53,631
+
+► remote heartbeat thread started
+► remote service health thread started
+
+[bank-web] suricata thread started
+[bank-web] snort thread started
+[bank-web] fail2ban thread started
+[SSH] Connected → sithu@10.10.10.10:/var/log/suricata/eve.json
+[SSH] Connected → sithu@10.10.10.10:/var/log/snort/alert
+[SSH] Connected → sithu@10.10.10.10:/var/log/fail2ban.log
+[bank-mail] suricata thread started  ...
+[teller-pc] suricata thread started  ...
+[customer-db] suricata thread started ...
+```
+
+**Service Health (30s interval SSH checks):**
+| VM | Suricata | Snort | Fail2ban | Cowrie |
+|---|---|---|---|---|
+| bank-web (10.10.10.10) | ✅ ONLINE | ❌ OFFLINE | ❌ OFFLINE | ❌ OFFLINE |
+| bank-mail (10.10.10.20) | ❌ | ❌ | ❌ | ❌ |
+| teller-pc (10.20.20.10) | ❌ | ❌ | ❌ | ❌ |
+| customer-db (10.20.20.20) | ❌ | ❌ | ❌ | ❌ |
+
+→ bank-web ပေါ်မှာ Suricata တစ်ခုတည်းသာ run နေသည်
+
+---
+
+#### ④ Kali Route ပြဿနာ
+
+**ပြဿနာ:** Kali မှာ `10.0.0.0/8` ဆီ route မရှိ → bank VMs ဆီ reach မဖြစ်ဘူး
+
+**Kali interfaces:**
+```
+eth0: 192.168.122.132/24  UP    ← R1 ဆီ connected
+eth1: NO CARRIER          DOWN  ← GNS3 link မချိတ်ထားဘဲ (lab topology design)
+```
+
+**R1 route print (confirmed correct):**
+```
+0  As  0.0.0.0/0      gateway=192.168.122.1  (NAT/internet)
+1  As  10.0.0.0/8     gateway=10.0.12.2      (R2 ဆီ — bank VMs)
+DAc 10.0.12.0/30      ether3
+DAc 192.168.122.0/24  ether1
+```
+
+**Fix — Kali မှာ route ထည့်:**
+```bash
+sudo ip route add 10.0.0.0/8 via 192.168.122.2
+```
+
+**Persistent route (reboot ကြသေးဆိုလည်း ကျန်နေအောင်) — `/etc/network/interfaces`:**
+```
+auto lo
+auto eth0
+iface eth0 inet dhcp
+    post-up ip route add 10.0.0.0/8 via 192.168.122.2
+```
+
+**Ping results after fix:**
+```
+ping 10.10.10.10 → ✅ 64 bytes  ttl=61  time≈163ms  (bank-web reachable)
+ping 10.20.20.10 → ❌ Time to live exceeded from 10.0.12.2
+```
+
+**teller-pc / customer-db TTL exceeded cause:** R2 မှာ `10.20.20.0/24` route မရှိဘူး → routing loop ဖြစ်ပြီး TTL expire
+
+**R2 fix (pending):**
+```routeros
+/ip route add dst-address=10.20.20.0/24 gateway=10.0.23.2
+/ip route add dst-address=10.30.30.0/24 gateway=10.0.23.2
+```
+
+---
+
+#### ⑤ pfSense Firewall Rules — Already Configured
+
+pfSense WAN rules (`http://10.10.10.1/firewall_rules.php`) မှာ ရှိနေပြီ:
+
+| Rule | Protocol | Source | Destination | Description |
+|---|---|---|---|---|
+| ✅ PASS | IPv4 Any | 192.168.122.0/24 | Any | Allow Kali |
+| ✅ PASS | IPv4 ICMP | 192.168.122.0/24 | Any | Passed via EasyRule |
+| ✅ PASS | IPv4 Any | 192.168.122.0/24 | Any | Passed via EasyRule |
+
+States: `6/168 KiB` — traffic ဖြတ်သွားနေပြီ confirm ✅
+
+→ pfSense ကပဲ block တာ မဟုတ်ဘူး။
+
+---
+
+#### ⑥ bank-web Firewall — UFW + iptables
+
+**UFW:** `sudo ufw status` → `Status: inactive` (disable မလုပ်ခင်ကတည်းက)
+
+**iptables:** Default rules ရှိနေ → nmap scan ကို silently DROP
+
+```
+nmap -Pn -sS 10.10.10.10 → All 1000 filtered tcp ports (no-response), 201s
+```
+
+**Fix:**
+```bash
+sudo iptables -F          # flush all rules
+sudo iptables -P INPUT ACCEPT
+```
+
+**After fix:**
+```
+nmap -Pn -sS 10.10.10.10
+→ Host is up (0.012s latency)
+→ 22/tcp open  ssh
+→ 80/tcp open  http
+→ Scanned in 11.36 seconds ✅
+```
+
+→ Kali → bank-web packet flow confirmed working end-to-end ✅
+
+---
+
+#### ⑦ Suricata Rules — suricata-update Failed
+
+**ပြဿနာ:** bank-web မှာ Suricata rules မရှိ → nmap scan / attacks ကို alert မထွက်ဘူး
+
+**Attempted fix:**
+```bash
+sudo suricata-update
+# 68% ဆိုတဲ့ နေရာမှာ timeout
+# <Error> Failed to copy file: The read operation timed out
+```
+
+**Cause:** VM internet connection ဟာ emerging threats rules file (38MB) download ဖို့ bandwidth မရောက်ဘူး
+
+**Alternative fix (pending — Kali ကနေ download + scp):**
+```bash
+# Kali မှာ
+wget https://rules.emergingthreats.net/open/suricata-6.0.4/emerging.rules.tar.gz -P /tmp/
+scp /tmp/emerging.rules.tar.gz sithu@10.10.10.10:/tmp/
+
+# bank-web မှာ
+cd /tmp && sudo tar xzf emerging.rules.tar.gz
+sudo cp /tmp/rules/*.rules /etc/suricata/rules/
+sudo systemctl restart suricata
+```
+
+**Workaround:** Suricata rules မရသေးဘဲ auth.log ကနေ SSH events ဝင်နိုင်တဲ့ route ကို ဦးစားပေး
+
+---
+
+#### ⑧ Remote auth.log Watching — Missing Feature Found & Fixed
+
+**Root Cause တွေ့:** `run_remote_mode()` မှာ ဤ log တွေသာ tail လုပ်သည်:
+```
+✅ /var/log/suricata/eve.json
+✅ /var/log/snort/alert
+✅ /var/log/fail2ban.log
+❌ /var/log/auth.log   ← SSH failed login တွေ ဒီမှာ — မကြည့်ဘူး!
+```
+
+hydra SSH brute force လုပ်ရင် bank-web ရဲ့ `auth.log` မှာ `Failed password` entry တွေ ထွက်မည် — ဒါပေမဲ့ forwarder က မမြင်ဘဲ dashboard event မဝင်ဘူး
+
+**Fix — `_watch_remote_ssh()` function အသစ် ထည့် (committed):**
+
+```python
+def _watch_remote_ssh(host_name: str, host_ip: str):
+    """Tail auth.log on a remote VM via SSH and forward failed/success login events."""
+    _defender_ips = {h["ip"] for h in REMOTE_HOSTS} | {"10.30.30.10"}
+    fail_counts: dict[str, int] = {}
+    print(f"[{host_name}] ssh thread started")
+    for line in _ssh_tail(host_name, host_ip, "/var/log/auth.log"):
+        m_fail = SSH_FAIL_RE.search(line)
+        if m_fail:
+            user, ip = m_fail.group(1), m_fail.group(2)
+            if ip in _defender_ips:
+                continue   # hub ရဲ့ management SSH skip
+            fail_counts[ip] = fail_counts.get(ip, 0) + 1
+            post("ssh", {
+                "src_ip":    ip,
+                "username":  user,
+                "status":    "failed",
+                "failures":  fail_counts[ip],
+                "targetHost": host_ip,
+            })
+```
+
+`run_remote_mode()` မှာ thread list ထဲ ထည့်:
+```python
+for label, fn in [
+    ("suricata", _watch_remote_suricata),
+    ("snort",    _watch_remote_snort),
+    ("fail2ban", _watch_remote_fail2ban),
+    ("ssh",      _watch_remote_ssh),    # ← NEW
+]:
+```
+
+**Commit:** `feat: add remote auth.log SSH watcher — forward SSH brute force events from bank VMs`
+
+---
+
+#### ⑨ Forwarder Update & Restart (VM မှာ)
+
+GitHub push ပြီးတိုင်း VM မှာ ဒါ run ပြီး update ဆွဲ:
+```bash
+wget -O /opt/aegis_forwarder.py \
+  https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/scripts/src/aegis_forwarder.py
+
+python3 /opt/aegis_forwarder.py --mode remote --no-defense
+```
+
+---
+
+#### ⑩ Hydra SSH Brute Force Test
+
+**ပြဿနာများ တစ်ဆင့်ချင်း:**
+
+| အဆင့် | Error | Fix |
+|---|---|---|
+| `--mode --no-defense` | `expected one argument` | `--mode remote --no-defense` |
+| `rockyou.txt` မရှိ | `File not found` | `sudo gunzip rockyou.txt.gz` |
+| `rockyou.txt.gz` မရှိ | `File not found` | mini wordlist create |
+| `printf > /tmp/p.txt` | redirect မဝင် | `-p password` တိုက်ရိုက် |
+| `-p password` | `1 login try, 0 found` | success — auth.log entry ထွက်ပြီ |
+
+**Working command (single password test):**
+```bash
+hydra -l root -p password ssh://10.10.10.10
+# → [DATA] attacking ssh://10.10.10.10:22/
+# → 1 of 1 target completed, 0 valid password found
+# → auth.log entry generated on bank-web ✅
+```
+
+**Event flow (after forwarder update):**
+```
+Kali hydra → bank-web SSH port 22 → auth.log fail entry
+    → aegis-forwarder SSH tail /var/log/auth.log
+    → _watch_remote_ssh() detects "Failed password"
+    → post("ssh", {...}) → Render API /ingest/ssh
+    → dashboard Security Events page
+```
+
+---
+
+#### ⑪ Code Changes Summary (2026-07-14 Session 2)
+
+| File | Change | Commit |
+|---|---|---|
+| `scripts/src/aegis_forwarder.py` | Skip local `service_health_loop` in remote mode | `fix: remote mode heartbeat/defender IP/service health` |
+| `scripts/src/aegis_forwarder.py` | Add `_watch_remote_ssh()` + auth.log thread | `feat: add remote auth.log SSH watcher` |
+| `artifacts/api-server/src/lib/app-settings.ts` | Auto-defense default → `false` | `fix: auto-defense default OFF` |
+
+---
+
+#### ⑫ Pending Items
+
+| Item | Status | Next Step |
+|---|---|---|
+| Suricata rules on bank-web | ❌ Pending | Kali ကနေ download → scp |
+| R2 route to 10.20.20.0/24 | ❌ Pending | R2 MikroTik console မှာ route add |
+| bank-mail / teller-pc / customer-db services | ❌ All OFFLINE | `sudo systemctl start suricata fail2ban` |
+| Dashboard events from real attacks | 🔄 Partial | forwarder update + hydra rerun |
+| Auto-defense live test | 🔄 Pending | Dashboard toggle ON + attack |
+
+---
+
 ## References
 
 - GNS3 docs: https://docs.gns3.com
