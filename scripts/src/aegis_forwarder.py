@@ -670,8 +670,45 @@ def _ssh_tail(host_name: str, host_ip: str, log_path: str):
         time.sleep(10)
 
 
+def _remote_sysinfo(host_ip: str) -> dict:
+    """
+    SSH into a remote VM and collect OS name, MAC address, and open ports
+    in a single connection. Returns a dict with keys: os, mac, open_ports.
+    Falls back to empty strings on any error.
+    """
+    # One SSH session, three commands separated by |||
+    cmd_str = (
+        "printf '%s|||%s|||%s' "
+        "\"$(grep PRETTY_NAME /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '\"')\" "
+        "\"$(ip addr 2>/dev/null | awk '/link\\/ether/{print $2; exit}')\" "
+        "\"$(ss -tlnp 2>/dev/null | awk 'NR>1{split($4,a,\":\"); print a[length(a)]}' "
+        "| sort -un | tr '\\n' ',')\""
+    )
+    ssh_cmd = [
+        "ssh", "-T",
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "ConnectTimeout=8",
+        "-o", "BatchMode=yes",
+        f"{REMOTE_SSH_USER}@{host_ip}",
+        cmd_str,
+    ]
+    result = {"os": "", "mac": "", "open_ports": ""}
+    try:
+        out = subprocess.check_output(ssh_cmd, stderr=subprocess.DEVNULL, timeout=12, text=True).strip()
+        parts = out.split("|||")
+        if len(parts) == 3:
+            result["os"]         = parts[0].strip()
+            result["mac"]        = parts[1].strip()
+            result["open_ports"] = parts[2].strip().rstrip(",")
+    except Exception as e:
+        print(f"  WARN sysinfo SSH {host_ip}: {e}")
+    return result
+
+
 def _remote_register_host(host_name: str, host_ip: str):
-    """Register a remote bank VM in the AEGIS Network Monitor."""
+    """SSH into remote VM, collect system info, then register in AEGIS Network Monitor."""
+    print(f"  [*] Collecting sysinfo from {host_name} ({host_ip})...")
+    info = _remote_sysinfo(host_ip)
     try:
         r = requests.post(
             f"{AEGIS_URL}/network/hosts",
@@ -679,6 +716,9 @@ def _remote_register_host(host_name: str, host_ip: str):
                 "ip":          host_ip,
                 "hostname":    host_name,
                 "role":        "ubuntu",
+                "os":          info["os"] or None,
+                "mac":         info["mac"] or None,
+                "openPorts":   info["open_ports"] or None,
                 "status":      "online",
                 "isMonitored": True,
             },
@@ -686,7 +726,12 @@ def _remote_register_host(host_name: str, host_ip: str):
             timeout=10,
         )
         if r.status_code in (200, 201):
-            print(f"  ✓ Remote host registered: {host_name} ({host_ip})")
+            print(
+                f"  ✓ {host_name} ({host_ip})"
+                f"  OS={info['os'] or '?'}"
+                f"  MAC={info['mac'] or '?'}"
+                f"  Ports={info['open_ports'] or '?'}"
+            )
         else:
             print(f"  WARN Remote host registration {host_name}: HTTP {r.status_code}")
     except Exception as e:
