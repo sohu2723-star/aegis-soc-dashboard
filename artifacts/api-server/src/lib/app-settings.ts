@@ -19,6 +19,7 @@ export async function setSetting(key: string, value: string): Promise<void> {
 
 export async function isAutoDefenseEnabled(): Promise<boolean> {
   const v = await getSetting("autoDefenseEnabled");
-  // Default to enabled when never explicitly toggled — matches the seeded active rules.
-  return v === null ? true : v === "true";
+  // Default OFF — auto-defense must be explicitly enabled from the dashboard.
+  // Prevents phantom blocks when the setting has never been saved.
+  return v === "true";
 }
