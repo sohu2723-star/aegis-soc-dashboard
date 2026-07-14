@@ -782,22 +782,95 @@ def _watch_remote_snort(host_name: str, host_ip: str):
 
 def _watch_remote_fail2ban(host_name: str, host_ip: str):
     """Tail fail2ban.log on a remote VM via SSH and forward ban events."""
+    # Never report our own hub or any bank VM as an attacker —
+    # aegis-forwarder SSHes into bank VMs so fail2ban may temporarily ban it.
+    _defender_ips = {h["ip"] for h in REMOTE_HOSTS} | {"10.30.30.10"}
     print(f"[{host_name}] fail2ban thread started")
     for line in _ssh_tail(host_name, host_ip, "/var/log/fail2ban.log"):
         m = FAIL2BAN_RE.search(line)
         if not m:
             continue
+        banned_ip = m.group(2)
+        if banned_ip in _defender_ips:
+            print(f"[{host_name}] fail2ban: skipped defender IP {banned_ip}")
+            continue
         post("fail2ban", {
             "jail":     m.group(1),
-            "ip":       m.group(2),
+            "ip":       banned_ip,
             "failures": 5,
         })
+
+
+def _remote_heartbeat_loop(hosts: list):
+    """Send online heartbeat for every remote bank VM every 15s.
+    Without this they time out (server marks offline after 45s / 3 missed beats).
+    """
+    while True:
+        time.sleep(15)
+        for h in hosts:
+            try:
+                requests.post(
+                    f"{AEGIS_URL}/network/hosts",
+                    json={"ip": h["ip"], "hostname": h["name"],
+                          "role": "ubuntu", "status": "online", "isMonitored": True},
+                    headers=HEADERS,
+                    timeout=5,
+                )
+            except Exception:
+                pass
+
+
+def _remote_service_health_loop(hosts: list):
+    """SSH into each bank VM every 30s and report real service health to AEGIS."""
+    _services = [
+        ("suricata", "Suricata IDS/IPS", "perimeter"),
+        ("snort",    "Snort IDS",        "perimeter"),
+        ("fail2ban", "Fail2ban",         "perimeter"),
+        ("cowrie",   "Cowrie Honeypot",  "perimeter"),
+    ]
+    # One SSH call returns 4 space-separated active/inactive/unknown tokens
+    _cmd = " ".join(
+        f"$(systemctl is-active {svc} 2>/dev/null || echo unknown)"
+        for svc, _, _ in _services
+    )
+    print("[REMOTE SERVICE HEALTH] Monitoring bank VMs every 30s via SSH")
+    while True:
+        for h in hosts:
+            ssh_cmd = [
+                "ssh", "-T",
+                "-o", "StrictHostKeyChecking=no",
+                "-o", "ConnectTimeout=5",
+                "-o", "BatchMode=yes",
+                f"{REMOTE_SSH_USER}@{h['ip']}",
+                f"printf '%s %s %s %s' {_cmd}",
+            ]
+            try:
+                out = subprocess.check_output(
+                    ssh_cmd, stderr=subprocess.DEVNULL, timeout=8, text=True
+                ).strip().split()
+                ts = datetime.now().strftime("%H:%M:%S")
+                for i, (svc, component, layer) in enumerate(_services):
+                    raw = out[i] if i < len(out) else "unknown"
+                    status = "online" if raw == "active" else "offline"
+                    indicator = "✓" if status == "online" else "✗"
+                    requests.post(
+                        f"{AEGIS_URL}/system/status",
+                        json={"component": component, "layer": layer,
+                              "status": status, "hostIp": h["ip"]},
+                        headers=HEADERS,
+                        timeout=5,
+                    )
+                    print(f"[{ts}] [{h['name']}] {indicator} {component}: {status.upper()}")
+            except Exception as e:
+                print(f"[REMOTE SERVICE HEALTH] {h['name']} SSH error: {e}")
+        time.sleep(30)
 
 
 def run_remote_mode():
     """
     Hub mode: aegis-forwarder SSHes into each bank VM and tails their logs.
     Spawns (suricata + snort + fail2ban) threads per remote host.
+    Also runs heartbeat + service-health loops so VMs stay ONLINE in dashboard.
     """
     print(f"\n  Remote hosts ({len(REMOTE_HOSTS)}):")
     for h in REMOTE_HOSTS:
@@ -806,6 +879,23 @@ def run_remote_mode():
     print()
 
     threads = []
+
+    # Heartbeat — keeps remote VMs ONLINE (prevents 45s timeout)
+    hb = threading.Thread(target=_remote_heartbeat_loop, args=(REMOTE_HOSTS,),
+                          daemon=True, name="remote-heartbeat")
+    hb.start()
+    threads.append(hb)
+    print("  ► remote heartbeat thread started")
+
+    # Service health — reports suricata/snort/fail2ban/cowrie status per VM
+    sh = threading.Thread(target=_remote_service_health_loop, args=(REMOTE_HOSTS,),
+                          daemon=True, name="remote-service-health")
+    sh.start()
+    threads.append(sh)
+    print("  ► remote service health thread started")
+    print()
+
+    # Log tailer threads — one per (host × sensor)
     for h in REMOTE_HOSTS:
         for label, fn in [
             ("suricata", _watch_remote_suricata),
@@ -871,9 +961,11 @@ if __name__ == "__main__":
     hb = threading.Thread(target=heartbeat_loop, daemon=True, name="heartbeat")
     hb.start()
 
-    # Start service health reporter — updates fail2ban/suricata/snort/cowrie status every 30s
-    sh = threading.Thread(target=service_health_loop, daemon=True, name="service_health")
-    sh.start()
+    # Start service health reporter — local services only (skip in remote mode;
+    # remote mode runs _remote_service_health_loop per bank VM instead)
+    if args.mode != "remote":
+        sh = threading.Thread(target=service_health_loop, daemon=True, name="service_health")
+        sh.start()
 
     def shutdown(sig=None, frame=None):
         """Send offline status immediately before exiting."""
