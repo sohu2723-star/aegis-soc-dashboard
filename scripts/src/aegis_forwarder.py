@@ -780,6 +780,40 @@ def _watch_remote_snort(host_name: str, host_ip: str):
         })
 
 
+def _watch_remote_ssh(host_name: str, host_ip: str):
+    """Tail auth.log on a remote VM via SSH and forward failed/success login events."""
+    _defender_ips = {h["ip"] for h in REMOTE_HOSTS} | {"10.30.30.10"}
+    fail_counts: dict[str, int] = {}
+    print(f"[{host_name}] ssh thread started")
+    for line in _ssh_tail(host_name, host_ip, "/var/log/auth.log"):
+        m_fail = SSH_FAIL_RE.search(line)
+        if m_fail:
+            user, ip = m_fail.group(1), m_fail.group(2)
+            if ip in _defender_ips:
+                continue
+            fail_counts[ip] = fail_counts.get(ip, 0) + 1
+            post("ssh", {
+                "src_ip":    ip,
+                "username":  user,
+                "status":    "failed",
+                "failures":  fail_counts[ip],
+                "targetHost": host_ip,
+            })
+            continue
+        m_ok = SSH_SUCCESS_RE.search(line)
+        if m_ok:
+            _, user, ip = m_ok.group(1), m_ok.group(2), m_ok.group(3)
+            if ip in _defender_ips:
+                continue
+            post("ssh", {
+                "src_ip":    ip,
+                "username":  user,
+                "status":    "success",
+                "failures":  0,
+                "targetHost": host_ip,
+            })
+
+
 def _watch_remote_fail2ban(host_name: str, host_ip: str):
     """Tail fail2ban.log on a remote VM via SSH and forward ban events."""
     # Never report our own hub or any bank VM as an attacker —
@@ -901,6 +935,7 @@ def run_remote_mode():
             ("suricata", _watch_remote_suricata),
             ("snort",    _watch_remote_snort),
             ("fail2ban", _watch_remote_fail2ban),
+            ("ssh",      _watch_remote_ssh),
         ]:
             t = threading.Thread(
                 target=fn,
