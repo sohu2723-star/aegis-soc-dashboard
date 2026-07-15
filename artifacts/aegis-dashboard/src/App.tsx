@@ -18,6 +18,8 @@ import Reports from "@/pages/reports";
 import Network from "@/pages/network";
 import Defense from "@/pages/defense";
 import Architecture from "@/pages/architecture";
+import Connections from "@/pages/connections";
+import DefenseRules from "@/pages/defense-rules";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -46,6 +48,8 @@ function Router() {
         <Route path="/defense" component={Defense} />
         <Route path="/architecture" component={Architecture} />
         <Route path="/reports" component={Reports} />
+        <Route path="/connections" component={Connections} />
+        <Route path="/defense-rules" component={DefenseRules} />
         <Route component={NotFound} />
       </Switch>
     </Layout>

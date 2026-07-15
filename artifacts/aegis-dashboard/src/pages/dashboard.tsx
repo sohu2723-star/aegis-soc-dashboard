@@ -1,5 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Activity, ShieldAlert, Siren, Server } from "lucide-react";
+import { Activity, ShieldAlert, Siren, Server, ListTodo, Ban } from "lucide-react";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, BarChart, Bar, CartesianGrid } from "recharts";
 import { format } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -145,6 +145,33 @@ export default function Dashboard() {
             <div className="text-3xl font-bold text-green-500">
               {summary?.systemsOnline}/{summary?.systemsTotal}
             </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Secondary KPI row */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card className="bg-card border-border">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground">Open Incidents</CardTitle>
+            <ListTodo className="h-4 w-4 text-yellow-500" />
+          </CardHeader>
+          <CardContent className="flex items-end justify-between">
+            <div className="text-3xl font-bold text-yellow-500">{summary?.openIncidents ?? 0}</div>
+            <span className="text-[10px] text-muted-foreground font-mono pb-1">status = open</span>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-card border-border">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground">
+              {selectedDevice ? `Blocked Events — ${selectedDevice.ip}` : "Blocked Events"}
+            </CardTitle>
+            <Ban className="h-4 w-4 text-red-500" />
+          </CardHeader>
+          <CardContent className="flex items-end justify-between">
+            <div className="text-3xl font-bold text-red-500">{summary?.blockedIPs ?? 0}</div>
+            <span className="text-[10px] text-muted-foreground font-mono pb-1">status = blocked</span>
           </CardContent>
         </Card>
       </div>

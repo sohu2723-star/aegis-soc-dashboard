@@ -11,6 +11,8 @@ import {
   Network,
   Shield,
   GitBranch,
+  Cable,
+  BookCheck,
 } from "lucide-react";
 import {
   Sidebar,
@@ -32,11 +34,13 @@ const opsItems = [
   { title: "Security Events", url: "/events", icon: ShieldAlert },
   { title: "Incidents", url: "/incidents", icon: ListTodo },
   { title: "Active Alerts", url: "/alerts", icon: Siren },
+  { title: "Connection Logs", url: "/connections", icon: Cable },
 ];
 
 const networkItems = [
   { title: "Network Monitor", url: "/network", icon: Network },
   { title: "Defense Center", url: "/defense", icon: Shield },
+  { title: "Defense Rules", url: "/defense-rules", icon: BookCheck },
   { title: "System Status", url: "/system", icon: Server },
 ];
 
