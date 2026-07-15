@@ -6,17 +6,37 @@ import { count, eq, and, gte, desc } from "drizzle-orm";
 const router = Router();
 
 router.get("/dashboard/summary", async (req, res) => {
-  const [totalEventsRes] = await db.select({ count: count() }).from(securityEventsTable);
-  const [criticalRes] = await db.select({ count: count() }).from(securityEventsTable).where(eq(securityEventsTable.severity, "critical"));
+  // Optional ?targetHost=IP — scope all event stats to a specific host
+  const targetHost = typeof req.query.targetHost === "string" && req.query.targetHost
+    ? req.query.targetHost
+    : null;
+
+  const hostFilter = targetHost
+    ? eq(securityEventsTable.targetHost, targetHost)
+    : undefined;
+
+  const [totalEventsRes] = hostFilter
+    ? await db.select({ count: count() }).from(securityEventsTable).where(hostFilter)
+    : await db.select({ count: count() }).from(securityEventsTable);
+
+  const [criticalRes] = hostFilter
+    ? await db.select({ count: count() }).from(securityEventsTable).where(and(eq(securityEventsTable.severity, "critical"), hostFilter))
+    : await db.select({ count: count() }).from(securityEventsTable).where(eq(securityEventsTable.severity, "critical"));
+
   const [openIncidentsRes] = await db.select({ count: count() }).from(incidentsTable).where(eq(incidentsTable.status, "open"));
   const [activeAlertsRes] = await db.select({ count: count() }).from(alertsTable).where(eq(alertsTable.acknowledged, false));
-  const [blockedRes] = await db.select({ count: count() }).from(securityEventsTable).where(eq(securityEventsTable.status, "blocked"));
+
+  const [blockedRes] = hostFilter
+    ? await db.select({ count: count() }).from(securityEventsTable).where(and(eq(securityEventsTable.status, "blocked"), hostFilter))
+    : await db.select({ count: count() }).from(securityEventsTable).where(eq(securityEventsTable.status, "blocked"));
 
   const allStatuses = await db.select().from(systemStatusTable);
   const systemsOnline = allStatuses.filter(s => s.status === "online").length;
   const systemsTotal = allStatuses.length;
 
-  const allEvents = await db.select().from(securityEventsTable).orderBy(desc(securityEventsTable.createdAt)).limit(200);
+  const allEvents = hostFilter
+    ? await db.select().from(securityEventsTable).where(hostFilter).orderBy(desc(securityEventsTable.createdAt)).limit(500)
+    : await db.select().from(securityEventsTable).orderBy(desc(securityEventsTable.createdAt)).limit(500);
 
   const typeCounts: Record<string, { count: number; severity: string }> = {};
   for (const e of allEvents) {
@@ -54,6 +74,7 @@ router.get("/dashboard/summary", async (req, res) => {
     systemsTotal,
     attacksByType,
     eventsTrend,
+    scopedToHost: targetHost,
   });
 });
 

@@ -59,7 +59,7 @@ function useHostEvents(ip: string | null) {
   return useQuery<HostEvents>({
     queryKey: ["host-events", ip],
     queryFn: async () => {
-      const r = await fetch(`${BASE}/api/network/hosts/${encodeURIComponent(ip!)}/events`);
+      const r = await fetch(`${BASE}/api/network/hosts/${encodeURIComponent(ip!)}/events?limit=500`);
       if (!r.ok) throw new Error("Failed to fetch host events");
       return r.json();
     },
@@ -126,6 +126,31 @@ function StatusDot({ status, size = "sm" }: { status: string; size?: "sm" | "lg"
   return <span className={`${dim} rounded-full bg-gray-500`} />;
 }
 
+/** Build hourly event-count timeline from recentEvents array */
+function buildTimeline(recentEvents: HostEvents["recentEvents"]): { time: string; events: number; blocked: number }[] {
+  const now = new Date();
+  const buckets: Record<string, { events: number; blocked: number }> = {};
+  for (let i = 11; i >= 0; i--) {
+    const t = new Date(now.getTime() - i * 3_600_000);
+    t.setMinutes(0, 0, 0);
+    buckets[t.toISOString()] = { events: 0, blocked: 0 };
+  }
+  for (const e of recentEvents) {
+    const t = new Date(e.createdAt);
+    t.setMinutes(0, 0, 0);
+    const key = t.toISOString();
+    if (buckets[key]) {
+      buckets[key].events++;
+      if ((e as any).status === "blocked") buckets[key].blocked++;
+    }
+  }
+  return Object.entries(buckets).map(([key, v]) => ({
+    time: format(new Date(key), "HH:mm"),
+    events: v.events,
+    blocked: v.blocked,
+  }));
+}
+
 function HostDetailPanel({ host, onClose }: { host: NetworkHost; onClose: () => void }) {
   const { data: eventsData, isLoading } = useHostEvents(host.ip);
 
@@ -171,8 +196,11 @@ function HostDetailPanel({ host, onClose }: { host: NetworkHost; onClose: () => 
             <div className="text-muted-foreground text-xs text-center py-4">Loading attack data…</div>
           ) : eventsData && eventsData.totalEvents > 0 ? (
             <>
+              {/* Attack Severity breakdown for THIS host */}
               <div>
-                <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2 font-bold">Attack Severity</p>
+                <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2 font-bold">
+                  Attack Severity — {host.ip}
+                </p>
                 <div className="grid grid-cols-4 gap-2">
                   {(["critical","high","medium","low"] as const).map(s => (
                     <div key={s} className={`rounded p-2 text-center ${severityBg[s]}`}>
@@ -202,7 +230,7 @@ function HostDetailPanel({ host, onClose }: { host: NetworkHost; onClose: () => 
               <div>
                 <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2 font-bold">Recent Events</p>
                 <div className="space-y-1.5 max-h-64 overflow-y-auto">
-                  {eventsData.recentEvents.map(e => (
+                  {eventsData.recentEvents.slice(0, 20).map(e => (
                     <div key={e.id} className="bg-card border border-border/50 rounded p-2.5 text-xs">
                       <div className="flex items-center justify-between gap-2 mb-1">
                         <div className="flex items-center gap-1.5 min-w-0">
@@ -245,16 +273,16 @@ export default function Network() {
   const { data: allHosts = [], isLoading: hostsLoading } = useNetworkHosts();
   const { data: traffic = [] } = useNetworkTraffic();
   const { selectedIp } = useDeviceContext();
-  const { data: hostEvents } = useHostEvents(selectedIp);
 
-  // Device selector scopes the whole page: pick the one selected device,
-  // or every non-attacker device when "All Devices" is chosen. Kali (attacker)
-  // is only ever shown as the source of attacks, never as a monitorable device.
+  // Use selectedHost IP for the main chart — falls back to global selectedIp
+  const [selectedHost, setSelectedHost] = useState<NetworkHost | null>(null);
+  const chartIp = selectedHost?.ip ?? selectedIp;
+  const { data: hostEvents } = useHostEvents(chartIp);
+
   const hosts = selectedIp
     ? allHosts.filter(h => h.ip === selectedIp)
     : allHosts.filter(h => h.role !== "kali");
 
-  const [selectedHost, setSelectedHost] = useState<NetworkHost | null>(null);
   const [loadingId, setLoadingId] = useState<number | null>(null);
   const [flashedIds, setFlashedIds] = useState<Set<number>>(new Set());
   const [deleteTarget, setDeleteTarget] = useState<NetworkHost | null>(null);
@@ -340,17 +368,25 @@ export default function Network() {
   const offlineCount   = hosts.filter(h => h.status === "offline").length;
   const monitoredCount = hosts.filter(h => h.isMonitored).length;
 
-  const chartData = traffic.slice(-12).map(p => ({
+  // "All Devices" traffic area chart (uses global traffic ring)
+  const allTrafficChart = traffic.slice(-12).map(p => ({
     time:     format(new Date(p.time), "HH:mm"),
     inbound:  p.inbound,
     outbound: p.outbound,
     blocked:  p.blocked,
   }));
 
-  // When a single device is selected, the global traffic ring buffer has no
-  // per-IP breakdown — so show real attack-event counts for that device instead
-  // (from /network/hosts/:ip/events, already tracked per host).
-  const deviceEventChart = (hostEvents?.byType ?? []).slice(0, 8);
+  // Per-device event timeline (area chart from recentEvents)
+  const deviceTimeline = chartIp && hostEvents
+    ? buildTimeline(hostEvents.recentEvents)
+    : [];
+
+  const showDeviceChart = !!chartIp;
+  const chartTitle = selectedHost
+    ? `Attack Events — ${selectedHost.ip}`
+    : chartIp
+    ? `Attack Events — ${chartIp}`
+    : "Traffic (Last 12h)";
 
   return (
     <>
@@ -427,11 +463,9 @@ export default function Network() {
             <div>
               <p className="text-xs text-muted-foreground uppercase tracking-wider">Traffic (last hr)</p>
               {(() => {
-                // Use real Mb/s from tcpdump if available; otherwise fall back to event counts
                 const hasPackets = traffic.some(p => (p as any).packets > 0);
                 const oneHourAgo = Date.now() - 3_600_000;
                 if (hasPackets) {
-                  // Real Mb/s from hub tcpdump
                   const lastHr = traffic.filter(p => new Date(p.time).getTime() >= oneHourAgo);
                   const total = lastHr.reduce((s, p) => s + p.inbound, 0);
                   return (
@@ -440,7 +474,6 @@ export default function Network() {
                     </p>
                   );
                 }
-                // Fallback: security-event counts — show last non-zero hour
                 const lastActive = [...traffic].reverse().find(p => p.inbound > 0);
                 const val = lastActive?.inbound ?? 0;
                 return (
@@ -454,32 +487,47 @@ export default function Network() {
         </Card>
       </div>
 
+      {/* Traffic / Event-timeline chart */}
       <Card className="bg-card border-border">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
             <Activity className="w-4 h-4" />
-            {selectedIp ? `Attack Events — ${selectedIp}` : "Traffic (Last 12h)"}
+            {chartTitle}
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {selectedIp ? (
-            deviceEventChart.length === 0 ? (
-              <div className="h-48 flex items-center justify-center text-muted-foreground text-sm">No events recorded for this device yet</div>
+          {showDeviceChart ? (
+            deviceTimeline.every(p => p.events === 0) ? (
+              <div className="h-48 flex items-center justify-center text-muted-foreground text-sm">
+                No events recorded for {chartIp} yet
+              </div>
             ) : (
               <ResponsiveContainer width="100%" height={200}>
-                <BarChart data={deviceEventChart} layout="vertical" margin={{ left: 0, right: 30, top: 4, bottom: 4 }}>
-                  <XAxis type="number" tick={{ fill: "#6b7280", fontSize: 10 }} />
-                  <YAxis dataKey="type" type="category" tick={{ fill: "#94a3b8", fontSize: 10 }} width={110} />
-                  <Tooltip contentStyle={{ background: "#111827", border: "1px solid #374151", fontSize: 11 }} />
-                  <Bar dataKey="count" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
-                </BarChart>
+                <AreaChart data={deviceTimeline}>
+                  <defs>
+                    <linearGradient id="evGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="blkGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#f87171" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#f87171" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+                  <XAxis dataKey="time" tick={{ fill: "#6b7280", fontSize: 10 }} />
+                  <YAxis tick={{ fill: "#6b7280", fontSize: 10 }} />
+                  <Tooltip contentStyle={{ background: "#111827", border: "1px solid #374151", color: "#e5e7eb", fontSize: 11 }} />
+                  <Area type="monotone" dataKey="events" stroke="hsl(var(--primary))" fill="url(#evGrad)" name="Events" />
+                  <Area type="monotone" dataKey="blocked" stroke="#f87171" fill="url(#blkGrad)" name="Blocked" />
+                </AreaChart>
               </ResponsiveContainer>
             )
-          ) : chartData.length === 0 ? (
+          ) : allTrafficChart.length === 0 ? (
             <div className="h-48 flex items-center justify-center text-muted-foreground text-sm">No traffic data</div>
           ) : (
             <ResponsiveContainer width="100%" height={200}>
-              <AreaChart data={chartData}>
+              <AreaChart data={allTrafficChart}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
                 <XAxis dataKey="time" tick={{ fill: "#6b7280", fontSize: 10 }} />
                 <YAxis tick={{ fill: "#6b7280", fontSize: 10 }} />
@@ -493,6 +541,7 @@ export default function Network() {
         </CardContent>
       </Card>
 
+      {/* Connected Hosts table */}
       <Card className="bg-card border-border">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
@@ -530,6 +579,8 @@ export default function Network() {
                       key={h.id}
                       onClick={() => setSelectedHost(h)}
                       className={`border-b border-border/50 hover:bg-primary/10 transition-all cursor-pointer group ${
+                        selectedHost?.id === h.id ? "bg-primary/5 border-l-2 border-l-primary" : ""
+                      } ${
                         flashedIds.has(h.id)
                           ? h.status === "online"
                             ? "bg-green-500/10"

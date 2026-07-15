@@ -1,20 +1,46 @@
-import { useGetDashboardSummary, useGetRecentEvents, getGetDashboardSummaryQueryKey, getGetRecentEventsQueryKey } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Activity, ShieldAlert, Siren, Server } from "lucide-react";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, BarChart, Bar, CartesianGrid } from "recharts";
 import { format } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useEffect, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useDeviceContext } from "@/lib/device-context";
+import { useGetRecentEvents, getGetRecentEventsQueryKey } from "@workspace/api-client-react";
+
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+function useDashboardSummary(targetHost: string | null) {
+  const url = targetHost
+    ? `${BASE}/api/dashboard/summary?targetHost=${encodeURIComponent(targetHost)}`
+    : `${BASE}/api/dashboard/summary`;
+
+  return useQuery({
+    queryKey: ["dashboard-summary", targetHost],
+    queryFn: async () => {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error("Failed to fetch summary");
+      return r.json();
+    },
+    refetchInterval: 8000,
+    retry: 1,
+    retryDelay: 3000,
+  });
+}
 
 export default function Dashboard() {
   const queryClient = useQueryClient();
-  const { data: summary, isLoading: isLoadingSummary, isError: isSummaryError } = useGetDashboardSummary({
-    query: { queryKey: getGetDashboardSummaryQueryKey(), refetchInterval: 8000 },
-  });
+  const { selectedIp, selectedDevice } = useDeviceContext();
+
+  const { data: summary, isLoading: isLoadingSummary, isError: isSummaryError } = useDashboardSummary(selectedIp);
   const { data: recentEvents, isLoading: isLoadingEvents } = useGetRecentEvents({
     query: { queryKey: getGetRecentEventsQueryKey(), refetchInterval: 5000 },
   });
+
+  // Filter recentEvents by selected device
+  const filteredEvents = selectedIp
+    ? (recentEvents ?? []).filter((e: any) => e.targetHost === selectedIp || e.sourceIp === selectedIp)
+    : recentEvents ?? [];
 
   const [slowLoad, setSlowLoad] = useState(false);
 
@@ -62,6 +88,11 @@ export default function Dashboard() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-primary uppercase">Command Center</h1>
+          {selectedDevice && (
+            <p className="text-xs text-cyan-400 font-mono mt-0.5">
+              Scoped to: {selectedDevice.hostname} ({selectedDevice.ip})
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <span className="relative flex h-3 w-3">
@@ -75,7 +106,9 @@ export default function Dashboard() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card className="bg-card border-border">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground">Total Events</CardTitle>
+            <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground">
+              {selectedDevice ? `Events — ${selectedDevice.ip}` : "Total Events"}
+            </CardTitle>
             <Activity className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
@@ -119,7 +152,9 @@ export default function Dashboard() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
         <Card className="col-span-4 bg-card border-border">
           <CardHeader>
-            <CardTitle className="text-sm uppercase tracking-wider">Attack Volume (24h)</CardTitle>
+            <CardTitle className="text-sm uppercase tracking-wider">
+              {selectedDevice ? `Attack Volume — ${selectedDevice.ip}` : "Attack Volume (24h)"}
+            </CardTitle>
           </CardHeader>
           <CardContent className="h-[300px]">
             {summary?.eventsTrend && (
@@ -146,10 +181,12 @@ export default function Dashboard() {
 
         <Card className="col-span-3 bg-card border-border">
           <CardHeader>
-            <CardTitle className="text-sm uppercase tracking-wider">Events By Type</CardTitle>
+            <CardTitle className="text-sm uppercase tracking-wider">
+              {selectedDevice ? `Attack Types — ${selectedDevice.ip}` : "Events By Type"}
+            </CardTitle>
           </CardHeader>
           <CardContent className="h-[300px]">
-            {summary?.attacksByType && (
+            {summary?.attacksByType && summary.attacksByType.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={summary.attacksByType} layout="vertical" margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="hsl(var(--border))" />
@@ -162,6 +199,10 @@ export default function Dashboard() {
                   <Bar dataKey="count" fill="hsl(var(--chart-3))" radius={[0, 4, 4, 0]} />
                 </BarChart>
               </ResponsiveContainer>
+            ) : (
+              <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+                {selectedDevice ? `No events targeting ${selectedDevice.ip} yet` : "No events"}
+              </div>
             )}
           </CardContent>
         </Card>
@@ -177,7 +218,7 @@ export default function Dashboard() {
               Array.from({ length: 5 }).map((_, i) => (
                 <Skeleton key={i} className="h-12 w-full my-1 rounded-none bg-muted/20" />
               ))
-            ) : recentEvents && recentEvents.length > 0 ? recentEvents.map((event) => (
+            ) : filteredEvents.length > 0 ? filteredEvents.map((event: any) => (
               <div
                 key={event.id}
                 className="flex items-center justify-between p-3 border-b border-border/50 hover:bg-muted/20 text-xs"
@@ -208,7 +249,11 @@ export default function Dashboard() {
             )) : (
               <div className="flex flex-col items-center justify-center py-16 text-muted-foreground text-xs gap-2">
                 <span className="text-2xl">📡</span>
-                <span>Waiting for real events from VMs...</span>
+                <span>
+                  {selectedDevice
+                    ? `No events targeting ${selectedDevice.ip} yet`
+                    : "Waiting for real events from VMs..."}
+                </span>
                 <span className="text-[10px] opacity-60">Start the forwarder on your Ubuntu VM to see live data</span>
               </div>
             )}

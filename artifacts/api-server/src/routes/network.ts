@@ -243,7 +243,7 @@ router.get("/network/hosts/:ip/events", async (req, res) => {
     totalEvents: events.length,
     byType,
     bySeverity,
-    recentEvents: events.slice(0, 20).map(e => ({ ...e, createdAt: e.createdAt.toISOString() })),
+    recentEvents: events.slice(0, 200).map(e => ({ ...e, createdAt: e.createdAt.toISOString() })),
   });
 });
 

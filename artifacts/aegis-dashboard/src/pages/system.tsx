@@ -12,9 +12,7 @@ export default function SystemStatus() {
   const { selectedIp, selectedDevice } = useDeviceContext();
   const { data: allSystems, isLoading } = useGetSystemStatus({ query: { queryKey: getGetSystemStatusQueryKey(), refetchInterval: 15000 } });
 
-  // Global components (AEGIS core/dashboard/attacker) have no hostIp and always show.
-  // Per-VM sensors (Suricata, Fail2ban, ...) are scoped to the selected device's IP
-  // once that VM's forwarder has reported a hostIp-tagged heartbeat.
+  // Scope to selected device or show all
   const systems = selectedIp
     ? allSystems?.filter((s: any) => !s.hostIp || s.hostIp === selectedIp)
     : allSystems;
@@ -51,9 +49,9 @@ export default function SystemStatus() {
 
   const layers = ['perimeter', 'brain', 'output', 'attacker'];
 
-  const onlineCount  = systems?.filter(s => s.status === "online").length  ?? 0;
-  const offlineCount = systems?.filter(s => s.status === "offline").length ?? 0;
-  const unknownCount = systems?.filter(s => s.status === "unknown").length ?? 0;
+  const onlineCount  = systems?.filter((s: any) => s.status === "online").length  ?? 0;
+  const offlineCount = systems?.filter((s: any) => s.status === "offline").length ?? 0;
+  const unknownCount = systems?.filter((s: any) => s.status === "unknown").length ?? 0;
 
   return (
     <div className="space-y-6">
@@ -110,9 +108,50 @@ export default function SystemStatus() {
       ) : (
         <div className="space-y-8">
           {layers.map((layer) => {
-            const layerSystems = systems?.filter(s => s.layer === layer) || [];
+            const layerSystems: any[] = systems?.filter((s: any) => s.layer === layer) || [];
             if (layerSystems.length === 0) return null;
 
+            // When "All Devices" selected: sub-group within each layer by hostIp
+            // Global components (hostIp == null) always go in their own group at the top
+            if (!selectedIp) {
+              // Collect distinct hostIp values (null = global/shared)
+              const globalSystems = layerSystems.filter(s => !s.hostIp);
+              const hostIps = [...new Set(layerSystems.filter(s => s.hostIp).map(s => s.hostIp as string))];
+
+              return (
+                <div key={layer} className="space-y-4">
+                  <h2 className="text-lg font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-2 border-b border-border pb-2">
+                    {getLayerIcon(layer)}
+                    {layerLabels[layer] ?? layer} Layer
+                  </h2>
+
+                  {/* Global/shared components (no specific host) */}
+                  {globalSystems.length > 0 && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {globalSystems.map(sys => <SystemCard key={sys.id} sys={sys} getStatusIcon={getStatusIcon} />)}
+                    </div>
+                  )}
+
+                  {/* Per-host groups */}
+                  {hostIps.map(hostIp => {
+                    const hostSystems = layerSystems.filter(s => s.hostIp === hostIp);
+                    return (
+                      <div key={hostIp} className="space-y-2">
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground/70 font-mono uppercase tracking-wider">
+                          <div className="w-2 h-2 rounded-full bg-cyan-400/50" />
+                          Host: {hostIp}
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pl-4 border-l border-cyan-400/20">
+                          {hostSystems.map(sys => <SystemCard key={sys.id} sys={sys} getStatusIcon={getStatusIcon} />)}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            }
+
+            // Single device selected: flat list within layer (same as before)
             return (
               <div key={layer} className="space-y-4">
                 <h2 className="text-lg font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-2 border-b border-border pb-2">
@@ -120,51 +159,7 @@ export default function SystemStatus() {
                   {layerLabels[layer] ?? layer} Layer
                 </h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {layerSystems.map((sys) => (
-                    <Card key={sys.id} className="bg-card border-border overflow-hidden">
-                      <div className={`h-1 w-full ${
-                        sys.status === 'online'  ? 'bg-green-500' :
-                        sys.status === 'offline' ? 'bg-destructive' :
-                        sys.status === 'warning' ? 'bg-yellow-500' : 'bg-muted'
-                      }`} />
-                      <CardHeader className="pb-2">
-                        <div className="flex justify-between items-start">
-                          <CardTitle className="text-base font-bold">{sys.component}</CardTitle>
-                          {getStatusIcon(sys.status)}
-                        </div>
-                        <p className="text-xs text-muted-foreground">{sys.description}</p>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="space-y-3">
-                          <div className="flex justify-between items-center text-sm">
-                            <span className="text-muted-foreground uppercase text-[10px] tracking-wider">Status</span>
-                            <Badge variant="outline" className={`
-                              uppercase text-[10px] tracking-wider
-                              ${sys.status === 'online'  ? 'border-green-500 text-green-500' : ''}
-                              ${sys.status === 'offline' ? 'border-destructive text-destructive' : ''}
-                              ${sys.status === 'warning' ? 'border-yellow-500 text-yellow-500' : ''}
-                              ${sys.status === 'unknown' ? 'border-muted-foreground text-muted-foreground' : ''}
-                            `}>
-                              {sys.status}
-                            </Badge>
-                          </div>
-
-                          {sys.metrics && (
-                            <div className="bg-background rounded p-2 border border-border/50">
-                              <pre className="text-[10px] font-mono text-primary/80 whitespace-pre-wrap">
-                                {sys.metrics}
-                              </pre>
-                            </div>
-                          )}
-
-                          <div className="text-[10px] text-muted-foreground font-mono flex justify-between">
-                            <span>LAST CHECK:</span>
-                            <span>{format(new Date(sys.lastCheck), "HH:mm:ss")}</span>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
+                  {layerSystems.map((sys) => <SystemCard key={sys.id} sys={sys} getStatusIcon={getStatusIcon} />)}
                 </div>
               </div>
             );
@@ -172,5 +167,53 @@ export default function SystemStatus() {
         </div>
       )}
     </div>
+  );
+}
+
+function SystemCard({ sys, getStatusIcon }: { sys: any; getStatusIcon: (s: string) => React.ReactNode }) {
+  return (
+    <Card className="bg-card border-border overflow-hidden">
+      <div className={`h-1 w-full ${
+        sys.status === 'online'  ? 'bg-green-500' :
+        sys.status === 'offline' ? 'bg-destructive' :
+        sys.status === 'warning' ? 'bg-yellow-500' : 'bg-muted'
+      }`} />
+      <CardHeader className="pb-2">
+        <div className="flex justify-between items-start">
+          <CardTitle className="text-base font-bold">{sys.component}</CardTitle>
+          {getStatusIcon(sys.status)}
+        </div>
+        <p className="text-xs text-muted-foreground">{sys.description}</p>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-3">
+          <div className="flex justify-between items-center text-sm">
+            <span className="text-muted-foreground uppercase text-[10px] tracking-wider">Status</span>
+            <Badge variant="outline" className={`
+              uppercase text-[10px] tracking-wider
+              ${sys.status === 'online'  ? 'border-green-500 text-green-500' : ''}
+              ${sys.status === 'offline' ? 'border-destructive text-destructive' : ''}
+              ${sys.status === 'warning' ? 'border-yellow-500 text-yellow-500' : ''}
+              ${sys.status === 'unknown' ? 'border-muted-foreground text-muted-foreground' : ''}
+            `}>
+              {sys.status}
+            </Badge>
+          </div>
+
+          {sys.metrics && (
+            <div className="bg-background rounded p-2 border border-border/50">
+              <pre className="text-[10px] font-mono text-primary/80 whitespace-pre-wrap">
+                {sys.metrics}
+              </pre>
+            </div>
+          )}
+
+          <div className="text-[10px] text-muted-foreground font-mono flex justify-between">
+            <span>LAST CHECK:</span>
+            <span>{format(new Date(sys.lastCheck), "HH:mm:ss")}</span>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

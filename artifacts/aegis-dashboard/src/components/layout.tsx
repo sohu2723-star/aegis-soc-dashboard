@@ -7,7 +7,6 @@ import {
   Siren, 
   Server, 
   FileText, 
-  BookOpen,
   TerminalSquare,
   Network,
   Shield,
@@ -44,7 +43,6 @@ const networkItems = [
 const reportItems = [
   { title: "Architecture", url: "/architecture", icon: GitBranch },
   { title: "Reports", url: "/reports", icon: FileText },
-  { title: "Setup Guide", url: "/setup", icon: BookOpen },
 ];
 
 export function Layout({ children }: { children: ReactNode }) {

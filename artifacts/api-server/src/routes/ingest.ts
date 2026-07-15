@@ -182,7 +182,8 @@ router.post("/ingest/suricata/tls", auth, async (req, res) => {
 // Fail2ban → auto-block IP in DB
 // ─────────────────────────────────────────────────────────────────────────────
 router.post("/ingest/fail2ban", auth, async (req, res) => {
-  const { ip, jail, failures } = req.body;
+  // target_ip: IP of the machine running Fail2ban (the defender being attacked)
+  const { ip, jail, failures, target_ip } = req.body;
 
   await db.insert(sshSessionsTable).values({
     sourceIp: ip ?? "unknown", status:"failed",
@@ -200,7 +201,8 @@ router.post("/ingest/fail2ban", auth, async (req, res) => {
 
   const event = await insertEvent({
     type:"network_attack", subtype:"Brute Force", severity:"high",
-    sourceIp: ip ?? "unknown", targetHost:"ubuntu-server",
+    sourceIp: ip ?? "unknown",
+    targetHost: target_ip ?? "ubuntu-server",
     toolUsed:"fail2ban", description:`Fail2ban banned ${ip} from [${jail ?? "sshd"}] after ${failures ?? "?"} failures. Auto-block applied.`,
     status:"blocked", layer:"perimeter",
   });
@@ -212,8 +214,10 @@ router.post("/ingest/fail2ban", auth, async (req, res) => {
 // SSH auth.log
 // ─────────────────────────────────────────────────────────────────────────────
 router.post("/ingest/ssh", auth, async (req, res) => {
-  const { src_ip, username, status: st, auth_method, session_id, failures } = req.body;
+  // dest_ip: IP of the SSH server being attacked (the Ubuntu VM's IP, e.g. 10.10.10.10)
+  const { src_ip, dest_ip, username, status: st, auth_method, session_id, failures } = req.body;
   const failCount = Number(failures) || 0;
+  const targetHost = dest_ip ?? "ubuntu-server";
 
   await db.insert(sshSessionsTable).values({
     sourceIp: src_ip ?? "unknown", username: username ?? null,
@@ -225,7 +229,7 @@ router.post("/ingest/ssh", auth, async (req, res) => {
     // Successful SSH login = possible breach
     const event = await insertEvent({
       type:"network_attack", subtype:"Unauthorized SSH Access", severity:"critical",
-      sourceIp: src_ip ?? "unknown", targetHost:"ubuntu-server",
+      sourceIp: src_ip ?? "unknown", targetHost,
       toolUsed:"ssh", description:`SSH login SUCCESS from ${src_ip} as '${username}'. Possible compromise!`,
       status:"detected", layer:"perimeter",
     });
@@ -239,7 +243,7 @@ router.post("/ingest/ssh", auth, async (req, res) => {
       const event = await insertEvent({
         type:"network_attack", subtype:"SSH Brute Force",
         severity,
-        sourceIp: src_ip ?? "unknown", targetHost:"ubuntu-server",
+        sourceIp: src_ip ?? "unknown", targetHost,
         toolUsed:"ssh",
         description:`SSH brute force from ${src_ip} — ${failCount} failed attempt(s) for user '${username ?? "?"}'`,
         status:"detected", layer:"perimeter",
@@ -443,9 +447,11 @@ router.post("/ingest/cowrie", auth, async (req, res) => {
     ? `Honeypot: Command by ${src_ip} in session ${session}: "${input}"`
     : `Honeypot event [${eventid}] from ${src_ip}`;
 
+  // dest_ip: IP of the honeypot host (e.g. 10.10.10.10 or dedicated honeypot IP)
+  const dest_ip = req.body.dest_ip;
   const event = await insertEvent({
     type:"network_attack", subtype:"Honeypot Trap", severity: s as any,
-    sourceIp: src_ip ?? "unknown", targetHost:"cowrie-honeypot",
+    sourceIp: src_ip ?? "unknown", targetHost: dest_ip ?? "cowrie-honeypot",
     toolUsed:"cowrie", description: desc, status:"detected", layer:"perimeter",
   });
   await mkAlert(event.id, s as any, `COWRIE: ${desc.slice(0,100)}`);

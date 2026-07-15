@@ -15,7 +15,6 @@ import IncidentDetail from "@/pages/incident-detail";
 import Alerts from "@/pages/alerts";
 import SystemStatus from "@/pages/system";
 import Reports from "@/pages/reports";
-import SetupGuide from "@/pages/setup";
 import Network from "@/pages/network";
 import Defense from "@/pages/defense";
 import Architecture from "@/pages/architecture";
@@ -47,7 +46,6 @@ function Router() {
         <Route path="/defense" component={Defense} />
         <Route path="/architecture" component={Architecture} />
         <Route path="/reports" component={Reports} />
-        <Route path="/setup" component={SetupGuide} />
         <Route component={NotFound} />
       </Switch>
     </Layout>

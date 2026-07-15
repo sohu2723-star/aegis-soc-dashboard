@@ -26,23 +26,23 @@ const BLOCKS: BlockDetail[] = [
     subBlocks: [
       { name: "Web Attacks", tools: ["SQLi", "XSS", "CSRF", "Nikto", "SQLmap", "Dirb", "Gobuster"], color: "border-red-400/50 bg-red-900/30" },
       { name: "Network Attacks", tools: ["Port Scan (nmap)", "DDoS (hping3)", "ARP Spoof", "MITM", "Wireshark"], color: "border-red-400/50 bg-red-900/30" },
-      { name: "Phishing", tools: ["GoPhish", "Fake Login Page", "Credential Harvester", "Social Engineering"], color: "border-red-400/50 bg-red-900/30" },
+      { name: "Credential Attacks", tools: ["Hydra", "SSH Brute Force", "FTP Brute Force", "Medusa", "Metasploit"], color: "border-red-400/50 bg-red-900/30" },
     ],
     workflow: [
       { step: 1, action: "Reconnaissance", detail: "nmap -sV -A 10.10.10.10 — Port scan, OS detection, service version" },
       { step: 2, action: "Vulnerability Scan", detail: "nikto -h http://10.10.10.10 — Web vulnerability scanning" },
-      { step: 3, action: "Exploitation", detail: "sqlmap -u 'http://target/login?id=1' --batch — SQL injection attack" },
-      { step: 4, action: "Brute Force", detail: "hydra -l root -P rockyou.txt ssh://10.20.20.10 — SSH password attack" },
-      { step: 5, action: "Network Attack", detail: "hping3 --flood -S 10.10.10.10 — SYN flood DDoS attack" },
-      { step: 6, action: "ARP Spoofing", detail: "arpspoof -i eth0 -t 10.10.10.10 10.10.10.1 — MITM positioning" },
-      { step: 7, action: "Phishing", detail: "GoPhish campaign → fake login page → capture credentials" },
+      { step: 3, action: "Exploitation", detail: "sqlmap -u 'http://10.10.10.10/login?id=1' --batch — SQL injection attack" },
+      { step: 4, action: "Brute Force", detail: "hydra -l root -P rockyou.txt ssh://10.10.10.10 — SSH password attack on Ubuntu VM" },
+      { step: 5, action: "Network Attack", detail: "hping3 --flood -S 10.10.10.10 — SYN flood DDoS attack on Ubuntu VM" },
+      { step: 6, action: "ARP Spoofing", detail: "arpspoof -i eth0 -t 10.10.10.10 192.168.122.1 — MITM positioning" },
+      { step: 7, action: "FTP Attack", detail: "medusa -u admin -P wordlist.txt -h 10.10.10.10 -M ftp — FTP brute force" },
     ],
-    description: "Red Team လုပ်ဆောင်ချက်တွေ — Kali Linux မှ attack vector အမျိုးမျိုးသုံးပြီး bank-web/bank-mail/teller-pc/customer-db တို့ကို attack လုပ်သည်"
+    description: "Red Team လုပ်ဆောင်ချက်တွေ — Kali Linux (192.168.122.132) မှ attack vector အမျိုးမျိုးသုံးပြီး Ubuntu VM (10.10.10.10) ကို attack လုပ်သည်"
   },
   {
     id: "defense",
     title: "AEGIS Defense Perimeter",
-    subtitle: "pfSense + WAF + IDS/IPS Layer",
+    subtitle: "Ubuntu VM (10.10.10.10) — IDS/IPS/Honeypot Layer",
     color: "#22c55e",
     borderColor: "border-green-500",
     bgColor: "bg-green-950/40",
