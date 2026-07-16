@@ -1,8 +1,9 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { reportsTable, securityEventsTable, incidentsTable } from "@workspace/db";
-import { desc, count, eq } from "drizzle-orm";
+import { desc, count, eq, gte } from "drizzle-orm";
 import { z } from "zod";
+import { askGroq, groqAvailable } from "../lib/groq-client";
 
 const router = Router();
 
@@ -25,9 +26,65 @@ router.post("/reports/generate", async (req, res) => {
   const eventsCount    = Number(eventsResult?.count    ?? 0);
   const incidentsCount = Number(incidentsResult?.count ?? 0);
 
-  const summary = `${body.type.charAt(0).toUpperCase() + body.type.slice(1)} security report. ` +
+  // Fallback template summary (used if Groq is unavailable or fails)
+  const templateSummary = `${body.type.charAt(0).toUpperCase() + body.type.slice(1)} security report. ` +
     `Total events: ${eventsCount}. Total incidents: ${incidentsCount}. ` +
     `Covers Suricata IDS, Fail2ban, SSH/FTP monitoring, Web attack detection, and Firewall rules.`;
+
+  let summary = templateSummary;
+  let aiGenerated = false;
+
+  // Try AI analysis if Groq is configured
+  if (groqAvailable()) {
+    try {
+      const windowHours = body.type === "daily" ? 24 : body.type === "weekly" ? 168 : 24;
+      const since = new Date(Date.now() - windowHours * 3_600_000);
+
+      const recentEvents = await db.select().from(securityEventsTable)
+        .where(gte(securityEventsTable.createdAt, since))
+        .orderBy(desc(securityEventsTable.createdAt)).limit(200);
+
+      const byType: Record<string, number> = {};
+      const bySourceIp: Record<string, number> = {};
+      const bySeverity: Record<string, number> = {};
+      for (const e of recentEvents) {
+        byType[e.type]         = (byType[e.type] ?? 0) + 1;
+        bySourceIp[e.sourceIp] = (bySourceIp[e.sourceIp] ?? 0) + 1;
+        bySeverity[e.severity] = (bySeverity[e.severity] ?? 0) + 1;
+      }
+
+      const topAttackers = Object.entries(bySourceIp).sort(([,a],[,b])=>b-a).slice(0,5)
+        .map(([ip,n]) => `${ip} (${n} events)`).join(", ");
+      const attackTypes = Object.entries(byType).sort(([,a],[,b])=>b-a)
+        .map(([t,n]) => `${t}: ${n}`).join(", ");
+      const sevBreakdown = Object.entries(bySeverity).map(([s,n])=>`${s}:${n}`).join(", ");
+
+      const aiPrompt = `
+REPORT TYPE: ${body.type.toUpperCase()} — "${body.title}"
+TIME WINDOW: last ${windowHours} hours
+Total events: ${recentEvents.length} | Incidents: ${incidentsCount}
+Severity: ${sevBreakdown || "no data"}
+Attack types: ${attackTypes || "no data"}
+Top attackers: ${topAttackers || "no data"}
+
+Write a ${body.type} SOC report summary with these sections:
+THREAT SUMMARY | TOP THREATS | DEFENSE STATUS | RECOMMENDATIONS
+Max 500 words. Burmese language mixed with English technical terms.
+`.trim();
+
+      summary = await askGroq({
+        system: `You are AEGIS-AI SOC analyst. Write professional security reports.
+Lab: Ubuntu defender 10.10.10.10, pfSense 192.168.122.1, Kali attacker 192.168.122.x.
+Use Burmese language mixed with English technical terms. No markdown # headers.`,
+        user: aiPrompt,
+        maxTokens: 800,
+      });
+      aiGenerated = true;
+    } catch (err: any) {
+      console.warn("AI report generation failed, using template:", err?.message);
+      summary = templateSummary;
+    }
+  }
 
   const [row] = await db.insert(reportsTable).values({
     title:          body.title,
@@ -39,7 +96,7 @@ router.post("/reports/generate", async (req, res) => {
   }).returning();
 
   const [report] = await db.select().from(reportsTable).where(eq(reportsTable.id, row.id));
-  res.status(201).json({ ...report, generatedAt: report.generatedAt.toISOString() });
+  res.status(201).json({ ...report, generatedAt: report.generatedAt.toISOString(), aiGenerated });
 });
 
 router.get("/reports/:id/download", async (req, res) => {

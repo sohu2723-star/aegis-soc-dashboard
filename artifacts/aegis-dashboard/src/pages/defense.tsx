@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Shield, ShieldOff, Lock, Unlock, Bot, UserCheck, AlertTriangle, RefreshCcw } from "lucide-react";
+import { Shield, ShieldOff, Lock, Unlock, Bot, UserCheck, AlertTriangle, RefreshCcw, Sparkles, Zap } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
@@ -145,6 +145,10 @@ function ServiceCard({
 export default function Defense() {
   const [blockIp, setBlockIp] = useState("");
   const [blockReason, setBlockReason] = useState("");
+  const [aiIp, setAiIp] = useState("");
+  const [aiResult, setAiResult] = useState<{ ip: string; recommendation: string; eventCount: number; attackTypes: Record<string, number> } | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
   const { toast } = useToast();
   const qc = useQueryClient();
   const { selectedDevice } = useDeviceContext();
@@ -256,6 +260,29 @@ export default function Defense() {
     if (!blockIp || !blockReason) return;
     blockMutation.mutate({ ip: blockIp, reason: blockReason });
   };
+
+  async function runAiDefend(ip: string) {
+    if (!ip) return;
+    setAiLoading(true);
+    setAiError(null);
+    setAiResult(null);
+    try {
+      const r = await fetch(`${BASE}/api/ai/defend`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ip }),
+      });
+      if (!r.ok) {
+        const e = await r.json();
+        throw new Error(e.error ?? `HTTP ${r.status}`);
+      }
+      setAiResult(await r.json());
+    } catch (err: any) {
+      setAiError(err.message);
+    } finally {
+      setAiLoading(false);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -388,6 +415,110 @@ export default function Defense() {
             </div>
           </CardContent>
         </Card>
+
+      {/* ── AI DEFENSE RECOMMENDATION ─────────────────────────────── */}
+      <Card className="bg-card border-primary/30 shadow-[0_0_16px_rgba(var(--primary-rgb),0.06)]">
+        <CardHeader className="pb-3 border-b border-border/50">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded bg-primary/10 flex items-center justify-center">
+              <Bot className="w-3.5 h-3.5 text-primary" />
+            </div>
+            <CardTitle className="text-sm font-bold uppercase tracking-widest text-primary">
+              AI Defense Recommendation
+            </CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent className="pt-4 space-y-3">
+          <div className="flex gap-2">
+            <Input
+              placeholder="Attacker IP (e.g. 192.168.122.132)"
+              value={aiIp}
+              onChange={e => setAiIp(e.target.value)}
+              className="bg-background border-border font-mono text-sm flex-1"
+              onKeyDown={e => e.key === "Enter" && runAiDefend(aiIp)}
+            />
+            <Button
+              onClick={() => runAiDefend(aiIp)}
+              disabled={!aiIp || aiLoading}
+              className="shrink-0"
+            >
+              {aiLoading ? (
+                <><RefreshCcw className="w-3.5 h-3.5 mr-1.5 animate-spin" />Analyzing...</>
+              ) : (
+                <><Sparkles className="w-3.5 h-3.5 mr-1.5" />Analyze IP</>
+              )}
+            </Button>
+          </div>
+
+          {/* Quick-fill from active blocks */}
+          {activeBlocks.length > 0 && !aiIp && (
+            <div className="flex flex-wrap gap-1">
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wider self-center mr-1">Quick:</span>
+              {activeBlocks.slice(0, 5).map(b => (
+                <button
+                  key={b.ip}
+                  onClick={() => setAiIp(b.ip)}
+                  className="font-mono text-[10px] px-2 py-0.5 rounded border border-border hover:border-primary/50 hover:text-primary transition-colors text-muted-foreground bg-background"
+                >
+                  {b.ip}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {aiError && (
+            <div className="flex items-center gap-2 text-sm text-red-400 bg-red-900/20 border border-red-500/30 rounded p-3">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+              <span>{aiError}</span>
+            </div>
+          )}
+
+          {aiResult && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 text-xs">
+                <span className="font-mono text-red-400 font-bold">{aiResult.ip}</span>
+                <Badge variant="outline" className="border-border text-muted-foreground">
+                  {aiResult.eventCount} events
+                </Badge>
+                {Object.entries(aiResult.attackTypes).slice(0, 3).map(([t, n]) => (
+                  <Badge key={t} variant="secondary" className="text-[10px]">{t}: {n}</Badge>
+                ))}
+              </div>
+              <div className="bg-background border border-primary/20 rounded p-4 text-sm text-foreground leading-relaxed whitespace-pre-wrap max-h-56 overflow-y-auto">
+                {aiResult.recommendation}
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-border text-xs"
+                  onClick={() => runAiDefend(aiResult.ip)}
+                  disabled={aiLoading}
+                >
+                  <RefreshCcw className={`w-3 h-3 mr-1 ${aiLoading ? "animate-spin" : ""}`} />
+                  Re-analyze
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-red-800 text-red-400 hover:bg-red-900/20 text-xs"
+                  onClick={() => { setBlockIp(aiResult.ip); setBlockReason("AI flagged — see AI Defense Recommendation"); }}
+                >
+                  <Lock className="w-3 h-3 mr-1" />
+                  Block this IP
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {!aiResult && !aiLoading && !aiError && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/30 rounded p-3">
+              <Zap className="w-3.5 h-3.5 text-primary/50" />
+              IP တစ်ခု ထည့်ပြီး Analyze လုပ်ပါ — AI မှ attack history ကို ခွဲခြမ်းပြီး defense action recommend လုပ်မည်
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card className="bg-card border-border">
         <CardHeader className="pb-3">

@@ -9,11 +9,47 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { format } from "date-fns";
-import { Download, Plus, Search, FileBarChart, Trash2 } from "lucide-react";
+import { Download, Plus, Search, FileBarChart, Trash2, Sparkles, RefreshCcw, Bot, AlertTriangle, ShieldCheck, Zap } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+interface ThreatAnalysis {
+  analysis: string;
+  generatedAt: string;
+  dataPoints: {
+    totalEvents: number;
+    openIncidents: number;
+    unackedAlerts: number;
+    topAttackers: { ip: string; count: number }[];
+  };
+}
+
+/** Renders AI analysis text with section labels highlighted */
+function AiAnalysisText({ text }: { text: string }) {
+  const lines = text.split("\n");
+  return (
+    <div className="space-y-1">
+      {lines.map((line, i) => {
+        const isSectionHeader = /^[A-Z\s]+:/.test(line.trim()) && line.trim().length < 60;
+        if (!line.trim()) return <div key={i} className="h-2" />;
+        return (
+          <p
+            key={i}
+            className={
+              isSectionHeader
+                ? "text-xs font-bold text-primary uppercase tracking-widest mt-3 mb-1"
+                : "text-sm text-muted-foreground leading-relaxed"
+            }
+          >
+            {line}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
 
 export default function Reports() {
   const [isGenerateOpen, setIsGenerateOpen] = useState(false);
@@ -23,6 +59,11 @@ export default function Reports() {
   const [search, setSearch] = useState("");
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; title: string } | null>(null);
+
+  // AI Briefing state
+  const [aiData, setAiData] = useState<ThreatAnalysis | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -40,15 +81,37 @@ export default function Reports() {
     generateReport.mutate(
       { data: { title, type: type as any, format: formatType as any } },
       {
-        onSuccess: () => {
+        onSuccess: (data: any) => {
           queryClient.invalidateQueries({ queryKey: getListReportsQueryKey() });
           setIsGenerateOpen(false);
           setTitle("");
-          toast({ title: "Report Generated", description: "Security report has been compiled successfully." });
+          toast({
+            title: data?.aiGenerated ? "✨ AI Report Generated" : "Report Generated",
+            description: data?.aiGenerated
+              ? "GROQ AI မှ security analysis ပါ report compile ပြီးပြီ။"
+              : "Security report compile ပြီးပြီ။",
+          });
         }
       }
     );
   };
+
+  async function loadAiBriefing() {
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const r = await fetch(`${BASE}/api/ai/threat-analysis`);
+      if (!r.ok) {
+        const e = await r.json();
+        throw new Error(e.error ?? `HTTP ${r.status}`);
+      }
+      setAiData(await r.json());
+    } catch (err: any) {
+      setAiError(err.message);
+    } finally {
+      setAiLoading(false);
+    }
+  }
 
   function handleDownload(id: number, reportTitle: string, reportType: string) {
     const url = `${BASE}/api/reports/${id}/download`;
@@ -90,16 +153,15 @@ export default function Reports() {
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel className="border-border">Cancel</AlertDialogCancel>
-          <AlertDialogAction
-            className="bg-red-600 hover:bg-red-700 text-white"
-            onClick={confirmDelete}
-          >
+          <AlertDialogAction className="bg-red-600 hover:bg-red-700 text-white" onClick={confirmDelete}>
             Delete
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+
     <div className="space-y-6 h-full flex flex-col">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-primary uppercase">Security Reports</h1>
@@ -125,9 +187,7 @@ export default function Reports() {
                 <div className="space-y-2">
                   <Label className="text-xs uppercase text-muted-foreground">Report Type</Label>
                   <Select value={type} onValueChange={setType}>
-                    <SelectTrigger className="bg-background border-border">
-                      <SelectValue />
-                    </SelectTrigger>
+                    <SelectTrigger className="bg-background border-border"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="daily">Daily Summary</SelectItem>
                       <SelectItem value="weekly">Weekly Analysis</SelectItem>
@@ -139,9 +199,7 @@ export default function Reports() {
                 <div className="space-y-2">
                   <Label className="text-xs uppercase text-muted-foreground">Format</Label>
                   <Select value={formatType} onValueChange={setFormatType}>
-                    <SelectTrigger className="bg-background border-border">
-                      <SelectValue />
-                    </SelectTrigger>
+                    <SelectTrigger className="bg-background border-border"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="html">HTML Report</SelectItem>
                       <SelectItem value="pdf">PDF (HTML)</SelectItem>
@@ -149,9 +207,17 @@ export default function Reports() {
                   </Select>
                 </div>
               </div>
-              <div className="flex justify-end pt-4">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground bg-primary/5 border border-primary/20 rounded p-2">
+                <Sparkles className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+                <span>AI ကို သုံး၍ report summary ကို auto-generate လုပ်မည်</span>
+              </div>
+              <div className="flex justify-end pt-2">
                 <Button type="submit" disabled={generateReport.isPending}>
-                  {generateReport.isPending ? "Compiling..." : "Generate"}
+                  {generateReport.isPending ? (
+                    <><RefreshCcw className="w-4 h-4 mr-2 animate-spin" />AI Compiling...</>
+                  ) : (
+                    <><Sparkles className="w-4 h-4 mr-2" />Generate with AI</>
+                  )}
                 </Button>
               </div>
             </form>
@@ -159,6 +225,110 @@ export default function Reports() {
         </Dialog>
       </div>
 
+      {/* ── AI THREAT BRIEFING ─────────────────────────────────── */}
+      <Card className="bg-card border-primary/30 shadow-[0_0_20px_rgba(var(--primary-rgb),0.08)]">
+        <CardHeader className="pb-3 border-b border-border/50">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded bg-primary/10 flex items-center justify-center">
+                <Bot className="w-4 h-4 text-primary" />
+              </div>
+              <div>
+                <CardTitle className="text-sm font-bold uppercase tracking-widest text-primary">AI Threat Briefing</CardTitle>
+                <CardDescription className="text-[11px]">
+                  {aiData
+                    ? `Generated at ${format(new Date(aiData.generatedAt), "HH:mm:ss")} — Groq llama-3.3-70b`
+                    : "Current security posture analysis powered by Groq LLM"}
+                </CardDescription>
+              </div>
+            </div>
+            <Button
+              size="sm"
+              variant={aiData ? "outline" : "default"}
+              onClick={loadAiBriefing}
+              disabled={aiLoading}
+              className={aiData ? "border-border" : ""}
+            >
+              {aiLoading ? (
+                <><RefreshCcw className="w-3.5 h-3.5 mr-1.5 animate-spin" />Analyzing...</>
+              ) : aiData ? (
+                <><RefreshCcw className="w-3.5 h-3.5 mr-1.5" />Refresh</>
+              ) : (
+                <><Sparkles className="w-3.5 h-3.5 mr-1.5" />Analyze Now</>
+              )}
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="pt-4">
+          {aiError && (
+            <div className="flex items-center gap-2 text-sm text-red-400 bg-red-900/20 border border-red-500/30 rounded p-3">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+              <span>{aiError}</span>
+            </div>
+          )}
+          {aiLoading && !aiData && (
+            <div className="flex items-center justify-center py-8 gap-3 text-muted-foreground">
+              <RefreshCcw className="w-4 h-4 animate-spin text-primary" />
+              <span className="text-sm">AI မှ security data ကို analyze လုပ်နေသည်...</span>
+            </div>
+          )}
+          {!aiData && !aiLoading && !aiError && (
+            <div className="flex flex-col items-center justify-center py-8 gap-2 text-center">
+              <Sparkles className="w-8 h-8 text-primary/30" />
+              <p className="text-sm text-muted-foreground">
+                "Analyze Now" ကို နှိပ်ပါ — AI မှ လက်ရှိ security posture ကို real-time analyze လုပ်မည်
+              </p>
+            </div>
+          )}
+          {aiData && (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              {/* Stats */}
+              <div className="lg:col-span-1 space-y-3">
+                <div className="grid grid-cols-3 lg:grid-cols-1 gap-2">
+                  <div className="bg-background border border-border rounded p-3 text-center lg:text-left flex lg:flex-row items-center gap-2">
+                    <Zap className="w-4 h-4 text-yellow-400 flex-shrink-0" />
+                    <div>
+                      <div className="text-xs text-muted-foreground uppercase">Events (24h)</div>
+                      <div className="font-mono text-lg font-bold">{aiData.dataPoints.totalEvents}</div>
+                    </div>
+                  </div>
+                  <div className="bg-background border border-border rounded p-3 text-center lg:text-left flex lg:flex-row items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-orange-400 flex-shrink-0" />
+                    <div>
+                      <div className="text-xs text-muted-foreground uppercase">Open Incidents</div>
+                      <div className="font-mono text-lg font-bold">{aiData.dataPoints.openIncidents}</div>
+                    </div>
+                  </div>
+                  <div className="bg-background border border-border rounded p-3 text-center lg:text-left flex lg:flex-row items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-red-400 flex-shrink-0" />
+                    <div>
+                      <div className="text-xs text-muted-foreground uppercase">Unacked Alerts</div>
+                      <div className="font-mono text-lg font-bold">{aiData.dataPoints.unackedAlerts}</div>
+                    </div>
+                  </div>
+                </div>
+                {aiData.dataPoints.topAttackers.length > 0 && (
+                  <div className="bg-background border border-border rounded p-3">
+                    <div className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Top Attackers</div>
+                    {aiData.dataPoints.topAttackers.map(a => (
+                      <div key={a.ip} className="flex justify-between items-center py-0.5">
+                        <span className="font-mono text-xs text-red-400">{a.ip}</span>
+                        <Badge variant="outline" className="text-[10px] border-border">{a.count}</Badge>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {/* Analysis Text */}
+              <div className="lg:col-span-2 bg-background border border-border rounded p-4 overflow-y-auto max-h-64">
+                <AiAnalysisText text={aiData.analysis} />
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Search bar */}
       <div className="flex gap-4 items-center bg-card p-4 border border-border rounded-lg">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -172,6 +342,7 @@ export default function Reports() {
         <span className="text-xs text-muted-foreground">{filtered?.length ?? 0} reports</span>
       </div>
 
+      {/* Report cards */}
       {isLoading ? (
         <div className="text-center py-12 text-muted-foreground border border-border rounded-lg bg-card border-dashed">
           Loading report history...
@@ -180,7 +351,7 @@ export default function Reports() {
         <div className="text-center py-12 text-muted-foreground border border-border rounded-lg bg-card border-dashed flex flex-col items-center">
           <FileBarChart className="h-8 w-8 mb-4 text-muted-foreground/50" />
           <p>No reports generated yet.</p>
-          <p className="text-xs mt-1 text-muted-foreground/60">Click "Generate Report" to create your first report.</p>
+          <p className="text-xs mt-1 text-muted-foreground/60">Click "Generate Report" to create your first AI-powered report.</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -191,9 +362,11 @@ export default function Reports() {
                   <Badge variant="outline" className="uppercase text-[10px] tracking-wider text-muted-foreground border-border bg-background">
                     {report.type}
                   </Badge>
-                  <Badge variant="secondary" className="uppercase text-[10px] tracking-wider font-mono">
-                    {report.format}
-                  </Badge>
+                  <div className="flex gap-1">
+                    <Badge variant="secondary" className="uppercase text-[10px] tracking-wider font-mono">
+                      {report.format}
+                    </Badge>
+                  </div>
                 </div>
                 <CardTitle className="text-base font-bold group-hover:text-primary transition-colors">{report.title}</CardTitle>
                 <CardDescription className="text-xs font-mono mt-1">
@@ -201,7 +374,7 @@ export default function Reports() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="pt-4 space-y-4">
-                <p className="text-sm text-muted-foreground line-clamp-2">
+                <p className="text-sm text-muted-foreground line-clamp-3">
                   {report.summary}
                 </p>
 
