@@ -90,12 +90,16 @@ router.get("/defense/commands/pending", requireAdmin, async (req, res) => {
   const vm = (req.query.vm as string) ?? "ubuntu";
 
   // Atomic claim via SQL: update status to 'sent' for up to 20 pending rows for this vm
+  // PostgreSQL does not support UPDATE...LIMIT — use a subquery instead
   await db.execute(sql`
     UPDATE defense_commands
     SET status = 'sent'
-    WHERE status = 'pending'
-      AND (target_vm = ${vm} OR target_vm = 'all')
-    LIMIT 20
+    WHERE id IN (
+      SELECT id FROM defense_commands
+      WHERE status = 'pending'
+        AND (target_vm = ${vm} OR target_vm = 'all')
+      LIMIT 20
+    )
   `);
 
   // Fetch the rows we just claimed
