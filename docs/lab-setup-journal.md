@@ -3077,3 +3077,35 @@ Kali hydra → bank-web SSH port 22 → auth.log fail entry
 - Kali 192.168.122.132 → "Kali (attacker)" (red)  
 - showIp=true on hover shows raw IP  
 **Next:** Run `aegis_forwarder.py` on aegis-forwarder VM to register hosts in network_hosts table
+
+---
+
+### [2026-07-17] — Hub Mode: Single Script Covers All VMs
+
+**Status:** ✅ Done  
+**What:** `aegis_forwarder.py` ကို hub mode (`--mode hub`) ထည့်ပြီး AEGIS VM တစ်ခုထဲကနေ bank-web, customer-db, pfSense အကုန်လုပ်ဖြစ်အောင် လုပ်  
+**How:**  
+- **New sensor threads (remote):**  
+  - `_watch_remote_modsecurity()` — bank-web `/var/log/apache2/modsec_audit.log` SSH tail → SQLi/XSS/LFI/RFI events  
+  - `_watch_remote_ftp()` — bank-web `/var/log/vsftpd.log` SSH tail → FTP session events  
+  - `_watch_remote_postgresql()` — customer-db `/var/log/postgresql/*.log` SSH tail → auth failures + SQL anomalies  
+- **Per-host sensor config** in `REMOTE_HOSTS`:  
+  - bank-web: `[suricata, snort, fail2ban, ssh, http, ftp]`  
+  - customer-db: `[suricata, fail2ban, ssh, postgresql]`  
+- **Hub defense routing** (`_dispatch_defense_hub()`):  
+  - `targetVm=pfsense` → pfSense REST API (`PFSENSE_IP=10.30.30.1`)  
+  - `targetVm=bank-web/customer-db` → SSH iptables into that VM  
+  - `targetVm=aegis` or default → local iptables  
+- **`defense_agent_loop(hub_mode=True)`** — polls for ALL VMs (`HUB_DEFENSE_VMS = [aegis, pfsense, bank-web, customer-db]`) in one loop  
+- **`_exec_defense_ssh_remote()`** — SSHes into bank VM and runs `sudo iptables ...`  
+- **`run_hub_mode()`** — replaces old `run_remote_mode()`, sensor-aware per host  
+- Updated `aegis_forwarder.local.conf.example` with hub-mode config (PFSENSE_IP, REMOTE_SSH_USER, PFSENSE_API_KEY)  
+**Result:**  
+- One command on AEGIS VM covers everything: `python3 aegis_forwarder.py --mode hub`  
+- bank-web web server logs → dashboard  
+- customer-db database logs → dashboard  
+- pfSense firewall rules → controlled from dashboard  
+**Next:**  
+1. SSH key setup on AEGIS VM: `ssh-copy-id sithu@10.10.10.10` + `ssh-copy-id sithu@10.20.20.20`  
+2. pfSense REST API package install + API key generate  
+3. Fill `aegis_forwarder.local.conf` with real keys, run `python3 aegis_forwarder.py --mode hub`

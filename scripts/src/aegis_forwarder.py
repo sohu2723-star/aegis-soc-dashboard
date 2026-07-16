@@ -53,15 +53,34 @@ AEGIS_URL = _cfg("AEGIS_URL", "http://<YOUR_AEGIS_DOMAIN>/api")
 AEGIS_KEY = _cfg("AEGIS_KEY", "aegis-demo-key-change-me")
 VM_NAME   = _cfg("VM_NAME",   "ubuntu")   # ubuntu | pfsense — used by the defense-agent thread
 
-# ─── REMOTE MODE CONFIG ───────────────────────────────────────────────────────
-# Used when running with --mode remote on the aegis-forwarder hub VM.
-# Hub SSHes into each bank VM and tails their log files.
+# ─── REMOTE / HUB MODE CONFIG ─────────────────────────────────────────────────
+# Used when running with --mode hub on the aegis-forwarder VM (10.30.30.10).
+# The hub SSHes into bank VMs to tail their logs AND calls pfSense REST API
+# to execute firewall rules — all from one script, one machine.
 # Override REMOTE_SSH_USER in aegis_forwarder.local.conf if your user differs.
 REMOTE_SSH_USER = _cfg("REMOTE_SSH_USER", "sithu")
+
+# pfSense management IP (reachable from aegis-forwarder via OPT2 segment)
+PFSENSE_IP      = _cfg("PFSENSE_IP", "10.30.30.1")
+
+# Per-host sensor list — controls which log tailer threads are spawned per VM.
+# Sensors: suricata, snort, fail2ban, ssh, http, ftp, cowrie, postgresql
 REMOTE_HOSTS = [
-    {"name": "bank-web",    "ip": "10.10.10.10"},
-    {"name": "customer-db", "ip": "10.20.20.20"},
+    {
+        "name": "bank-web",
+        "ip":   "10.10.10.10",
+        "sensors": ["suricata", "snort", "fail2ban", "ssh", "http", "ftp"],
+    },
+    {
+        "name": "customer-db",
+        "ip":   "10.20.20.20",
+        "sensors": ["suricata", "fail2ban", "ssh", "postgresql"],
+    },
 ]
+
+# Hub mode: the defense agent polls for commands addressed to ALL these VMs
+# and routes execution accordingly (local iptables / pfSense API / SSH iptables)
+HUB_DEFENSE_VMS = ["aegis", "pfsense"] + [h["name"] for h in REMOTE_HOSTS]
 
 HEADERS = {
     "Content-Type": "application/json",
@@ -233,25 +252,109 @@ def _dispatch_defense(cmd: dict):
         _exec_defense_shell(command_text, cmd_id)
 
 
-def defense_agent_loop():
-    """Poll for pending defense commands and execute them. Runs forever."""
-    print(f"[defense] agent started — vm={VM_NAME}, polling every {DEFENSE_POLL_SECS}s")
+def _exec_defense_ssh_remote(target_ip: str, command: str, cmd_id: int):
+    """SSH into a bank VM (bank-web / customer-db) and run an iptables command."""
+    ssh_cmd = [
+        "ssh", "-T",
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "ConnectTimeout=10",
+        "-o", "BatchMode=yes",
+        f"{REMOTE_SSH_USER}@{target_ip}",
+        f"sudo {command}",
+    ]
+    print(f"[defense] SSH → {target_ip}: {command}")
+    try:
+        result = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=30)
+        if result.returncode == 0:
+            print(f"[defense] ✓ SSH {target_ip}: {result.stdout.strip()}")
+            _report_defense_result(cmd_id, True)
+        else:
+            err = result.stderr.strip()
+            print(f"[defense] ✗ SSH {target_ip}: {err}")
+            _report_defense_result(cmd_id, False, err)
+    except subprocess.TimeoutExpired:
+        _report_defense_result(cmd_id, False, "SSH timeout")
+    except Exception as e:
+        _report_defense_result(cmd_id, False, str(e))
+
+
+def _dispatch_defense_hub(cmd: dict):
+    """
+    Hub-mode dispatcher: routes defense commands to the right executor.
+      target_vm == "pfsense"        → pfSense REST API (PFSENSE_IP)
+      target_vm in bank VM names    → SSH iptables into that VM
+      target_vm == "aegis" / ""     → local iptables on this machine
+    """
+    cmd_id       = cmd["id"]
+    command_type = cmd.get("commandType", "")
+    command_text = cmd.get("commandText", "")
+    target_ip    = cmd.get("targetIp", "")
+    target_vm    = cmd.get("targetVm") or cmd.get("vm") or ""
+
+    print(f"[defense-hub] Command #{cmd_id}: [{command_type}] vm={target_vm} ip={target_ip}")
+
+    # Route to pfSense REST API
+    if target_vm == "pfsense" or command_type == "pfsense_api":
+        _exec_defense_pfsense(command_text, cmd_id)
+        return
+
+    # Route to bank VMs via SSH
+    _remote_ips = {h["name"]: h["ip"] for h in REMOTE_HOSTS}
+    if target_vm in _remote_ips:
+        _exec_defense_ssh_remote(_remote_ips[target_vm], command_text, cmd_id)
+        return
+
+    # Route by target IP if name not matched
+    if target_ip:
+        _all_remote_ips = {h["ip"] for h in REMOTE_HOSTS}
+        if target_ip in _all_remote_ips:
+            _exec_defense_ssh_remote(target_ip, command_text, cmd_id)
+            return
+        if target_ip == PFSENSE_IP:
+            _exec_defense_pfsense(command_text, cmd_id)
+            return
+
+    # Default: run locally on this machine (AEGIS VM iptables)
+    _exec_defense_shell(command_text, cmd_id)
+
+
+def defense_agent_loop(hub_mode: bool = False):
+    """
+    Poll for pending defense commands and execute them. Runs forever.
+
+    In hub_mode: polls for ALL hub VMs (aegis, pfsense, bank-web, customer-db)
+    and routes each command to the right executor.
+    In normal mode: polls only for VM_NAME and runs commands locally.
+    """
+    if hub_mode:
+        vms_to_poll = HUB_DEFENSE_VMS
+        print(f"[defense-hub] started — polling for VMs: {vms_to_poll} every {DEFENSE_POLL_SECS}s")
+    else:
+        vms_to_poll = [VM_NAME]
+        print(f"[defense] agent started — vm={VM_NAME}, polling every {DEFENSE_POLL_SECS}s")
+
     while True:
-        try:
-            r = requests.get(f"{AEGIS_URL}/defense/commands/pending",
-                              params={"vm": VM_NAME}, headers=DEFENSE_HEADERS, timeout=10)
-            if r.status_code == 200:
-                commands = r.json()
-                if commands:
-                    print(f"[defense] → {len(commands)} pending command(s)")
-                    for cmd in commands:
-                        _dispatch_defense(cmd)
-            else:
-                print(f"[defense] [WARN] poll returned {r.status_code}")
-        except requests.exceptions.ConnectionError:
-            print("[defense] [WARN] cannot reach AEGIS API — retrying...")
-        except Exception as e:
-            print(f"[defense] [ERROR] poll error: {e}")
+        for vm in vms_to_poll:
+            try:
+                r = requests.get(f"{AEGIS_URL}/defense/commands/pending",
+                                  params={"vm": vm}, headers=DEFENSE_HEADERS, timeout=10)
+                if r.status_code == 200:
+                    commands = r.json()
+                    if commands:
+                        print(f"[defense] → {len(commands)} command(s) for vm={vm}")
+                        for cmd in commands:
+                            cmd.setdefault("targetVm", vm)
+                            if hub_mode:
+                                _dispatch_defense_hub(cmd)
+                            else:
+                                _dispatch_defense(cmd)
+                elif r.status_code not in (200, 204):
+                    print(f"[defense] [WARN] poll vm={vm} returned {r.status_code}")
+            except requests.exceptions.ConnectionError:
+                print("[defense] [WARN] cannot reach AEGIS API — retrying...")
+                break   # no point polling other VMs if API is down
+            except Exception as e:
+                print(f"[defense] [ERROR] poll vm={vm}: {e}")
         time.sleep(DEFENSE_POLL_SECS)
 
 
@@ -875,10 +978,148 @@ def _watch_remote_fail2ban(host_name: str, host_ip: str):
             print(f"[{host_name}] fail2ban: skipped defender IP {banned_ip}")
             continue
         post("fail2ban", {
-            "jail":     m.group(1),
-            "ip":       banned_ip,
-            "failures": 5,
+            "jail":      m.group(1),
+            "ip":        banned_ip,
+            "failures":  5,
+            "target_ip": host_ip,
         })
+
+
+def _watch_remote_modsecurity(host_name: str, host_ip: str):
+    """Tail ModSecurity audit log on a remote VM (bank-web) via SSH."""
+    log_path = "/var/log/apache2/modsec_audit.log"
+    print(f"[{host_name}] http/modsecurity thread started")
+    current_ip     = None
+    current_method = None
+    current_url    = None
+    for line in _ssh_tail(host_name, host_ip, log_path):
+        ip_m = MODSEC_IP_RE.search(line)
+        if ip_m:
+            current_ip     = ip_m.group(1)
+            current_method = ip_m.group(2)
+            current_url    = ip_m.group(3)
+            continue
+        msg_m = MODSEC_MSG_RE.search(line)
+        if msg_m and current_ip:
+            rule_id, msg, severity = msg_m.groups()
+            msg_lower = msg.lower()
+            if   "sql"       in msg_lower: atype = "SQLi"
+            elif "xss"       in msg_lower: atype = "XSS"
+            elif "traversal" in msg_lower or "lfi" in msg_lower: atype = "LFI"
+            elif "rfi"       in msg_lower: atype = "RFI"
+            elif "csrf"      in msg_lower: atype = "CSRF"
+            elif "brute"     in msg_lower: atype = "Brute"
+            else:                          atype = "HTTP Attack"
+            post("http", {
+                "src_ip":      current_ip,
+                "dest_ip":     host_ip,
+                "url":         current_url or "/",
+                "method":      current_method or "GET",
+                "attack_type": atype,
+                "payload":     msg,
+                "rule_id":     rule_id,
+                "blocked":     severity.upper() in ("CRITICAL", "ERROR"),
+                "targetHost":  host_name,
+            })
+            current_ip = None
+
+
+def _watch_remote_ftp(host_name: str, host_ip: str):
+    """Tail vsftpd/proftpd log on a remote VM via SSH."""
+    print(f"[{host_name}] ftp thread started")
+    for line in _ssh_tail(host_name, host_ip, "/var/log/vsftpd.log"):
+        m = FTP_RE.search(line)
+        if not m:
+            continue
+        status_str, cmd, ip, path, size = m.groups()
+        cmd_map = {"UPLOAD": "STOR", "DOWNLOAD": "RETR", "LOGIN": "USER",
+                   "MKDIR": "MKD", "DELETE": "DELE"}
+        post("ftp", {
+            "src_ip":     ip,
+            "dest_ip":    host_ip,
+            "command":    cmd_map.get(cmd, cmd),
+            "file_path":  path or None,
+            "file_size":  int(size) if size else None,
+            "status":     "success" if status_str == "OK" else "failed",
+            "targetHost": host_name,
+        })
+
+
+# PostgreSQL log line examples:
+# 2024-01-01 12:00:00 UTC [1234]: [1-1] user=app,db=bankdb,host=192.168.1.5 ERROR: syntax error ...
+# 2024-01-01 12:00:00 UTC [1234]: [1-1] user=app,db=bankdb,host=192.168.1.5 FATAL: password auth failed
+_PG_LOG_RE = re.compile(
+    r"user=(\S+),db=(\S+),host=([\d.]+).*?(ERROR|FATAL|WARNING|LOG):\s*(.+)"
+)
+_PG_AUTH_FAIL_RE = re.compile(
+    r"FATAL:\s+password authentication failed for user \"(\S+)\""
+)
+_PG_SQL_RE = re.compile(
+    r"(syntax error|invalid input|division by zero|out of range|"
+    r"ERROR.*column.*does not exist|SELECT.*FROM.*WHERE.*=.*')", re.IGNORECASE
+)
+
+
+def _watch_remote_postgresql(host_name: str, host_ip: str):
+    """Tail PostgreSQL log on customer-db via SSH and forward auth failures and SQL errors."""
+    # Default pg log location on Ubuntu (may vary by version)
+    log_path = "/var/log/postgresql/postgresql-*.log"
+    # Use tail -F with glob expansion via bash
+    ssh_cmd = [
+        "ssh", "-T",
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "ConnectTimeout=10",
+        "-o", "ServerAliveInterval=15",
+        "-o", "ServerAliveCountMax=3",
+        "-o", "BatchMode=yes",
+        f"{REMOTE_SSH_USER}@{host_ip}",
+        f"bash -c 'tail -F {log_path} 2>/dev/null'",
+    ]
+    print(f"[{host_name}] postgresql thread started")
+    _defender_ips = {h["ip"] for h in REMOTE_HOSTS} | {"10.30.30.10"}
+    while True:
+        try:
+            proc = subprocess.Popen(
+                ssh_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+            )
+            print(f"[{host_name}] postgresql: SSH connected → {host_ip}:{log_path}")
+            for line in proc.stdout:
+                line = line.strip()
+                if not line:
+                    continue
+                m = _PG_LOG_RE.search(line)
+                if not m:
+                    continue
+                user, db, client_ip, level, msg = m.groups()
+                if client_ip in _defender_ips:
+                    continue
+                # Auth failure — report as SSH-like brute/credential event
+                if "password authentication failed" in msg or "authentication failed" in msg:
+                    post("event", {
+                        "source":      "postgresql",
+                        "type":        "db_auth_failure",
+                        "severity":    "high",
+                        "srcIp":       client_ip,
+                        "targetHost":  host_ip,
+                        "description": f"PostgreSQL auth failure: user={user} db={db} — {msg[:120]}",
+                        "rawData":     line[:300],
+                    })
+                # SQL injection patterns
+                elif _PG_SQL_RE.search(msg):
+                    post("event", {
+                        "source":      "postgresql",
+                        "type":        "db_sql_error",
+                        "severity":    "medium",
+                        "srcIp":       client_ip,
+                        "targetHost":  host_ip,
+                        "description": f"PostgreSQL SQL anomaly: user={user} db={db} — {msg[:120]}",
+                        "rawData":     line[:300],
+                    })
+            proc.wait()
+            print(f"[{host_name}] postgresql: SSH disconnected — reconnecting in 10s")
+        except Exception as e:
+            print(f"[{host_name}] postgresql error: {e} — retrying in 10s")
+        time.sleep(10)
 
 
 def _remote_heartbeat_loop(hosts: list):
@@ -963,28 +1204,52 @@ def _remote_service_health_loop(hosts: list):
         time.sleep(30)
 
 
-def run_remote_mode():
+def run_hub_mode():
     """
-    Hub mode: aegis-forwarder SSHes into each bank VM and tails their logs.
-    Spawns (suricata + snort + fail2ban) threads per remote host.
-    Also runs heartbeat + service-health loops so VMs stay ONLINE in dashboard.
+    Hub mode: aegis-forwarder VM (10.30.30.10) SSHes into each bank VM and
+    tails their logs. Sensor threads are spawned per-host based on the
+    'sensors' key in REMOTE_HOSTS. Defense commands are routed to the right
+    executor (local iptables / pfSense API / SSH iptables on bank VMs).
+
+    Supported sensors per host:
+      suricata   — /var/log/suricata/eve.json
+      snort      — /var/log/snort/alert
+      fail2ban   — /var/log/fail2ban.log
+      ssh        — /var/log/auth.log
+      http       — /var/log/apache2/modsec_audit.log  (bank-web)
+      ftp        — /var/log/vsftpd.log                (bank-web)
+      postgresql — /var/log/postgresql/*.log           (customer-db)
+      cowrie     — cowrie.json honeypot log
     """
-    print(f"\n  Remote hosts ({len(REMOTE_HOSTS)}):")
+    _SENSOR_FN = {
+        "suricata":   _watch_remote_suricata,
+        "snort":      _watch_remote_snort,
+        "fail2ban":   _watch_remote_fail2ban,
+        "ssh":        _watch_remote_ssh,
+        "http":       _watch_remote_modsecurity,
+        "ftp":        _watch_remote_ftp,
+        "postgresql": _watch_remote_postgresql,
+    }
+
+    print(f"\n  Hub mode — remote hosts ({len(REMOTE_HOSTS)}):")
     for h in REMOTE_HOSTS:
-        print(f"    {h['name']:15s} {h['ip']}")
+        sensors_str = ", ".join(h.get("sensors", []))
+        print(f"    {h['name']:15s} {h['ip']}  sensors=[{sensors_str}]")
         _remote_register_host(h["name"], h["ip"])
+    print(f"  pfSense API  : {PFSENSE_IP} (for defense commands)")
+    print(f"  Defense VMs  : {HUB_DEFENSE_VMS}")
     print()
 
     threads = []
 
-    # Heartbeat — keeps remote VMs ONLINE (prevents 45s timeout)
+    # Heartbeat — keeps remote VMs ONLINE (server marks offline after 45s / 3 misses)
     hb = threading.Thread(target=_remote_heartbeat_loop, args=(REMOTE_HOSTS,),
                           daemon=True, name="remote-heartbeat")
     hb.start()
     threads.append(hb)
     print("  ► remote heartbeat thread started")
 
-    # Service health — reports suricata/snort/fail2ban/cowrie status per VM
+    # Service health — SSHes into each bank VM every 30s, checks systemctl + ports
     sh = threading.Thread(target=_remote_service_health_loop, args=(REMOTE_HOSTS,),
                           daemon=True, name="remote-service-health")
     sh.start()
@@ -994,26 +1259,32 @@ def run_remote_mode():
 
     # Log tailer threads — one per (host × sensor)
     for h in REMOTE_HOSTS:
-        for label, fn in [
-            ("suricata", _watch_remote_suricata),
-            ("snort",    _watch_remote_snort),
-            ("fail2ban", _watch_remote_fail2ban),
-            ("ssh",      _watch_remote_ssh),
-        ]:
+        for sensor in h.get("sensors", []):
+            fn = _SENSOR_FN.get(sensor)
+            if fn is None:
+                print(f"  [WARN] Unknown sensor '{sensor}' for {h['name']} — skipped")
+                continue
             t = threading.Thread(
                 target=fn,
                 args=(h["name"], h["ip"]),
                 daemon=True,
-                name=f"{h['name']}-{label}",
+                name=f"{h['name']}-{sensor}",
             )
             t.start()
             threads.append(t)
+            print(f"  ► {h['name']}/{sensor} thread started")
 
+    print()
     try:
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
         shutdown()
+
+
+# Keep backward-compat alias
+def run_remote_mode():
+    run_hub_mode()
 
 
 # ─── MAIN ────────────────────────────────────────────────────────────────────
@@ -1028,12 +1299,25 @@ MODES = {
 }
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="AEGIS Forwarder")
-    parser.add_argument("--mode", choices=list(MODES.keys()) + ["all", "remote"], default="all")
+    parser = argparse.ArgumentParser(
+        description="AEGIS Forwarder — Blue Team hub script",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Modes:
+  hub     Run on the AEGIS VM (10.30.30.10): SSHes into bank-web + customer-db to
+          tail their logs, calls pfSense REST API for firewall commands, and runs
+          the defense agent for ALL VMs.  One script, one machine, everything.
+  all     Run all local sensors on THIS machine (normal forwarder mode).
+  remote  Alias for hub (backward compat).
+  <name>  Run a single local sensor: suricata | snort | fail2ban | ssh | ftp | http | cowrie
+""",
+    )
+    parser.add_argument("--mode", choices=list(MODES.keys()) + ["all", "remote", "hub"], default="all")
     parser.add_argument("--url", help="AEGIS API URL override")
-    parser.add_argument("--key", help="AEGIS API key override")
+    parser.add_argument("--key", help="AEGIS ingest key override")
+    parser.add_argument("--admin-key", dest="admin_key", help="AEGIS admin key override")
     parser.add_argument("--no-defense", action="store_true",
-                         help="Don't start the merged defense-agent thread (log forwarding only)")
+                         help="Skip the defense-agent thread (log forwarding only)")
     args = parser.parse_args()
 
     if args.url:
@@ -1041,27 +1325,31 @@ if __name__ == "__main__":
     if args.key:
         AEGIS_KEY = args.key
         HEADERS["X-AEGIS-Key"] = args.key
+        DEFENSE_HEADERS["X-AEGIS-Key"] = args.key
+    if args.admin_key:
+        DEFENSE_HEADERS["X-AEGIS-Admin-Key"] = args.admin_key
+
+    _is_hub = args.mode in ("hub", "remote")
 
     print(f"""
-╔══════════════════════════════════════════════════╗
-║         AEGIS Forwarder — Blue Team v2           ║
-╚══════════════════════════════════════════════════╝
-  Target : {AEGIS_URL}
-  Mode   : {args.mode}
-  Sensors: Suricata, Snort, Fail2ban, SSH, FTP, HTTP, Cowrie
+╔══════════════════════════════════════════════════════════════════╗
+║            AEGIS Forwarder — Blue Team v3                        ║
+╚══════════════════════════════════════════════════════════════════╝
+  Target  : {AEGIS_URL}
+  Mode    : {args.mode}{"  ← hub: covers bank-web, customer-db, pfSense" if _is_hub else ""}
+  VM_NAME : {VM_NAME}
 """)
 
-    # Register this VM in AEGIS Network Monitor on startup
+    # Register this AEGIS VM in Network Monitor on startup
     print("  [*] Registering host with AEGIS...")
     register_host()
 
-    # Start heartbeat every 15s — server auto-timeouts at 45s (3 missed = offline)
+    # Heartbeat — server marks host offline after 45s / 3 missed beats
     hb = threading.Thread(target=heartbeat_loop, daemon=True, name="heartbeat")
     hb.start()
 
-    # Start service health reporter — local services only (skip in remote mode;
-    # remote mode runs _remote_service_health_loop per bank VM instead)
-    if args.mode != "remote":
+    # Local service health — skip in hub mode (hub uses _remote_service_health_loop)
+    if not _is_hub:
         sh = threading.Thread(target=service_health_loop, daemon=True, name="service_health")
         sh.start()
 
@@ -1075,15 +1363,24 @@ if __name__ == "__main__":
     _signal.signal(_signal.SIGINT,  shutdown)
     _signal.signal(_signal.SIGTERM, shutdown)
 
+    # Defense agent — hub mode polls for ALL VMs and routes commands
     if not args.no_defense:
-        dt = threading.Thread(target=defense_agent_loop, daemon=True, name="defense_agent")
+        dt = threading.Thread(
+            target=defense_agent_loop,
+            kwargs={"hub_mode": _is_hub},
+            daemon=True,
+            name="defense_agent",
+        )
         dt.start()
-        print(f"  ► defense_agent thread started (vm={VM_NAME})")
+        if _is_hub:
+            print(f"  ► defense_agent thread started (hub — covering {HUB_DEFENSE_VMS})")
+        else:
+            print(f"  ► defense_agent thread started (vm={VM_NAME})")
 
-    if args.mode == "remote":
-        print(f"  SSH user : {REMOTE_SSH_USER}")
+    if _is_hub:
+        print(f"  SSH user: {REMOTE_SSH_USER}")
         print()
-        run_remote_mode()
+        run_hub_mode()
     elif args.mode == "all":
         threads = []
         for name, fn in MODES.items():

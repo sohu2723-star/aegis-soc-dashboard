@@ -6,24 +6,48 @@
 #
 #   cp aegis_forwarder.local.conf.example aegis_forwarder.local.conf
 #   nano aegis_forwarder.local.conf
-#   python3 aegis_forwarder.py --mode all
 #
-# This script now also runs the defense-agent loop in the background (merged
-# from defense_agent.py) — so one script does both log forwarding AND applies
-# defense commands (iptables / pfSense block) queued from the dashboard.
-# Pass --no-defense to skip that thread if you only want log forwarding.
+# ── Hub mode (recommended) ─────────────────────────────────────────────────────
+# Run ONE script on the AEGIS VM (10.30.30.10) — handles everything:
+#   • SSHes into bank-web (10.10.10.10) → tails Suricata/Snort/Fail2ban/SSH/HTTP/FTP
+#   • SSHes into customer-db (10.20.20.20) → tails Suricata/Fail2ban/SSH/PostgreSQL
+#   • Calls pfSense REST API (10.30.30.1) for firewall rule commands from dashboard
+#   • Runs local defense agent to cover ALL VMs from one place
+#
+#   python3 aegis_forwarder.py --mode hub
+#
+# Prerequisites (on AEGIS VM):
+#   1. SSH key-based auth set up to bank-web and customer-db (no password):
+#        ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519  (if not already done)
+#        ssh-copy-id sithu@10.10.10.10
+#        ssh-copy-id sithu@10.20.20.20
+#   2. sudo without password for iptables on bank VMs (for SSH defense execution):
+#        On bank-web/customer-db: echo "sithu ALL=(root) NOPASSWD: /sbin/iptables" >> /etc/sudoers
+#   3. pip3 install requests
+# ──────────────────────────────────────────────────────────────────────────────
 
+# ── Required ──────────────────────────────────────────────────────────────────
 AEGIS_URL=https://aegis-api-server-jp3b.onrender.com/api
 AEGIS_KEY=
 AEGIS_ADMIN_KEY=
 
-# VM_NAME controls how the merged defense-agent thread executes commands:
-#   ubuntu  -> runs iptables shell commands locally
-#   pfsense -> calls the pfSense REST API instead (needs the two keys below)
-VM_NAME=ubuntu
+# ── Hub mode settings ─────────────────────────────────────────────────────────
+# SSH user on bank-web and customer-db
+REMOTE_SSH_USER=sithu
+
+# pfSense management IP (reachable from AEGIS VM via OPT2 10.30.30.0/24)
+PFSENSE_IP=10.30.30.1
+
+# pfSense REST API key (System > REST API > Generate Token on pfSense)
+# Only needed if dashboard sends pfSense firewall commands
+PFSENSE_API_URL=http://10.30.30.1/api/v1
+PFSENSE_API_KEY=
+
+# Defense poll interval (seconds)
 DEFENSE_POLL_SECS=5
 
-# Only needed when VM_NAME=pfsense, once the pfsense-api / REST API package is
-# installed and you've generated a token under System > REST API.
-PFSENSE_API_URL=http://127.0.0.1/api/v1
-PFSENSE_API_KEY=
+# ── Local mode settings (--mode all, not hub) ─────────────────────────────────
+# VM_NAME controls defense command execution when running locally:
+#   ubuntu  → runs iptables commands locally
+#   pfsense → calls the pfSense REST API (needs PFSENSE_API_KEY above)
+VM_NAME=ubuntu
