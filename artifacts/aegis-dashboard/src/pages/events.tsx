@@ -133,7 +133,7 @@ export default function Events() {
                   </Badge>
                 </TableCell>
                 <TableCell className="font-medium text-primary text-sm">{event.type}</TableCell>
-                <TableCell><HostLabel ip={event.sourceIp} /></TableCell>
+                <TableCell><span className="font-mono text-xs text-cyan-400">{event.sourceIp}</span></TableCell>
                 <TableCell><HostLabel ip={event.targetHost} /></TableCell>
                 <TableCell>
                   <Badge variant="secondary" className="uppercase text-[10px] bg-muted text-muted-foreground">
@@ -175,7 +175,7 @@ export default function Events() {
                 </div>
                 <div className="bg-background border border-border rounded p-2">
                   <div className="text-muted-foreground uppercase tracking-wider mb-0.5">Source IP</div>
-                  <div className="font-bold"><HostLabel ip={aiPanel.sourceIp} showIp /></div>
+                  <div className="font-mono font-bold text-cyan-400">{aiPanel.sourceIp}</div>
                 </div>
                 <div className="bg-background border border-border rounded p-2 col-span-2">
                   <div className="text-muted-foreground uppercase tracking-wider mb-0.5">Attack Type</div>

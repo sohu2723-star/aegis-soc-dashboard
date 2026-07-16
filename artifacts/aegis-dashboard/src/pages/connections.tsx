@@ -57,7 +57,7 @@ function Ts({ v }: { v: string }) {
   return <span className="font-mono text-xs text-muted-foreground whitespace-nowrap">{format(new Date(v), "MM/dd HH:mm:ss")}</span>;
 }
 function Ip({ v }: { v: string }) {
-  return <HostLabel ip={v} showIp />;
+  return <span className="font-mono text-xs text-cyan-400">{v}</span>;
 }
 
 type TabId = "ssh" | "ftp" | "tls" | "http";
@@ -206,7 +206,7 @@ function TlsTab() {
             <TableRow key={r.id} className={`border-border hover:bg-muted/10 ${r.isSuspicious ? "bg-orange-950/20" : ""}`}>
               <TableCell><Ts v={r.createdAt} /></TableCell>
               <TableCell><Ip v={r.sourceIp} /></TableCell>
-              <TableCell><Ip v={r.destIp} /></TableCell>
+              <TableCell><HostLabel ip={r.destIp} /></TableCell>
               <TableCell className="font-mono text-xs text-muted-foreground">{r.destPort ?? "—"}</TableCell>
               <TableCell>
                 <Badge variant="outline" className={`text-[10px] font-mono ${
