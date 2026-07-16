@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { systemStatusTable } from "@workspace/db";
-import { asc, eq, inArray } from "drizzle-orm";
+import { systemStatusTable, networkHostsTable } from "@workspace/db";
+import { asc, eq, inArray, isNotNull } from "drizzle-orm";
 import { broadcaster } from "../lib/broadcaster";
 
 const router = Router();
@@ -33,19 +33,31 @@ const OBSOLETE_COMPONENTS = [
   "Fail2ban",           // now registered per-host by the VM forwarder
 ];
 
-async function seedSystemStatus() {
-  // 1. Remove obsolete global components (no hostIp) from DB
-  const all = await db.select().from(systemStatusTable);
-  const toDelete = all.filter(
-    s => !s.hostIp && OBSOLETE_COMPONENTS.includes(s.component),
+async function purgeStaleRows() {
+  const [all, hosts] = await Promise.all([
+    db.select().from(systemStatusTable),
+    db.select().from(networkHostsTable),
+  ]);
+  const activeIps = new Set(hosts.map(h => h.ip).filter(Boolean));
+
+  const toDelete = all.filter(s =>
+    // Delete obsolete component names regardless of host
+    OBSOLETE_COMPONENTS.includes(s.component) ||
+    // Delete orphaned sensor rows (hostIp set but no matching host in network_hosts)
+    (s.hostIp != null && !activeIps.has(s.hostIp))
   );
+
   if (toDelete.length > 0) {
     await db.delete(systemStatusTable).where(
       inArray(systemStatusTable.id, toDelete.map(s => s.id)),
     );
   }
+}
 
-  // 2. Seed global components if missing
+async function seedSystemStatus() {
+  await purgeStaleRows();
+
+  // Seed global components if missing
   const remaining = await db.select().from(systemStatusTable);
   for (const c of GLOBAL_COMPONENTS) {
     const exists = remaining.some(s => s.component === c.component && !s.hostIp);
@@ -58,10 +70,16 @@ async function seedSystemStatus() {
 router.get("/system/status", async (_req, res) => {
   await seedSystemStatus();
 
-  const statuses = await db
-    .select()
-    .from(systemStatusTable)
-    .orderBy(asc(systemStatusTable.layer));
+  // Only return global rows (no hostIp) + rows whose hostIp is a registered host
+  const [allRows, hosts] = await Promise.all([
+    db.select().from(systemStatusTable).orderBy(asc(systemStatusTable.layer)),
+    db.select().from(networkHostsTable),
+  ]);
+  const activeIps = new Set(hosts.map(h => h.ip).filter(Boolean));
+
+  const statuses = allRows.filter(
+    s => !s.hostIp || activeIps.has(s.hostIp),
+  );
 
   res.json(statuses.map(s => ({
     ...s,
