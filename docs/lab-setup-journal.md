@@ -2991,3 +2991,21 @@ Kali hydra → bank-web SSH port 22 → auth.log fail entry
 - Cowrie honeypot: https://github.com/cowrie/cowrie
 - AEGIS API endpoints: `lib/api-spec/openapi.yaml`
 - AEGIS forwarder: `scripts/src/aegis_forwarder.py`
+
+---
+
+### [2026-07-16] — Topology Simplification (R2, bank-mail, teller-pc ဖြုတ်)
+
+**Status:** ✅ Done  
+**What:** Router 2 ဖြုတ်ပြီး R1 ကနေ pfSense ကို တိုက်ရိုက်ချိတ်၊ bank-mail နဲ့ teller-pc nodes ဖြုတ်  
+**How:**  
+- R1 ether3 IP: `10.0.12.1/30` → `10.0.23.1/30` (pfSense WAN subnet နဲ့ ညှိ)  
+- R1 route: `10.0.0.0/8 via 10.0.12.2` → `10.0.0.0/8 via 10.0.23.2` (R2 ကနေ pfSense ကို တိုက်ရိုက်)  
+- Kali route: `sudo ip route add 10.0.0.0/8 via 192.168.122.2`  
+**Result:**  
+- pfSense ↔ R1 ping ✅ (1ms)  
+- pfSense → 8.8.8.8 internet ✅ (~30ms)  
+- Kali → bank-web (10.10.10.10) ✅ 0% loss  
+- Kali → customer-db (10.20.20.20) ✅ 0% loss  
+- Kali → aegis-forwarder (10.30.30.10) ✅ 0% loss  
+**Next:** Kali route add ကို persistent ထားဖို့ (reboot ဆို ပျောက်သွားနိုင်)
