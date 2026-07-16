@@ -202,7 +202,7 @@ router.post("/ingest/fail2ban", auth, async (req, res) => {
   const event = await insertEvent({
     type:"network_attack", subtype:"Brute Force", severity:"high",
     sourceIp: ip ?? "unknown",
-    targetHost: target_ip ?? "ubuntu-server",
+    targetHost: target_ip ?? "bank-web",
     toolUsed:"fail2ban", description:`Fail2ban banned ${ip} from [${jail ?? "sshd"}] after ${failures ?? "?"} failures. Auto-block applied.`,
     status:"blocked", layer:"perimeter",
   });
@@ -217,7 +217,7 @@ router.post("/ingest/ssh", auth, async (req, res) => {
   // dest_ip: IP of the SSH server being attacked (the Ubuntu VM's IP, e.g. 10.10.10.10)
   const { src_ip, dest_ip, username, status: st, auth_method, session_id, failures } = req.body;
   const failCount = Number(failures) || 0;
-  const targetHost = dest_ip ?? "ubuntu-server";
+  const targetHost = dest_ip ?? "bank-web";
 
   await db.insert(sshSessionsTable).values({
     sourceIp: src_ip ?? "unknown", username: username ?? null,

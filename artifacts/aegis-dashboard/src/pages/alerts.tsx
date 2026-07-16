@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Check, Siren, AlertTriangle, Bell, ArrowRight, Monitor } from "lucide-react";
 import { format } from "date-fns";
+import { HostLabel } from "@/lib/host-utils";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 
@@ -181,7 +182,7 @@ export default function Alerts() {
                         <ArrowRight className="w-3 h-3 text-muted-foreground" />
                       )}
                       {alert.targetHost && (
-                        <span className="text-cyan-400">{alert.targetHost}</span>
+                        <HostLabel ip={alert.targetHost} />
                       )}
                       {alert.toolUsed && (
                         <span className="text-yellow-400/80 ml-1">· {alert.toolUsed}</span>

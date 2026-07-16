@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Textarea } from "@/components/ui/textarea";
 import { Trash2, Plus, Download, RefreshCcw, Flame, Terminal, BookOpen, Shield } from "lucide-react";
 import { format } from "date-fns";
+import { HostLabel } from "@/lib/host-utils";
 import { useToast } from "@/hooks/use-toast";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -311,7 +312,7 @@ function RulesTab() {
                     {r.actionType}
                   </Badge>
                 </TableCell>
-                <TableCell className="font-mono text-xs text-muted-foreground">{r.targetVm}</TableCell>
+                <TableCell><HostLabel ip={r.targetVm} /></TableCell>
                 <TableCell className="text-right font-mono text-xs text-muted-foreground">{r.priority}</TableCell>
                 <TableCell>
                   <Button
@@ -568,7 +569,7 @@ function HistoryTab() {
                     : <span className="text-xs text-muted-foreground">—</span>}
                 </TableCell>
                 <TableCell className="font-mono text-xs text-cyan-400">{c.targetIp ?? "—"}</TableCell>
-                <TableCell className="font-mono text-xs text-muted-foreground">{c.targetVm}</TableCell>
+                <TableCell><HostLabel ip={c.targetVm} /></TableCell>
                 <TableCell>
                   <Badge variant="outline" className="text-[10px] border-primary/30 text-primary/80">{c.commandType}</Badge>
                 </TableCell>

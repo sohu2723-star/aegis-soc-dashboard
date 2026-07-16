@@ -26,14 +26,16 @@ const STATIC_LABELS: Record<string, { label: string; role: "defender" | "attacke
 };
 
 // ─── Generic labels stored by ingest routes when no real IP known ─────────────
-const GENERIC_LABELS: Record<string, string> = {
-  "bank-web":        "bank-web",
-  "customer-db":     "customer-db",
-  "aegis-forwarder": "aegis-forwarder",
-  "internal-network":"internal-network",
-  "ubuntu-server":   "ubuntu-server",
-  "dns-server":      "dns-server",
-  "lan-segment":     "LAN segment",
+const GENERIC_LABELS: Record<string, { label: string; role: "defender" | "attacker" | "infra" }> = {
+  "bank-web":         { label: "bank-web",        role: "defender" },
+  "customer-db":      { label: "customer-db",     role: "defender" },
+  "aegis-forwarder":  { label: "aegis-forwarder", role: "defender" },
+  "aegis":            { label: "aegis-forwarder", role: "defender" },
+  "ubuntu":           { label: "ubuntu (VM)",     role: "defender" },
+  "pfsense":          { label: "pfSense",         role: "infra"    },
+  "internal-network": { label: "internal-network",role: "infra"    },
+  "lan-segment":      { label: "LAN segment",     role: "infra"    },
+  "dns-server":       { label: "dns-server",      role: "infra"    },
 };
 
 export interface HostInfo {
@@ -64,9 +66,9 @@ export function resolveHostLabel(value: string, hosts: NetworkHost[]): HostInfo 
   const staticEntry = STATIC_LABELS[value];
   if (staticEntry) return { label: staticEntry.label, raw: value, role: staticEntry.role };
 
-  // 3. Generic label passthrough (not a real IP — e.g. "ubuntu-server")
+  // 3. Generic label passthrough (not a real IP — e.g. "bank-web")
   const generic = GENERIC_LABELS[value];
-  if (generic) return { label: generic, raw: value, role: "defender" };
+  if (generic) return { label: generic.label, raw: value, role: generic.role };
 
   // 4. Raw value (unknown attacker IP, etc.)
   return { label: value, raw: value, role: "unknown" };

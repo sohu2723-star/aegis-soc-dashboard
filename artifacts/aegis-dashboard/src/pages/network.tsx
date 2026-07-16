@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { HostLabel } from "@/lib/host-utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -246,9 +247,9 @@ function HostDetailPanel({ host, onClose }: { host: NetworkHost; onClose: () => 
                         </span>
                       </div>
                       <div className="flex items-center gap-2 text-muted-foreground">
-                        <span className="font-mono text-red-400">{e.sourceIp}</span>
+                        <span className="font-mono text-cyan-400">{e.sourceIp}</span>
                         <span>→</span>
-                        <span className="font-mono text-cyan-400">{e.targetHost}</span>
+                        <HostLabel ip={e.targetHost} />
                         {e.toolUsed && <span className="text-yellow-400/80">· {e.toolUsed}</span>}
                       </div>
                     </div>

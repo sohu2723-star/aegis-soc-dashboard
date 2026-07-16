@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDeviceContext } from "@/lib/device-context";
 import { useGetRecentEvents, getGetRecentEventsQueryKey } from "@workspace/api-client-react";
+import { HostLabel } from "@/lib/host-utils";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -262,8 +263,8 @@ export default function Dashboard() {
                         : "bg-green-500"
                     }`}
                   />
-                  <span className="font-medium text-foreground truncate">{event.sourceIp}</span>
-                  <span className="text-muted-foreground truncate hidden sm:inline-block">→ {event.targetHost}</span>
+                  <span className="font-mono text-xs text-cyan-400 truncate">{event.sourceIp}</span>
+                  <span className="text-muted-foreground truncate hidden sm:inline-block">→ <HostLabel ip={event.targetHost} /></span>
                   <span className="text-muted-foreground truncate hidden md:inline-block text-[10px]">
                     [{event.subtype}]
                   </span>
