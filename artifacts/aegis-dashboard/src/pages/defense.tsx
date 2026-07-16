@@ -56,14 +56,15 @@ function useBlocks(device: string | null) {
   });
 }
 
-function useDefenseStatus() {
+function useDefenseStatus(device: string | null) {
   return useQuery<DefenseStatus>({
-    queryKey: ["defense-status"],
+    queryKey: ["defense-status", device],
     queryFn: async () => {
-      const r = await fetch(`${BASE}/api/defense/status`);
+      const qs = device ? `?device=${encodeURIComponent(device)}` : "";
+      const r = await fetch(`${BASE}/api/defense/status${qs}`);
       return r.json();
     },
-    refetchInterval: 10000,
+    refetchInterval: 5000,
   });
 }
 
@@ -163,7 +164,7 @@ export default function Defense() {
   const deviceFilter = selectedDevice ? selectedDevice.ip : null;
 
   const { data: blocks = [], refetch: refetchBlocks } = useBlocks(deviceFilter);
-  const { data: status } = useDefenseStatus();
+  const { data: status } = useDefenseStatus(deviceFilter);
   const { data: actions = [] } = useDefenseActions(deviceFilter);
 
   // Track which services just changed state for visual flash

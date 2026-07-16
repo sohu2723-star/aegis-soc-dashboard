@@ -1408,10 +1408,9 @@ Modes:
     hb = threading.Thread(target=heartbeat_loop, daemon=True, name="heartbeat")
     hb.start()
 
-    # Local service health — skip in hub mode (hub uses _remote_service_health_loop)
-    if not _is_hub:
-        sh = threading.Thread(target=service_health_loop, daemon=True, name="service_health")
-        sh.start()
+    # Local service health — always run (covers AEGIS VM itself in hub mode too)
+    sh = threading.Thread(target=service_health_loop, daemon=True, name="service_health")
+    sh.start()
 
     def shutdown(sig=None, frame=None):
         """Send offline status immediately before exiting."""

@@ -126,7 +126,9 @@ router.get("/defense/actions", async (req, res) => {
   res.json(filtered.slice(0, 100).map(a => ({ ...a, createdAt: a.createdAt.toISOString() })));
 });
 
-router.get("/defense/status", async (_req, res) => {
+router.get("/defense/status", async (req, res) => {
+  const device = (req.query.device as string) || null;
+
   const [activeBlocks, recentActions, sensorRows, autoDefenseEnabled] = await Promise.all([
     db.select().from(blockedIpsTable).where(eq(blockedIpsTable.isActive, true)),
     db.select().from(defenseActionsTable).orderBy(desc(defenseActionsTable.createdAt)).limit(5),
@@ -134,11 +136,20 @@ router.get("/defense/status", async (_req, res) => {
     isAutoDefenseEnabled(),
   ]);
 
-  // Derive sensor liveness from system_status rows sent by the Ubuntu VM forwarder.
-  // If the forwarder has never connected, these rows won't exist → show false.
-  function sensorOnline(name: string) {
-    const row = sensorRows.find(r => r.component.toLowerCase().includes(name.toLowerCase()));
-    return row?.status === "online";
+  // Derive sensor liveness from system_status rows.
+  // If device is selected: check only that host's row.
+  // If "All Devices": true if ANY registered VM has the sensor online.
+  function sensorOnline(name: string): boolean {
+    const matching = sensorRows.filter(r =>
+      r.component.toLowerCase().includes(name.toLowerCase())
+    );
+    if (device) {
+      // Specific device selected — find its row by hostIp
+      const row = matching.find(r => r.hostIp === device);
+      return row?.status === "online";
+    }
+    // All devices — true if at least one VM has it online
+    return matching.some(r => r.status === "online");
   }
 
   res.json({

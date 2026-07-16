@@ -335,36 +335,6 @@ export default function Network() {
     }
   }
 
-  async function markOffline(e: React.MouseEvent, host: NetworkHost) {
-    e.stopPropagation();
-    setLoadingId(host.id);
-    try {
-      const res = await fetch(`${BASE}/api/network/hosts/${host.id}/offline`, { method: "PATCH" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      toast({ title: "Device Isolated", description: `${host.ip} (${host.hostname}) — offline + iptables DROP queued on VM.` });
-    } catch (err: any) {
-      toast({ title: "Failed", description: err.message, variant: "destructive" });
-    } finally {
-      qc.invalidateQueries({ queryKey: ["network-hosts"] });
-      setLoadingId(null);
-    }
-  }
-
-  async function markOnline(e: React.MouseEvent, host: NetworkHost) {
-    e.stopPropagation();
-    setLoadingId(host.id);
-    try {
-      const res = await fetch(`${BASE}/api/network/hosts/${host.id}/online`, { method: "PATCH" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      toast({ title: "Device Reconnected", description: `${host.ip} (${host.hostname}) — online + iptables unblock queued on VM.` });
-    } catch (err: any) {
-      toast({ title: "Failed", description: err.message, variant: "destructive" });
-    } finally {
-      qc.invalidateQueries({ queryKey: ["network-hosts"] });
-      setLoadingId(null);
-    }
-  }
-
   const onlineCount    = hosts.filter(h => h.status === "online").length;
   const offlineCount   = hosts.filter(h => h.status === "offline").length;
   const monitoredCount = hosts.filter(h => h.isMonitored).length;
