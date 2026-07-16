@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db, networkHostsTable } from "@workspace/db";
-import { securityEventsTable, defenseCommandsTable } from "@workspace/db";
+import { securityEventsTable, defenseCommandsTable, systemStatusTable } from "@workspace/db";
 import { eq, desc, or, lt, and, gte, asc } from "drizzle-orm";
 import { z } from "zod";
 import { broadcaster } from "../lib/broadcaster";
@@ -134,11 +134,25 @@ router.post("/network/hosts", async (req, res) => {
   res.json({ ...created, lastSeen: created.lastSeen.toISOString(), createdAt: created.createdAt.toISOString() });
 });
 
-// ─── Remove host ───────────────────────────────────────────────────────────────
+// ─── Remove host (+ cascade-delete its sensor rows) ───────────────────────────
 router.delete("/network/hosts/:id", async (req, res) => {
   const id = Number(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  // Grab the host's IP before deleting so we can clean up sensors
+  const [host] = await db.select().from(networkHostsTable).where(eq(networkHostsTable.id, id));
+  if (host?.ip) {
+    // Remove all system_status sensor rows tied to this host
+    await db.delete(systemStatusTable).where(eq(systemStatusTable.hostIp, host.ip));
+  }
+
   await db.delete(networkHostsTable).where(eq(networkHostsTable.id, id));
+
+  broadcaster.broadcast("host_status_change", {
+    id, ip: host?.ip ?? null, hostname: host?.hostname ?? null,
+    status: "deleted", reason: "manual_delete",
+  });
+
   res.json({ success: true });
 });
 

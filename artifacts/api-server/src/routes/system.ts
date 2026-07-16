@@ -1,28 +1,57 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { systemStatusTable } from "@workspace/db";
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, inArray } from "drizzle-orm";
 import { broadcaster } from "../lib/broadcaster";
 
 const router = Router();
 
-const DEFAULT_COMPONENTS = [
-  { component: "Suricata IDS/IPS", layer: "perimeter", status: "unknown", description: "Network intrusion detection — monitors all traffic for attack signatures (Snort rules, ET open ruleset)" },
-  { component: "Snort IDS",        layer: "perimeter", status: "unknown", description: "Packet-level intrusion detection — complements Suricata with additional rule sets" },
-  { component: "pfSense Firewall", layer: "perimeter", status: "unknown", description: "Edge firewall & router — enforces iptables/pf rules, blocks attacker IPs at network boundary" },
-  { component: "Fail2ban",         layer: "perimeter", status: "unknown", description: "Adaptive ban daemon — auto-bans IPs after repeated SSH/FTP/web failures" },
-  { component: "Cowrie Honeypot",  layer: "perimeter", status: "unknown", description: "SSH/Telnet honeypot — logs attacker commands & credentials, auto-triggers IP block on contact" },
-  { component: "ModSecurity WAF",  layer: "perimeter", status: "unknown", description: "Web application firewall — blocks SQLi, XSS, LFI, RFI, path traversal on HTTP layer" },
-  { component: "AEGIS API Server", layer: "brain",     status: "online",  description: "Central ingest & command server — receives sensor events, runs auto-defense engine, serves dashboard" },
-  { component: "AEGIS Dashboard",  layer: "output",    status: "online",  description: "Real-time monitoring UI — Command Center, Security Events, Incidents, Defense Center" },
-  { component: "Kali Linux (Red)", layer: "attacker",  status: "unknown", description: "Red Team attack machine — nmap, hydra, sqlmap, hping3, metasploit, gobuster" },
+// Global infrastructure components — always present, no specific host
+const GLOBAL_COMPONENTS = [
+  {
+    component: "pfSense Firewall",
+    layer: "perimeter",
+    status: "unknown",
+    description: "Edge firewall & router — enforces pf rules, blocks attacker IPs at network boundary",
+  },
+  {
+    component: "AEGIS API Server",
+    layer: "brain",
+    status: "online",
+    description: "Central ingest & command server — receives sensor events, runs auto-defense engine, serves dashboard",
+  },
+];
+
+// Components that are obsolete and should be removed from the DB on startup
+const OBSOLETE_COMPONENTS = [
+  "Snort IDS",
+  "Cowrie Honeypot",
+  "ModSecurity WAF",
+  "AEGIS Dashboard",
+  "Kali Linux (Red)",
+  "Suricata IDS/IPS",   // now registered per-host by the VM forwarder
+  "Fail2ban",           // now registered per-host by the VM forwarder
 ];
 
 async function seedSystemStatus() {
-  const existing = await db.select().from(systemStatusTable);
-  if (existing.length > 0) return;
-  for (const c of DEFAULT_COMPONENTS) {
-    await db.insert(systemStatusTable).values(c);
+  // 1. Remove obsolete global components (no hostIp) from DB
+  const all = await db.select().from(systemStatusTable);
+  const toDelete = all.filter(
+    s => !s.hostIp && OBSOLETE_COMPONENTS.includes(s.component),
+  );
+  if (toDelete.length > 0) {
+    await db.delete(systemStatusTable).where(
+      inArray(systemStatusTable.id, toDelete.map(s => s.id)),
+    );
+  }
+
+  // 2. Seed global components if missing
+  const remaining = await db.select().from(systemStatusTable);
+  for (const c of GLOBAL_COMPONENTS) {
+    const exists = remaining.some(s => s.component === c.component && !s.hostIp);
+    if (!exists) {
+      await db.insert(systemStatusTable).values(c);
+    }
   }
 }
 

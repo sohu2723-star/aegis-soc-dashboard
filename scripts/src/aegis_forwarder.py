@@ -59,10 +59,8 @@ VM_NAME   = _cfg("VM_NAME",   "ubuntu")   # ubuntu | pfsense — used by the def
 # Override REMOTE_SSH_USER in aegis_forwarder.local.conf if your user differs.
 REMOTE_SSH_USER = _cfg("REMOTE_SSH_USER", "sithu")
 REMOTE_HOSTS = [
-    {"name": "bank-web",     "ip": "10.10.10.10"},
-    {"name": "bank-mail",    "ip": "10.10.10.20"},
-    {"name": "teller-pc",    "ip": "10.20.20.10"},
-    {"name": "customer-db",  "ip": "10.20.20.20"},
+    {"name": "bank-web",    "ip": "10.10.10.10"},
+    {"name": "customer-db", "ip": "10.20.20.20"},
 ]
 
 HEADERS = {
@@ -342,25 +340,47 @@ def get_service_status(service: str) -> str:
         return "unknown"
 
 
-# Map: systemd service name → AEGIS component name (must match system_status table)
+# Map: (check_key, component, layer, check_type)
+# check_type "systemctl" → systemctl is-active <check_key>
+# check_type "port"      → check if TCP port <check_key> is listening (ss -tlnp)
 SERVICE_MAP = [
-    ("fail2ban",  "Fail2ban",        "perimeter"),
-    ("suricata",  "Suricata IDS/IPS","perimeter"),
-    ("snort",     "Snort IDS",       "perimeter"),
-    ("cowrie",    "Cowrie Honeypot", "perimeter"),
+    ("suricata",    "Suricata IDS/IPS",    "sensor", "systemctl"),
+    ("fail2ban",    "Fail2ban",            "sensor", "systemctl"),
+    ("postgresql",  "PostgreSQL Monitor",  "sensor", "systemctl"),
+    (":80",         "Morgan HTTP Logger",  "sensor", "port"),
 ]
+
+
+def check_sensor_status(check_key: str, check_type: str) -> str:
+    """Return 'online', 'offline', or 'unknown'."""
+    try:
+        if check_type == "systemctl":
+            result = subprocess.run(
+                ["systemctl", "is-active", check_key],
+                capture_output=True, text=True, timeout=5,
+            )
+            return "online" if result.stdout.strip() == "active" else "offline"
+        elif check_type == "port":
+            out = subprocess.check_output(
+                ["ss", "-tlnp"], text=True, stderr=subprocess.DEVNULL
+            )
+            return "online" if check_key in out else "offline"
+    except Exception:
+        return "unknown"
+    return "unknown"
 
 
 def service_health_loop():
     """
-    Report real service health to AEGIS every 30s.
-    Updates system_status table → triggers SSE service_status_change → Defense Center updates in real time.
+    Report real sensor health to AEGIS every 30s.
+    Updates system_status table → triggers SSE service_status_change → real-time UI update.
+    Sensors: Suricata, Fail2ban, PostgreSQL (systemctl), Morgan HTTP Logger (port :80).
     """
-    print("[SERVICE HEALTH] Monitoring: fail2ban, suricata, snort, cowrie")
+    print("[SERVICE HEALTH] Monitoring: suricata, fail2ban, postgresql, morgan(:80)")
     own_ip = get_local_ip()
     while True:
-        for svc_name, component, layer in SERVICE_MAP:
-            status = get_service_status(svc_name)
+        for check_key, component, layer, check_type in SERVICE_MAP:
+            status = check_sensor_status(check_key, check_type)
             ts = datetime.now().strftime("%H:%M:%S")
             try:
                 r = requests.post(
@@ -371,7 +391,8 @@ def service_health_loop():
                         "status":    status,
                         "hostIp":    own_ip,
                         "metrics":   json.dumps({
-                            "service":    svc_name,
+                            "check":      check_key,
+                            "type":       check_type,
                             "checked_at": datetime.now().isoformat(),
                         }),
                     },
@@ -382,9 +403,9 @@ def service_health_loop():
                 if r.status_code in (200, 201):
                     print(f"[{ts}] {indicator} {component}: {status.upper()}")
                 else:
-                    print(f"[{ts}] WARN service_health/{svc_name}: HTTP {r.status_code}")
+                    print(f"[{ts}] WARN service_health/{check_key}: HTTP {r.status_code}")
             except Exception as e:
-                print(f"[{ts}] ERROR service_health/{svc_name}: {e}")
+                print(f"[{ts}] ERROR service_health/{check_key}: {e}")
         time.sleep(30)
 
 
@@ -504,13 +525,9 @@ def watch_ssh():
     fail_counts: dict[str, int] = {}
 
     # IPs that belong to our own lab infrastructure — never flag as attackers
-    # (aegis-forwarder hub SSHes into this VM for log collection)
     OWN_IP = get_local_ip()
     DEFENDER_IPS = {
-        "10.30.30.10",   # aegis-forwarder
         "10.10.10.10",   # bank-web
-        "10.10.10.20",   # bank-mail
-        "10.20.20.10",   # teller-pc
         "10.20.20.20",   # customer-db
         OWN_IP,          # this VM itself
     }
@@ -857,17 +874,29 @@ def _remote_heartbeat_loop(hosts: list):
 def _remote_service_health_loop(hosts: list):
     """SSH into each bank VM every 30s and report real service health to AEGIS."""
     _services = [
-        ("suricata", "Suricata IDS/IPS", "perimeter"),
-        ("snort",    "Snort IDS",        "perimeter"),
-        ("fail2ban", "Fail2ban",         "perimeter"),
-        ("cowrie",   "Cowrie Honeypot",  "perimeter"),
+        # systemctl-checked services
+        ("suricata",   "Suricata IDS/IPS",   "sensor", "systemctl"),
+        ("fail2ban",   "Fail2ban",            "sensor", "systemctl"),
+        ("postgresql", "PostgreSQL Monitor",  "sensor", "systemctl"),
     ]
-    # One SSH call returns 4 space-separated active/inactive/unknown tokens
-    _cmd = " ".join(
+    # Port-checked services (run via ss -tlnp on remote)
+    _port_services = [
+        (":80",  "Morgan HTTP Logger", "sensor"),
+    ]
+
+    # Build SSH check command: systemctl tokens + port tokens in one call
+    _svc_cmds = " ".join(
         f"$(systemctl is-active {svc} 2>/dev/null || echo unknown)"
-        for svc, _, _ in _services
+        for svc, _, _, _ in _services
     )
-    print("[REMOTE SERVICE HEALTH] Monitoring bank VMs every 30s via SSH")
+    _port_cmds = " ".join(
+        f"$(ss -tlnp 2>/dev/null | grep -q '{port}' && echo active || echo inactive)"
+        for port, _, _ in _port_services
+    )
+    _full_cmd = f"printf '%s ' {_svc_cmds} {_port_cmds}"
+
+    print("[REMOTE SERVICE HEALTH] Monitoring bank-web & customer-db every 30s via SSH")
+    print(f"[REMOTE SERVICE HEALTH] Checks: suricata, fail2ban, postgresql, morgan(:80)")
     while True:
         for h in hosts:
             ssh_cmd = [
@@ -876,14 +905,19 @@ def _remote_service_health_loop(hosts: list):
                 "-o", "ConnectTimeout=5",
                 "-o", "BatchMode=yes",
                 f"{REMOTE_SSH_USER}@{h['ip']}",
-                f"printf '%s %s %s %s' {_cmd}",
+                _full_cmd,
             ]
             try:
                 out = subprocess.check_output(
                     ssh_cmd, stderr=subprocess.DEVNULL, timeout=8, text=True
                 ).strip().split()
                 ts = datetime.now().strftime("%H:%M:%S")
-                for i, (svc, component, layer) in enumerate(_services):
+                all_checks = [
+                    (svc, component, layer) for svc, component, layer, _ in _services
+                ] + [
+                    (port, component, layer) for port, component, layer in _port_services
+                ]
+                for i, (key, component, layer) in enumerate(all_checks):
                     raw = out[i] if i < len(out) else "unknown"
                     status = "online" if raw == "active" else "offline"
                     indicator = "✓" if status == "online" else "✗"

@@ -42,12 +42,11 @@ export default function SystemStatus() {
 
   const layerLabels: Record<string, string> = {
     perimeter: "Perimeter Defense",
+    sensor:    "Security Sensors",
     brain:     "AEGIS Core",
-    output:    "Dashboard",
-    attacker:  "Red Team",
   };
 
-  const layers = ['perimeter', 'brain', 'output', 'attacker'];
+  const layers = ['perimeter', 'sensor', 'brain'];
 
   const onlineCount  = systems?.filter((s: any) => s.status === "online").length  ?? 0;
   const offlineCount = systems?.filter((s: any) => s.status === "offline").length ?? 0;
