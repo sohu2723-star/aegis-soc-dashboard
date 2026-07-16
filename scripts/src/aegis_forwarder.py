@@ -70,11 +70,23 @@ REMOTE_HOSTS = [
         "name": "bank-web",
         "ip":   "10.10.10.10",
         "sensors": ["suricata", "snort", "fail2ban", "ssh", "http", "ftp"],
+        # services to health-check via SSH systemctl on this VM
+        "health_services": [
+            ("suricata",  "Suricata IDS/IPS",        "sensor"),
+            ("fail2ban",  "Fail2ban",                 "sensor"),
+            ("apache2",   "HTTP Service (Apache2)",   "sensor"),
+            ("vsftpd",    "FTP Service (vsftpd)",     "sensor"),
+        ],
     },
     {
         "name": "customer-db",
         "ip":   "10.20.20.20",
         "sensors": ["suricata", "fail2ban", "ssh", "postgresql"],
+        "health_services": [
+            ("suricata",    "Suricata IDS/IPS",   "sensor"),
+            ("fail2ban",    "Fail2ban",            "sensor"),
+            ("postgresql",  "PostgreSQL Monitor",  "sensor"),
+        ],
     },
 ]
 
@@ -1142,65 +1154,89 @@ def _remote_heartbeat_loop(hosts: list):
 
 
 def _remote_service_health_loop(hosts: list):
-    """SSH into each bank VM every 30s and report real service health to AEGIS."""
-    _services = [
-        # systemctl-checked services
-        ("suricata",   "Suricata IDS/IPS",   "sensor", "systemctl"),
-        ("fail2ban",   "Fail2ban",            "sensor", "systemctl"),
-        ("postgresql", "PostgreSQL Monitor",  "sensor", "systemctl"),
-    ]
-    # Port-checked services (run via ss -tlnp on remote)
-    _port_services = [
-        (":80",  "Morgan HTTP Logger", "sensor"),
-    ]
-
-    # Build SSH check command: systemctl tokens + port tokens in one call
-    _svc_cmds = " ".join(
-        f"$(systemctl is-active {svc} 2>/dev/null || echo unknown)"
-        for svc, _, _, _ in _services
-    )
-    _port_cmds = " ".join(
-        f"$(ss -tlnp 2>/dev/null | grep -q '{port}' && echo active || echo inactive)"
-        for port, _, _ in _port_services
-    )
-    _full_cmd = f"printf '%s ' {_svc_cmds} {_port_cmds}"
-
+    """SSH into each bank VM every 30s and report real service health to AEGIS.
+    Each host uses its own health_services list so bank-web and customer-db
+    get the right set of checks (no postgresql on bank-web, no apache2 on customer-db).
+    """
     print("[REMOTE SERVICE HEALTH] Monitoring bank-web & customer-db every 30s via SSH")
-    print(f"[REMOTE SERVICE HEALTH] Checks: suricata, fail2ban, postgresql, morgan(:80)")
+    for h in hosts:
+        svcs = [s[0] for s in h.get("health_services", [])]
+        print(f"[REMOTE SERVICE HEALTH]   {h['name']}: {', '.join(svcs)}")
+
     while True:
         for h in hosts:
+            health_svcs = h.get("health_services", [])
+            if not health_svcs:
+                continue
+            # Build one SSH command: check every service via systemctl in a single call
+            cmds = " ".join(
+                f"$(systemctl is-active {svc} 2>/dev/null || echo unknown)"
+                for svc, _, _ in health_svcs
+            )
+            full_cmd = f"printf '%s ' {cmds}"
             ssh_cmd = [
                 "ssh", "-T",
                 "-o", "StrictHostKeyChecking=no",
                 "-o", "ConnectTimeout=5",
                 "-o", "BatchMode=yes",
                 f"{REMOTE_SSH_USER}@{h['ip']}",
-                _full_cmd,
+                full_cmd,
             ]
             try:
                 out = subprocess.check_output(
                     ssh_cmd, stderr=subprocess.DEVNULL, timeout=8, text=True
                 ).strip().split()
                 ts = datetime.now().strftime("%H:%M:%S")
-                all_checks = [
-                    (svc, component, layer) for svc, component, layer, _ in _services
-                ] + [
-                    (port, component, layer) for port, component, layer in _port_services
-                ]
-                for i, (key, component, layer) in enumerate(all_checks):
+                for i, (svc, component, layer) in enumerate(health_svcs):
                     raw = out[i] if i < len(out) else "unknown"
-                    status = "online" if raw == "active" else "offline"
+                    status = "online" if raw == "active" else ("unknown" if raw == "unknown" else "offline")
                     indicator = "✓" if status == "online" else "✗"
-                    requests.post(
-                        f"{AEGIS_URL}/system/status",
-                        json={"component": component, "layer": layer,
-                              "status": status, "hostIp": h["ip"]},
-                        headers=HEADERS,
-                        timeout=5,
-                    )
+                    try:
+                        requests.post(
+                            f"{AEGIS_URL}/system/status",
+                            json={"component": component, "layer": layer,
+                                  "status": status, "hostIp": h["ip"]},
+                            headers=HEADERS,
+                            timeout=5,
+                        )
+                    except Exception:
+                        pass
                     print(f"[{ts}] [{h['name']}] {indicator} {component}: {status.upper()}")
             except Exception as e:
                 print(f"[REMOTE SERVICE HEALTH] {h['name']} SSH error: {e}")
+        time.sleep(30)
+
+
+def _pfsense_health_loop():
+    """Report pfSense Firewall as online/offline every 30s in hub mode.
+    Tries HTTP to pfSense management IP — if reachable → online, else → offline.
+    No API key needed; just connectivity from AEGIS VM to pfSense OPT2 interface.
+    """
+    print(f"[PFSENSE HEALTH] Monitoring pfSense ({PFSENSE_IP}) every 30s")
+    while True:
+        try:
+            r = requests.get(f"http://{PFSENSE_IP}", timeout=5)
+            status = "online"   # pfSense web UI responded (even 200/302/403 = reachable)
+        except Exception:
+            status = "offline"
+        ts = datetime.now().strftime("%H:%M:%S")
+        indicator = "✓" if status == "online" else "✗"
+        print(f"[{ts}] {indicator} pfSense Firewall ({PFSENSE_IP}): {status.upper()}")
+        try:
+            requests.post(
+                f"{AEGIS_URL}/system/status",
+                json={
+                    "component":   "pfSense Firewall",
+                    "layer":       "perimeter",
+                    "status":      status,
+                    "description": "Edge firewall & router — enforces pf rules, blocks attacker IPs at network boundary",
+                    "metrics":     json.dumps({"agent": "hub", "ip": PFSENSE_IP}),
+                },
+                headers=HEADERS,
+                timeout=5,
+            )
+        except Exception:
+            pass
         time.sleep(30)
 
 
@@ -1249,12 +1285,18 @@ def run_hub_mode():
     threads.append(hb)
     print("  ► remote heartbeat thread started")
 
-    # Service health — SSHes into each bank VM every 30s, checks systemctl + ports
+    # Service health — SSHes into each bank VM every 30s, checks systemctl per-host
     sh = threading.Thread(target=_remote_service_health_loop, args=(REMOTE_HOSTS,),
                           daemon=True, name="remote-service-health")
     sh.start()
     threads.append(sh)
     print("  ► remote service health thread started")
+
+    # pfSense health — ping pfSense management IP every 30s, report online/offline
+    pf = threading.Thread(target=_pfsense_health_loop, daemon=True, name="pfsense-health")
+    pf.start()
+    threads.append(pf)
+    print("  ► pfSense health thread started")
     print()
 
     # Log tailer threads — one per (host × sensor)
