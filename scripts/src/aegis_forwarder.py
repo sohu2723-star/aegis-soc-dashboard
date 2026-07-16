@@ -286,13 +286,35 @@ def register_host():
         print(f"  WARN Host registration failed: {e}")
 
 
+def _report_pfsense_online():
+    """Report pfSense Firewall component as online (called from heartbeat thread)."""
+    try:
+        requests.post(
+            f"{AEGIS_URL}/system/status",
+            json={
+                "component":   "pfSense Firewall",
+                "layer":       "perimeter",
+                "status":      "online",
+                "description": "Edge firewall & router — enforces pf rules, blocks attacker IPs at network boundary",
+                "metrics":     json.dumps({"agent": "aegis_forwarder", "vm": "pfsense"}),
+            },
+            headers=HEADERS,
+            timeout=5,
+        )
+    except Exception:
+        pass
+
+
 def heartbeat_loop():
     """Send periodic heartbeat every 15s to keep host status ONLINE.
     Auto-timeout on server is 45s, so 3 missed beats = offline.
+    When running on pfSense (VM_NAME=pfsense), also reports pfSense Firewall
+    component as 'online' — no API key needed, just AEGIS_INGEST_KEY.
     """
     ip       = get_local_ip()
     hostname = socket.gethostname()
     os_name  = get_os_info()
+    role     = "pfsense" if VM_NAME == "pfsense" else "ubuntu"
     while True:
         time.sleep(15)
         try:
@@ -300,13 +322,16 @@ def heartbeat_loop():
             ports = get_open_ports()
             requests.post(
                 f"{AEGIS_URL}/network/hosts",
-                json={"ip": ip, "hostname": hostname, "role": "ubuntu",
+                json={"ip": ip, "hostname": hostname, "role": role,
                       "os": os_name, "mac": mac or None,
                       "openPorts": ports or None,
                       "status": "online", "isMonitored": True},
                 headers=HEADERS,
                 timeout=5,
             )
+            # pfSense: also report the global pfSense Firewall component as online
+            if VM_NAME == "pfsense":
+                _report_pfsense_online()
         except Exception:
             pass
 

@@ -337,31 +337,42 @@ async function suggestManualDefense(rule: DefenseRule, event: IngestEvent) {
   broadcaster.broadcast("incident", { id: incRow.id, title: `[ACTION NEEDED] ${rule.name}` });
 }
 
+// Rules that belonged to removed services (bank-mail, teller-pc, cowrie, snort)
+// — deleted from DB on startup so they don't appear in the Defense Rules page.
+const OBSOLETE_RULE_NAMES = [
+  "Honeypot Touch → Instant Block",   // Cowrie honeypot removed
+  "FTP Brute Force → Block",          // no FTP server on bank-web/customer-db
+  "Mail Spam → Auto Block",           // bank-mail removed from lab
+];
+
 // ─── Seed default rules ───────────────────────────────────────────────────────
 export async function seedDefaultRules() {
   const existing = await db.select().from(defenseRulesTable);
+
+  // Remove obsolete rules that no longer apply to this lab topology
+  const toDelete = existing.filter(r => OBSOLETE_RULE_NAMES.includes(r.name));
+  if (toDelete.length > 0) {
+    const { inArray } = await import("drizzle-orm");
+    await db.delete(defenseRulesTable).where(
+      inArray(defenseRulesTable.id, toDelete.map(r => r.id)),
+    );
+  }
+
   const existingNames = new Set(existing.map(r => r.name));
 
   const defaults: Array<typeof defenseRulesTable.$inferInsert> = [
+    // ── bank-web + customer-db: iptables / null-route (executed by forwarder) ──
     {
       name: "SSH Brute Force → Auto Block",
-      description: "Block any IP with ≥5 SSH failures in 60s",
+      description: "Block any IP with ≥5 SSH failures in 60s on bank-web or customer-db",
       triggerAttackType: "ssh_brute", triggerSeverity: "any",
       triggerThreshold: 5, triggerWindowSecs: 60,
       actionType: "auto", defenseType: "block_ip",
       targetVm: "ubuntu", priority: 10, isActive: true,
     },
     {
-      name: "Honeypot Touch → Instant Block",
-      description: "Any honeypot contact = immediate IP ban",
-      triggerAttackType: "honeypot", triggerSeverity: "any",
-      triggerThreshold: 1, triggerWindowSecs: 1,
-      actionType: "auto", defenseType: "block_ip",
-      targetVm: "ubuntu", priority: 5, isActive: true,
-    },
-    {
       name: "DDoS → Null Route",
-      description: "Null-route IP sending ≥50 events in 30s",
+      description: "Null-route any IP flooding ≥50 events in 30s",
       triggerAttackType: "ddos", triggerSeverity: "any",
       triggerThreshold: 50, triggerWindowSecs: 30,
       actionType: "auto", defenseType: "null_route",
@@ -369,7 +380,7 @@ export async function seedDefaultRules() {
     },
     {
       name: "Web Attack (High) → Auto Block",
-      description: "Block IP on first high/critical SQLi, XSS, LFI, RFI",
+      description: "Block IP on first high/critical SQLi, XSS, LFI, RFI against bank-web",
       triggerAttackType: "web_attack", triggerSeverity: "high",
       triggerThreshold: 1, triggerWindowSecs: 60,
       actionType: "auto", defenseType: "block_ip",
@@ -383,41 +394,27 @@ export async function seedDefaultRules() {
       actionType: "auto", defenseType: "block_ip",
       targetVm: "ubuntu", priority: 20, isActive: true,
     },
+
+    // ── pfSense WAN: suggested blocks (auto if defense_agent runs on pfSense) ──
     {
-      name: "FTP Brute Force → Block",
-      description: "Block IP with ≥10 FTP failures in 60s",
-      triggerAttackType: "ftp_brute", triggerSeverity: "any",
-      triggerThreshold: 10, triggerWindowSecs: 60,
-      actionType: "auto", defenseType: "block_ip",
-      targetVm: "ubuntu", priority: 25, isActive: true,
-    },
-    {
-      name: "Mail Spam → Auto Block",
-      description: "Block IP sending ≥100 mails in 60s",
-      triggerAttackType: "mail_attack", triggerSeverity: "any",
-      triggerThreshold: 100, triggerWindowSecs: 60,
-      actionType: "auto", defenseType: "block_ip",
-      targetVm: "ubuntu", priority: 30, isActive: true,
-    },
-    {
-      name: "Critical Attack → pfSense Block (Suggested)",
-      description: "Any critical severity attack → suggest blocking at pfSense (manual — no auto-agent on the real router)",
+      name: "Critical Attack → pfSense Block",
+      description: "Critical attack → block at pfSense WAN. Auto-applied if defense_agent.py runs on pfSense with PFSENSE_API_KEY set; otherwise creates a manual incident.",
       triggerAttackType: "any", triggerSeverity: "critical",
       triggerThreshold: 1, triggerWindowSecs: 60,
       actionType: "suggest", defenseType: "pfsense_block",
       targetVm: "pfsense", priority: 50, isActive: true,
     },
     {
-      name: "Web Attack (SQLi/XSS/etc) → pfSense Block (Suggested)",
-      description: "High/critical web attack on a bank VM → suggest a pfSense block rule",
+      name: "Web Attack → pfSense Block",
+      description: "High/critical web attack → also block at pfSense WAN boundary. Auto-applied if defense_agent.py runs on pfSense.",
       triggerAttackType: "web_attack", triggerSeverity: "high",
       triggerThreshold: 1, triggerWindowSecs: 60,
       actionType: "suggest", defenseType: "pfsense_block",
       targetVm: "pfsense", priority: 45, isActive: true,
     },
     {
-      name: "MITM / ARP Spoof → Suggest Rule",
-      description: "ARP spoofing needs manual VLAN isolation — creates incident",
+      name: "MITM / ARP Spoof → Incident",
+      description: "ARP spoofing detected — creates incident with VLAN isolation steps. Manual action required on pfSense.",
       triggerAttackType: "mitm", triggerSeverity: "any",
       triggerThreshold: 1, triggerWindowSecs: 60,
       actionType: "suggest", defenseType: "alert_only",
@@ -426,7 +423,7 @@ export async function seedDefaultRules() {
   ];
 
   for (const rule of defaults) {
-    if (existingNames.has(rule.name)) continue; // already seeded — don't duplicate
+    if (existingNames.has(rule.name)) continue;
     await db.insert(defenseRulesTable).values(rule);
   }
 }
