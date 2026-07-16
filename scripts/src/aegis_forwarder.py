@@ -524,14 +524,16 @@ FAIL2BAN_RE  = re.compile(r"NOTICE\s+\[(\S+)\] Ban ([\d.]+)")
 
 def watch_fail2ban():
     print(f"[FAIL2BAN] Watching {FAIL2BAN_LOG}")
+    _own_ip = get_local_ip()
     for line in tail_file(FAIL2BAN_LOG):
         m = FAIL2BAN_RE.search(line)
         if not m:
             continue
         post("fail2ban", {
-            "jail":     m.group(1),
-            "ip":       m.group(2),
-            "failures": 5,
+            "jail":      m.group(1),
+            "ip":        m.group(2),
+            "failures":  5,
+            "target_ip": _own_ip,   # this VM is the target being protected
         })
 
 
@@ -565,10 +567,11 @@ def watch_ssh():
                 continue   # skip hub's own management SSH
             fail_counts[ip] = fail_counts.get(ip, 0) + 1
             post("ssh", {
-                "src_ip":   ip,
-                "username": user,
-                "status":   "failed",
-                "failures": fail_counts[ip],
+                "src_ip":    ip,
+                "dest_ip":   OWN_IP,   # this VM is the SSH target
+                "username":  user,
+                "status":    "failed",
+                "failures":  fail_counts[ip],
             })
 
         m_ok = SSH_SUCCESS_RE.search(line)
@@ -579,6 +582,7 @@ def watch_ssh():
             fail_counts.pop(ip, None)
             post("ssh", {
                 "src_ip":      ip,
+                "dest_ip":     OWN_IP,   # this VM is the SSH target
                 "username":    user,
                 "status":      "success",
                 "auth_method": auth,

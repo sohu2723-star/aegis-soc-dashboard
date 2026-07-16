@@ -3055,3 +3055,25 @@ Kali hydra → bank-web SSH port 22 → auth.log fail entry
 - Ubuntu VM မှာ: `sudo python3 scripts/src/defense_agent.py --vm ubuntu` run  
 - pfSense မှာ: PFSENSE_API_KEY set ပြီး `python3 scripts/src/defense_agent.py --vm pfsense` run  
 - Render environment မှာ secrets verify  
+
+---
+
+### [2026-07-16] — IP→Device Name Display + Forwarder targetHost Fix
+
+**Status:** ✅ Done  
+**What:** Dashboard မှာ raw IP တွေကို device name (bank-web, customer-db, Kali) နဲ့ ပြပေးတဲ့ feature ထည့်  
+**How:**  
+- `artifacts/aegis-dashboard/src/lib/host-utils.tsx` — `HostLabel` component + `resolveHostLabel()` utility  
+  - Priority: live network_hosts DB → static lab IP map → raw value  
+  - Color coding: defender=green, attacker=red, infra=purple  
+  - Static map: 10.10.10.10→bank-web, 10.20.20.20→customer-db, 10.30.30.10→aegis-forwarder, 192.168.122.132→Kali  
+- `pages/events.tsx` — sourceIp + targetHost columns → HostLabel  
+- `pages/connections.tsx` — Ip component → HostLabel  
+- `pages/defense.tsx` — blocked IPs + defense action targetIp → HostLabel  
+- `scripts/src/aegis_forwarder.py` — watch_ssh() + watch_fail2ban() → added `dest_ip`/`target_ip` = local VM IP  
+  (so SSH/Fail2ban events know which VM was attacked)  
+**Result:**  
+- 10.10.10.10 → "bank-web" (green), 10.20.20.20 → "customer-db" (green)  
+- Kali 192.168.122.132 → "Kali (attacker)" (red)  
+- showIp=true on hover shows raw IP  
+**Next:** Run `aegis_forwarder.py` on aegis-forwarder VM to register hosts in network_hosts table

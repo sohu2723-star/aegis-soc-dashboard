@@ -3,5 +3,6 @@
 - [Project intent](project-intent.md) — Real lab only (no simulation); Replit = code editor only; web UI is monitoring-only; VMs do actual attack/defense.
 - [GNS3 network config](gns3-network-config.md) — Confirmed IPs for all nodes; GNS3 NAT cloud uses 192.168.122.0/24 (DHCP only, no static); R1/R2 full MikroTik commands included.
 - [Ingest targetHost identity](ingest-targethost-identity.md) — targetHost is a mix of real dest IPs and generic labels ("mail-server" etc); device filters must match on IP and accept some events won't scope to a device yet.
+- [Host label display](host-label-display.md) — HostLabel component in lib/host-utils.tsx; static map + live network_hosts; color by role (defender=green, attacker=red, infra=purple).
 - [UI for Orphaned APIs](ui-orphaned-apis.md) — connections/defense-rules pages built; ui-rules.ts proxy pattern for admin-key-protected endpoints; dashboard openIncidents+blockedIPs cards added.
 - [Groq AI features](groq-ai-features.md) — Groq llama-3.3-70b; groq-client.ts wrapper; routes/ai.ts has 4 endpoints; reports AI-summary in `summary` text col (fallback template); Burmese+English mixed output.

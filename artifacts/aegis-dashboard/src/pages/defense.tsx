@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Shield, ShieldOff, Lock, Unlock, Bot, UserCheck, AlertTriangle, RefreshCcw, Sparkles, Zap } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
+import { HostLabel } from "@/lib/host-utils";
 import { useToast } from "@/hooks/use-toast";
 import { useDeviceContext } from "@/lib/device-context";
 import { Switch } from "@/components/ui/switch";
@@ -388,7 +389,7 @@ export default function Defense() {
                   <div className="flex items-center gap-2">
                     <Lock className="w-3 h-3 text-red-400 shrink-0" />
                     <div>
-                      <p className="font-mono text-xs text-red-400">{b.ip}</p>
+                      <HostLabel ip={b.ip} showIp />
                       <p className="text-xs text-muted-foreground">{b.reason}</p>
                     </div>
                   </div>
@@ -557,7 +558,7 @@ export default function Defense() {
                         {actionIcons[a.action]}
                         {a.action.toUpperCase()}
                       </td>
-                      <td className="py-2 px-3 font-mono text-xs text-primary">{a.targetIp}</td>
+                      <td className="py-2 px-3"><HostLabel ip={a.targetIp} showIp /></td>
                       <td className="py-2 px-3 text-xs text-muted-foreground max-w-xs truncate">{a.reason}</td>
                       <td className="py-2 px-3 text-xs">
                         {a.performedBy === "admin"
@@ -597,7 +598,7 @@ export default function Defense() {
                   <div className="flex items-center gap-2">
                     <Unlock className="w-3 h-3 text-gray-500 shrink-0" />
                     <div>
-                      <p className="font-mono text-xs text-gray-400">{b.ip}</p>
+                      <HostLabel ip={b.ip} showIp />
                       <p className="text-xs text-muted-foreground">{b.reason}</p>
                     </div>
                   </div>

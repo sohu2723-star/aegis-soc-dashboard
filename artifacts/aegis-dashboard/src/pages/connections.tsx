@@ -8,6 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { RefreshCcw, Terminal, FolderOpen, Lock, Globe } from "lucide-react";
 import { format } from "date-fns";
+import { HostLabel } from "@/lib/host-utils";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -56,7 +57,7 @@ function Ts({ v }: { v: string }) {
   return <span className="font-mono text-xs text-muted-foreground whitespace-nowrap">{format(new Date(v), "MM/dd HH:mm:ss")}</span>;
 }
 function Ip({ v }: { v: string }) {
-  return <span className="font-mono text-xs text-cyan-400">{v}</span>;
+  return <HostLabel ip={v} showIp />;
 }
 
 type TabId = "ssh" | "ftp" | "tls" | "http";

@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { format } from "date-fns";
 import { Search, Filter, RefreshCcw, Sparkles, Bot, X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { HostLabel } from "@/lib/host-utils";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -132,8 +133,8 @@ export default function Events() {
                   </Badge>
                 </TableCell>
                 <TableCell className="font-medium text-primary text-sm">{event.type}</TableCell>
-                <TableCell className="font-mono text-xs text-muted-foreground">{event.sourceIp}</TableCell>
-                <TableCell className="font-mono text-xs text-muted-foreground">{event.targetHost}</TableCell>
+                <TableCell><HostLabel ip={event.sourceIp} /></TableCell>
+                <TableCell><HostLabel ip={event.targetHost} /></TableCell>
                 <TableCell>
                   <Badge variant="secondary" className="uppercase text-[10px] bg-muted text-muted-foreground">
                     {event.status}
@@ -174,7 +175,7 @@ export default function Events() {
                 </div>
                 <div className="bg-background border border-border rounded p-2">
                   <div className="text-muted-foreground uppercase tracking-wider mb-0.5">Source IP</div>
-                  <div className="font-mono font-bold text-red-400">{aiPanel.sourceIp}</div>
+                  <div className="font-bold"><HostLabel ip={aiPanel.sourceIp} showIp /></div>
                 </div>
                 <div className="bg-background border border-border rounded p-2 col-span-2">
                   <div className="text-muted-foreground uppercase tracking-wider mb-0.5">Attack Type</div>
