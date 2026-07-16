@@ -13,6 +13,7 @@ import {
   GitBranch,
   Cable,
   BookCheck,
+  Settings2,
 } from "lucide-react";
 import {
   Sidebar,
@@ -47,6 +48,7 @@ const networkItems = [
 const reportItems = [
   { title: "Architecture", url: "/architecture", icon: GitBranch },
   { title: "Reports", url: "/reports", icon: FileText },
+  { title: "Settings", url: "/settings", icon: Settings2 },
 ];
 
 export function Layout({ children }: { children: ReactNode }) {

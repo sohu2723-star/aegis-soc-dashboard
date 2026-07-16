@@ -3009,3 +3009,27 @@ Kali hydra → bank-web SSH port 22 → auth.log fail entry
 - Kali → customer-db (10.20.20.20) ✅ 0% loss  
 - Kali → aegis-forwarder (10.30.30.10) ✅ 0% loss  
 **Next:** Kali route add ကို persistent ထားဖို့ (reboot ဆို ပျောက်သွားနိုင်)
+
+---
+
+### [2026-07-16] — Settings Page + Auto-Report Scheduler + Telegram Integration
+
+**Status:** ✅ Done  
+**What:** Dashboard မှာ admin က auto-report interval ပြောင်းနိုင်သော Settings page တည်ဆောက်ခဲ့သည်  
+**How:**  
+- `artifacts/api-server/src/lib/telegram.ts` — Telegram bot client (sendMessage, testConnection)  
+- `artifacts/api-server/src/lib/scheduler.ts` — Auto-report scheduler (interval DB မှ ဖတ်, restart မလိုဘဲ ချက်ချင်း update)  
+- `artifacts/api-server/src/routes/settings.ts` — GET /settings, POST /settings/report-interval, /settings/telegram, /settings/test-telegram, /settings/send-report-now  
+- `artifacts/aegis-dashboard/src/pages/settings.tsx` — Full Settings UI  
+- `artifacts/aegis-dashboard/src/components/layout.tsx` — Settings nav item ထည့်  
+- `artifacts/aegis-dashboard/src/App.tsx` — /settings route ထည့်  
+**Result:**  
+- Preset buttons: 1min / 5min / 30min / 1hr / 6hr / 24hr  
+- Custom interval input + Apply (server restart မလိုဘဲ ချက်ချင်း သက်ရောက်)  
+- Generate & Send Now button  
+- Telegram status + Test Connection + instructions  
+- Groq AI status + fix instructions (Render env var)  
+**Important:**  
+- GROQ_API_KEY သည် **Render** (API server) မှာ ထည့်ရမည် — Vercel (frontend) မဟုတ်  
+- TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID လည်း **Render** မှာ ထည့်ရမည်  
+**Next:** Render Environment Variables မှာ GROQ_API_KEY ထည့်ပြီး Redeploy လုပ်ပါ

@@ -20,6 +20,7 @@ import Defense from "@/pages/defense";
 import Architecture from "@/pages/architecture";
 import Connections from "@/pages/connections";
 import DefenseRules from "@/pages/defense-rules";
+import SettingsPage from "@/pages/settings";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -50,6 +51,7 @@ function Router() {
         <Route path="/reports" component={Reports} />
         <Route path="/connections" component={Connections} />
         <Route path="/defense-rules" component={DefenseRules} />
+        <Route path="/settings" component={SettingsPage} />
         <Route component={NotFound} />
       </Switch>
     </Layout>

@@ -15,6 +15,7 @@ import connectionsRouter from "./connections";
 import defenseRulesRouter from "./defense-rules";
 import uiRulesRouter from "./ui-rules";
 import aiRouter from "./ai";
+import settingsRouter from "./settings";
 
 const router: IRouter = Router();
 
@@ -34,5 +35,6 @@ router.use(connectionsRouter);
 router.use(defenseRulesRouter);
 router.use(uiRulesRouter);
 router.use(aiRouter);
+router.use(settingsRouter);
 
 export default router;
