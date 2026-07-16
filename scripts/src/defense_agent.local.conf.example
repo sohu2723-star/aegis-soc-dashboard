@@ -1,23 +1,41 @@
 # AEGIS defense_agent.py — local, machine-specific config.
 #
 # Copy this file to "defense_agent.local.conf" (same folder) on the actual
-# machine that runs the agent (the pfSense box, or the Ubuntu VM) and fill in
-# the real values there. That file is gitignored — it never gets committed or
-# pushed, so your real keys never leave that machine.
+# machine that runs the agent and fill in the real values.
 #
 #   cp defense_agent.local.conf.example defense_agent.local.conf
 #   nano defense_agent.local.conf   # fill in real values
-#   python3 defense_agent.py --vm pfsense
 #
 # Env vars still override this file if you ever want to set them instead.
+# This file is gitignored — real keys never leave the machine.
 
+# ─── Ubuntu VM (bank-web 10.10.10.10) ────────────────────────────────────────
+# Run as: sudo python3 defense_agent.py --vm ubuntu
+#
+# AEGIS_URL=https://aegis-api-server-jp3b.onrender.com/api
+# AEGIS_KEY=<your AEGIS_INGEST_KEY>
+# AEGIS_ADMIN_KEY=<your AEGIS_ADMIN_KEY>
+# VM_NAME=ubuntu
+# POLL_SECS=5
+
+# ─── pfSense (WAN firewall 10.0.23.2) ─────────────────────────────────────────
+# Run as: python3 defense_agent.py --vm pfsense
+# Requires: pfSense-api REST API package installed (System > Package Manager)
+#           API token from System > REST API > Keys
+#
+# AEGIS_URL=https://aegis-api-server-jp3b.onrender.com/api
+# AEGIS_KEY=<your AEGIS_INGEST_KEY>
+# AEGIS_ADMIN_KEY=<your AEGIS_ADMIN_KEY>
+# VM_NAME=pfsense
+# POLL_SECS=5
+# PFSENSE_API_URL=http://127.0.0.1/api/v1
+# PFSENSE_API_KEY=<token from System > REST API > Keys>
+
+# ─── Active config (uncomment ONE block above and fill in) ────────────────────
 AEGIS_URL=https://aegis-api-server-jp3b.onrender.com/api
 AEGIS_KEY=
 AEGIS_ADMIN_KEY=
-VM_NAME=pfsense
+VM_NAME=ubuntu
 POLL_SECS=5
-
-# Only needed on the pfSense box, once the pfsense-api / REST API package is
-# installed and you've generated a token under System > REST API.
 PFSENSE_API_URL=http://127.0.0.1/api/v1
 PFSENSE_API_KEY=

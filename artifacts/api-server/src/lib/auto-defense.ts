@@ -338,11 +338,15 @@ async function suggestManualDefense(rule: DefenseRule, event: IngestEvent) {
 }
 
 // Rules that belonged to removed services (bank-mail, teller-pc, cowrie, snort)
-// — deleted from DB on startup so they don't appear in the Defense Rules page.
+// or rules whose actionType changed — deleted from DB on startup so the new
+// seeded version takes effect immediately on next restart.
 const OBSOLETE_RULE_NAMES = [
   "Honeypot Touch → Instant Block",   // Cowrie honeypot removed
   "FTP Brute Force → Block",          // no FTP server on bank-web/customer-db
   "Mail Spam → Auto Block",           // bank-mail removed from lab
+  // pfSense rules promoted from "suggest" → "auto" (PFSENSE_API_KEY now set)
+  "Critical Attack → pfSense Block",  // re-seeded below as actionType:"auto"
+  "Web Attack → pfSense Block",       // re-seeded below as actionType:"auto"
 ];
 
 // ─── Seed default rules ───────────────────────────────────────────────────────
@@ -395,21 +399,21 @@ export async function seedDefaultRules() {
       targetVm: "ubuntu", priority: 20, isActive: true,
     },
 
-    // ── pfSense WAN: suggested blocks (auto if defense_agent runs on pfSense) ──
+    // ── pfSense WAN: auto-block at WAN boundary (defense_agent.py --vm pfsense) ──
     {
       name: "Critical Attack → pfSense Block",
-      description: "Critical attack → block at pfSense WAN. Auto-applied if defense_agent.py runs on pfSense with PFSENSE_API_KEY set; otherwise creates a manual incident.",
+      description: "Critical attack → block at pfSense WAN firewall (persistent rule via REST API). Requires defense_agent.py --vm pfsense running on pfSense with PFSENSE_API_KEY set.",
       triggerAttackType: "any", triggerSeverity: "critical",
       triggerThreshold: 1, triggerWindowSecs: 60,
-      actionType: "suggest", defenseType: "pfsense_block",
+      actionType: "auto", defenseType: "pfsense_block",
       targetVm: "pfsense", priority: 50, isActive: true,
     },
     {
       name: "Web Attack → pfSense Block",
-      description: "High/critical web attack → also block at pfSense WAN boundary. Auto-applied if defense_agent.py runs on pfSense.",
+      description: "High/critical web attack → block attacker at pfSense WAN boundary (persistent firewall rule). Requires defense_agent.py --vm pfsense on pfSense.",
       triggerAttackType: "web_attack", triggerSeverity: "high",
       triggerThreshold: 1, triggerWindowSecs: 60,
-      actionType: "suggest", defenseType: "pfsense_block",
+      actionType: "auto", defenseType: "pfsense_block",
       targetVm: "pfsense", priority: 45, isActive: true,
     },
     {

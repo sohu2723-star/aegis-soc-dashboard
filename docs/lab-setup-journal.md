@@ -3033,3 +3033,25 @@ Kali hydra → bank-web SSH port 22 → auth.log fail entry
 - GROQ_API_KEY သည် **Render** (API server) မှာ ထည့်ရမည် — Vercel (frontend) မဟုတ်  
 - TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID လည်း **Render** မှာ ထည့်ရမည်  
 **Next:** Render Environment Variables မှာ GROQ_API_KEY ထည့်ပြီး Redeploy လုပ်ပါ
+
+---
+
+### [2026-07-16] — pfSense Auto-Defense + Defense Agent Setup
+
+**Status:** 🔄 In Progress  
+**What:** pfSense rules ကို suggest mode မှ auto mode ပြောင်း၊ defense_agent.py setup files ပြင်ဆင်  
+**How:**  
+- `auto-defense.ts` — pfSense rules 2 ခု `actionType: "suggest"` → `"auto"` (PFSENSE_API_KEY ရှိပြီဆိုတော့)  
+- `auto-defense.ts` — OBSOLETE_RULE_NAMES ထဲ ဟောင်းတဲ့ suggest pfSense rules ထည့် (re-seed auto versions)  
+- `scripts/src/defense_agent.local.conf.example` — Ubuntu + pfSense setup instructions update  
+- `scripts/ubuntu-defense-agent-setup.sh` — Ubuntu VM quick setup script  
+- `scripts/pfsense-defense-agent-setup.sh` — pfSense quick setup script  
+**Result:**  
+- pfSense rules: "Critical Attack → pfSense Block" + "Web Attack → pfSense Block" → **auto** (persistent firewall rule via REST API)  
+- MITM/ARP Spoof rule → suggest/incident only (manual review)  
+- Ubuntu rules (SSH brute, DDoS, Web Attack, Port Scan) → auto iptables  
+- FTP brute + Honeypot + Mail rules → deleted (OBSOLETE)  
+**Next:**  
+- Ubuntu VM မှာ: `sudo python3 scripts/src/defense_agent.py --vm ubuntu` run  
+- pfSense မှာ: PFSENSE_API_KEY set ပြီး `python3 scripts/src/defense_agent.py --vm pfsense` run  
+- Render environment မှာ secrets verify  
