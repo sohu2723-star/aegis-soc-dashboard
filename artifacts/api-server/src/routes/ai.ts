@@ -101,14 +101,14 @@ Open incidents: ${openIncidents.length}
 Unacknowledged alerts: ${unackedAlerts[0]?.count ?? 0}
 Recent defense actions: ${defenseActSummary || "none"}
 
-Write a SOC threat briefing with these sections:
-1. THREAT SUMMARY (3 sentences covering overall situation)
-2. TOP THREATS (top 3 specific threats with IPs and types)
-3. DEFENSE STATUS (what defenses activated, what worked)
-4. RECOMMENDATIONS (4 specific actionable items)
+Write a SOC threat briefing. Be concise — total under 220 words:
+1. THREAT SUMMARY (2 sentences only)
+2. TOP THREATS (top 3 threats, 1 line each with IP and type)
+3. DEFENSE STATUS (2 sentences only)
+4. RECOMMENDATIONS (exactly 3 numbered items, 1 sentence each)
 `.trim();
 
-    const analysis = await askGroq({ system: SOC_SYSTEM, user: userPrompt, maxTokens: 900 });
+    const analysis = await askGroq({ system: SOC_SYSTEM, user: userPrompt, maxTokens: 700 });
 
     res.json({
       analysis,
@@ -173,14 +173,14 @@ Existing defense actions: ${defenseHistory_str}
 First seen: ${events[events.length-1]?.createdAt?.toISOString?.() ?? "unknown"}
 Last seen: ${events[0]?.createdAt?.toISOString?.() ?? "unknown"}
 
-Write a defense recommendation with:
-1. THREAT PROFILE (ဒီ IP က ဘာလုပ်နေသလဲ — 2 sentences)
-2. RISK LEVEL (Critical/High/Medium + reasoning — 1 sentence)
-3. RECOMMENDED ACTIONS (3-5 specific steps with exact commands where possible)
-4. WHAT TO MONITOR NEXT (2 specific indicators to watch)
+Write a defense recommendation. Be concise — total response under 200 words:
+1. THREAT PROFILE (2 sentences only)
+2. RISK LEVEL (Critical/High/Medium — 1 sentence only)
+3. RECOMMENDED ACTIONS (exactly 3 numbered steps, each 1 sentence with command if needed)
+4. MONITOR (2 bullet points only)
 `.trim();
 
-    const recommendation = await askGroq({ system: SOC_SYSTEM, user: userPrompt, maxTokens: 600 });
+    const recommendation = await askGroq({ system: SOC_SYSTEM, user: userPrompt, maxTokens: 500 });
 
     res.json({ ip, recommendation, eventCount: events.length, attackTypes: byType, generatedAt: new Date().toISOString() });
   } catch (err: any) {

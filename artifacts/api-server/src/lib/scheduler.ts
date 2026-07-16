@@ -66,8 +66,8 @@ async function runAutoReport(): Promise<void> {
 
         summary = await askGroq({
           system: `You are AEGIS-AI SOC analyst. Write professional security reports in Burmese mixed with English technical terms.`,
-          user: `SCHEDULED AUTO-REPORT — last 24h\nEvents: ${recentEvents.length} | Incidents: ${incidentsCount}\nSeverity: ${sevBreakdown || "none"}\nAttack types: ${attackTypes || "none"}\nTop attackers: ${topAttackers || "none"}\n\nWrite SOC summary: THREAT SUMMARY | TOP THREATS | DEFENSE STATUS | RECOMMENDATIONS (max 400 words, Burmese+English)`,
-          maxTokens: 700,
+          user: `SCHEDULED AUTO-REPORT — last 24h\nEvents: ${recentEvents.length} | Incidents: ${incidentsCount}\nSeverity: ${sevBreakdown || "none"}\nAttack types: ${attackTypes || "none"}\nTop attackers: ${topAttackers || "none"}\n\nWrite concise SOC summary under 150 words total:\nTHREAT SUMMARY (2 sentences)\nTOP THREATS (top 3, 1 line each)\nDEFENSE STATUS (1 sentence)\nRECOMMENDATIONS (3 items, 1 line each)`,
+          maxTokens: 450,
         });
         aiGenerated = true;
       } catch (err: any) {
@@ -93,12 +93,23 @@ async function runAutoReport(): Promise<void> {
     if (telegramAvailable()) {
       const telegramEnabled = await getSetting("telegramEnabled");
       if (telegramEnabled !== "false") {
+        // Trim summary cleanly — cut at last sentence-end (။ or .) within 400 chars
+        const MAX_CHARS = 400;
+        let trimmedSummary = summary;
+        if (summary.length > MAX_CHARS) {
+          const chunk = summary.slice(0, MAX_CHARS);
+          // find last sentence break: Burmese ။ or ASCII .
+          const lastBreak = Math.max(chunk.lastIndexOf("။"), chunk.lastIndexOf("."));
+          trimmedSummary = lastBreak > 50
+            ? summary.slice(0, lastBreak + 1) + "\n\n📖 <i>Full report — dashboard မှာ ကြည့်ပါ</i>"
+            : chunk + "…";
+        }
         const msg =
           `🛡 <b>AEGIS Auto-Report</b>\n` +
           `📅 ${title}\n` +
           `📊 Events: ${eventsCount} | Incidents: ${incidentsCount}\n` +
           `🤖 ${aiGenerated ? "AI-generated" : "Template"}\n\n` +
-          summary.slice(0, 500) + (summary.length > 500 ? "…" : "");
+          trimmedSummary;
         await sendTelegramMessage(msg).catch(e => logger.warn({ err: e.message }, "Telegram send failed"));
       }
     }
