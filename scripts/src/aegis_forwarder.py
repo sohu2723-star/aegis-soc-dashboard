@@ -452,9 +452,14 @@ def heartbeat_loop():
 
 
 def send_offline():
-    """Send offline status immediately when script shuts down."""
+    """Send offline status immediately when script shuts down.
+    In hub mode: also marks all remote hosts (bank-web, customer-db) offline
+    so the dashboard reflects the real state immediately, rather than waiting
+    for the 45s heartbeat timeout.
+    """
     ip       = get_local_ip()
     hostname = socket.gethostname()
+    # Mark this VM offline
     try:
         requests.post(
             f"{AEGIS_URL}/network/hosts",
@@ -466,6 +471,19 @@ def send_offline():
         print("\n[AEGIS] Sent offline status to dashboard.")
     except Exception:
         pass
+    # Hub mode: also mark remote hosts offline immediately
+    for h in REMOTE_HOSTS:
+        try:
+            requests.post(
+                f"{AEGIS_URL}/network/hosts",
+                json={"ip": h["ip"], "hostname": h["name"], "role": "ubuntu",
+                      "status": "offline", "isMonitored": True},
+                headers=HEADERS,
+                timeout=5,
+            )
+            print(f"[AEGIS] Marked {h['name']} ({h['ip']}) offline.")
+        except Exception:
+            pass
 
 
 def get_service_status(service: str) -> str:

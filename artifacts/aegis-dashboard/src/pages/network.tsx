@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { RefreshCcw, Wifi, Monitor, Shield, Activity, X, AlertTriangle, Trash2, WifiOff, WifiIcon } from "lucide-react";
+import { RefreshCcw, Wifi, Monitor, Shield, Activity, X, AlertTriangle, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar } from "recharts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -608,38 +608,15 @@ export default function Network() {
                         <LastSeenTicker lastSeen={h.lastSeen} status={h.status} />
                       </td>
                       <td className="py-2 px-3" onClick={e => e.stopPropagation()}>
-                        <div className="flex items-center gap-1">
-                          {h.status === "online" ? (
-                            <Button
-                              variant="ghost" size="icon"
-                              className="h-7 w-7 text-yellow-500 hover:text-yellow-400 hover:bg-yellow-500/10"
-                              title="Disconnect — mark offline + queue iptables DROP on VM"
-                              disabled={loadingId === h.id}
-                              onClick={e => markOffline(e, h)}
-                            >
-                              <WifiOff className="w-3.5 h-3.5" />
-                            </Button>
-                          ) : (
-                            <Button
-                              variant="ghost" size="icon"
-                              className="h-7 w-7 text-green-500 hover:text-green-400 hover:bg-green-500/10"
-                              title="Reconnect — mark online + queue iptables unblock on VM"
-                              disabled={loadingId === h.id}
-                              onClick={e => markOnline(e, h)}
-                            >
-                              <WifiIcon className="w-3.5 h-3.5" />
-                            </Button>
-                          )}
-                          <Button
-                            variant="ghost" size="icon"
-                            className="h-7 w-7 text-red-500 hover:text-red-400 hover:bg-red-500/10"
-                            title="Remove from list"
-                            disabled={loadingId === h.id}
-                            onClick={e => removeHost(e, h)}
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </Button>
-                        </div>
+                        <Button
+                          variant="ghost" size="icon"
+                          className="h-7 w-7 text-red-500 hover:text-red-400 hover:bg-red-500/10"
+                          title="Remove from list"
+                          disabled={loadingId === h.id}
+                          onClick={e => removeHost(e, h)}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
                       </td>
                     </tr>
                   ))}
