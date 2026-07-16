@@ -90,25 +90,37 @@ const severityBg: Record<string, string> = {
 
 /** Live "last seen X seconds ago" ticker */
 function LastSeenTicker({ lastSeen, status }: { lastSeen: string; status: string }) {
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => setTick(t => t + 1), 1000);
-    return () => clearInterval(id);
-  }, []);
+  const [secsAgo, setSecsAgo] = useState(() =>
+    Math.floor((Date.now() - new Date(lastSeen).getTime()) / 1000)
+  );
 
-  const secsAgo = Math.floor((Date.now() - new Date(lastSeen).getTime()) / 1000);
+  useEffect(() => {
+    // Recalculate immediately when lastSeen changes (e.g. after refetch)
+    setSecsAgo(Math.floor((Date.now() - new Date(lastSeen).getTime()) / 1000));
+    const id = setInterval(() => {
+      setSecsAgo(Math.floor((Date.now() - new Date(lastSeen).getTime()) / 1000));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [lastSeen]);
+
+  // Always show the actual clock time (HH:mm:ss) — never resets on navigate
+  const clockTime = format(new Date(lastSeen), "HH:mm:ss");
 
   if (status === "offline") {
     return (
-      <span className="text-gray-500 text-xs font-mono">
-        {formatDistanceToNow(new Date(lastSeen), { addSuffix: true })}
+      <span className="text-gray-500 text-xs font-mono" title={`offline since ${clockTime}`}>
+        {clockTime}
       </span>
     );
   }
 
   return (
-    <span className={`text-xs font-mono ${secsAgo > 70 ? "text-yellow-400" : "text-green-400/80"}`}>
-      {secsAgo < 5 ? "just now" : `${secsAgo}s ago`}
+    <span
+      className={`text-xs font-mono ${secsAgo > 60 ? "text-yellow-400" : "text-green-400/80"}`}
+      title={`last heartbeat: ${clockTime}`}
+    >
+      {clockTime}
+      <span className="text-muted-foreground ml-1">({secsAgo < 5 ? "just now" : `${secsAgo}s ago`})</span>
     </span>
   );
 }

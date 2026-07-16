@@ -32,11 +32,10 @@ export function recordTrafficStats(stats: { inbound: number; outbound: number; b
   }
 }
 
-// ─── Auto-timeout: mark hosts offline if heartbeat stopped > 90s ago ──────────
+// ─── Auto-timeout: mark hosts offline if heartbeat stopped ────────────────────
 const OFFLINE_TIMEOUT_MS = 45_000; // 45s — forwarder heartbeats every 15s, so 3 missed = offline
 
-setInterval(async () => {
-
+async function markStaleHostsOffline() {
   const cutoff = new Date(Date.now() - OFFLINE_TIMEOUT_MS);
   try {
     const stale = await db
@@ -63,10 +62,17 @@ setInterval(async () => {
   } catch {
     // DB may not be ready on first tick
   }
-}, 30_000);
+}
+
+// Run on interval (background) — also runs inline on each GET so Render
+// cold-start / sleep gaps don't leave hosts stuck as "online" forever.
+setInterval(markStaleHostsOffline, 30_000);
 
 // ─── GET all hosts ─────────────────────────────────────────────────────────────
 router.get("/network/hosts", async (_req, res) => {
+  // Inline stale check: if the background interval missed ticks (Render sleep),
+  // this ensures hosts go offline the moment the dashboard next polls.
+  await markStaleHostsOffline();
   const hosts = await db.select().from(networkHostsTable).orderBy(desc(networkHostsTable.lastSeen));
   res.json(hosts.map(h => ({ ...h, lastSeen: h.lastSeen.toISOString(), createdAt: h.createdAt.toISOString() })));
 });
