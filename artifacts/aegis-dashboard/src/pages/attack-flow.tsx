@@ -453,9 +453,7 @@ export default function AttackFlowPage() {
                   />
 
                   {/* Icon */}
-                  <text x={n.x} y={n.y + 9} textAnchor="middle" fontSize="26" dominantBaseline="middle">
-                    {n.icon}
-                  </text>
+                  <NodeIcon nodeKey={key} x={n.x} y={n.y} color={strokeCol} />
 
                   {/* BLOCKED badge */}
                   {isAlert && (
@@ -560,6 +558,116 @@ export default function AttackFlowPage() {
       </div>
     </div>
   );
+}
+
+// ── Node icon renderer — custom SVG paths per node type ───────────────────────
+function NodeIcon({ nodeKey, x, y, color }: { nodeKey: NodeKey; x: number; y: number; color: string }) {
+  const c = color;
+  const s = 12; // half-size reference
+
+  switch (nodeKey) {
+    // 👤 Person silhouette — attacker
+    case "attacker":
+      return (
+        <g transform={`translate(${x},${y - 2})`}>
+          <circle cx={0} cy={-10} r={6} fill="none" stroke={c} strokeWidth="2" />
+          <path d="M-10 10 Q-10 2 0 2 Q10 2 10 10" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" />
+        </g>
+      );
+
+    // 🔀 Router box with ports — R1 MikroTik
+    case "r1":
+      return (
+        <g transform={`translate(${x - s},${y - 10})`} fill="none" stroke={c} strokeWidth="1.8" strokeLinecap="round">
+          {/* Router body */}
+          <rect x={0} y={4} width={24} height={12} rx={2} />
+          {/* Ports */}
+          <rect x={3}  y={7} width={3} height={3} rx={0.5} fill={c} opacity={0.7} />
+          <rect x={8}  y={7} width={3} height={3} rx={0.5} fill={c} opacity={0.7} />
+          <rect x={13} y={7} width={3} height={3} rx={0.5} fill={c} opacity={0.7} />
+          <rect x={18} y={7} width={3} height={3} rx={0.5} fill={c} opacity={0.7} />
+          {/* Antenna */}
+          <line x1={6}  y1={4} x2={4}  y2={-3} />
+          <line x1={18} y1={4} x2={20} y2={-3} />
+          <circle cx={4}  cy={-4} r={1.2} fill={c} />
+          <circle cx={20} cy={-4} r={1.2} fill={c} />
+        </g>
+      );
+
+    // 🛡 Shield — pfSense firewall
+    case "pfsense":
+      return (
+        <g transform={`translate(${x},${y - 2})`} fill="none" stroke={c} strokeWidth="1.8">
+          <path d="M0,-13 L11,-8 L11,2 Q11,10 0,14 Q-11,10 -11,2 L-11,-8 Z" />
+          <path d="M-4,0 L-1,4 L5,-4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        </g>
+      );
+
+    // 🖥 Server/monitor — bank-web
+    case "bankweb":
+      return (
+        <g transform={`translate(${x - 11},${y - 13})`} fill="none" stroke={c} strokeWidth="1.8" strokeLinecap="round">
+          <rect x={0} y={0} width={22} height={15} rx={2} />
+          <line x1={7} y1={15} x2={5}  y2={20} />
+          <line x1={15} y1={15} x2={17} y2={20} />
+          <line x1={3} y1={20} x2={19} y2={20} />
+          <line x1={0} y1={11} x2={22} y2={11} />
+          <circle cx={11} cy={5} r={2} fill={c} opacity={0.6} />
+        </g>
+      );
+
+    // 📡 Relay hub — aegis-forwarder
+    case "forwarder":
+      return (
+        <g transform={`translate(${x},${y - 2})`} fill="none" stroke={c} strokeWidth="1.8" strokeLinecap="round">
+          {/* Center node */}
+          <circle cx={0} cy={0} r={4} fill={c} opacity={0.3} />
+          <circle cx={0} cy={0} r={4} />
+          {/* Radiating lines */}
+          <line x1={0}    y1={-4}  x2={0}    y2={-11} />
+          <line x1={0}    y1={4}   x2={0}    y2={11}  />
+          <line x1={-4}   y1={0}   x2={-11}  y2={0}   />
+          <line x1={4}    y1={0}   x2={11}   y2={0}   />
+          {/* End dots */}
+          <circle cx={0}   cy={-11} r={1.8} fill={c} />
+          <circle cx={0}   cy={11}  r={1.8} fill={c} />
+          <circle cx={-11} cy={0}   r={1.8} fill={c} />
+          <circle cx={11}  cy={0}   r={1.8} fill={c} />
+        </g>
+      );
+
+    // 🗄 Database stack — customer-db
+    case "customerdb":
+      return (
+        <g transform={`translate(${x - 9},${y - 13})`} fill="none" stroke={c} strokeWidth="1.8" strokeLinecap="round">
+          <ellipse cx={9} cy={3}  rx={9} ry={3} />
+          <ellipse cx={9} cy={10} rx={9} ry={3} />
+          <ellipse cx={9} cy={17} rx={9} ry={3} />
+          <line x1={0} y1={3}  x2={0}  y2={17} />
+          <line x1={18} y1={3} x2={18} y2={17} />
+        </g>
+      );
+
+    // 📊 Dashboard screen — AEGIS
+    case "aegis":
+      return (
+        <g transform={`translate(${x - 12},${y - 12})`} fill="none" stroke={c} strokeWidth="1.8" strokeLinecap="round">
+          <rect x={0} y={0} width={24} height={16} rx={2} />
+          {/* Bar chart inside */}
+          <rect x={3}  y={10} width={3} height={4} fill={c} opacity={0.5} />
+          <rect x={8}  y={6}  width={3} height={8} fill={c} opacity={0.5} />
+          <rect x={13} y={8}  width={3} height={6} fill={c} opacity={0.5} />
+          <rect x={18} y={4}  width={3} height={10} fill={c} opacity={0.5} />
+          {/* Stand */}
+          <line x1={8}  y1={16} x2={6}  y2={22} />
+          <line x1={16} y1={16} x2={18} y2={22} />
+          <line x1={4}  y1={22} x2={20} y2={22} />
+        </g>
+      );
+
+    default:
+      return null;
+  }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
