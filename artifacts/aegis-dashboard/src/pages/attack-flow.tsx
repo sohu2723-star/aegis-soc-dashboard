@@ -10,17 +10,17 @@ const VH = 520;
 const NODES = {
   kali: {
     x: 80,  y: 260,
-    label: "Kali Linux", sub: "Attacker",
-    ip: "192.168.122.132",
+    label: "Attacker", sub: "Any Source IP",
+    ip: "* any IP",
     color: "#ef4444", glow: "rgba(239,68,68,0.4)",
     icon: "👤",
   },
   internet: {
     x: 270, y: 110,
-    label: "ISP / Internet", sub: "R1 · R2 Transit",
-    ip: "192.168.122.0/24",
+    label: "R1 Router", sub: "MikroTik CHR",
+    ip: "192.168.122.2",
     color: "#818cf8", glow: "rgba(129,140,248,0.3)",
-    icon: "🌐",
+    icon: "🔀",
   },
   pfsense: {
     x: 460, y: 260,
@@ -315,7 +315,7 @@ export default function AttackFlowPage() {
 
             {/* Zone labels */}
             <text x={16} y={22} fontSize="8" fill="rgba(239,68,68,0.35)" fontFamily="monospace" fontWeight="bold" letterSpacing="2">
-              ATTACK ORIGIN
+              ATTACKER (ANY IP)
             </text>
             <text x={400} y={22} fontSize="8" fill="rgba(245,158,11,0.35)" fontFamily="monospace" fontWeight="bold" letterSpacing="2">
               PERIMETER DEFENSE
