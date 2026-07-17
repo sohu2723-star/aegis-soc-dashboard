@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { Trash2, Plus, Download, RefreshCcw, Flame, Terminal, BookOpen, Shield } from "lucide-react";
+import { Trash2, Plus, Download, Flame, Terminal, BookOpen, Shield } from "lucide-react";
 import { format } from "date-fns";
 import { HostLabel } from "@/lib/host-utils";
 import { useToast } from "@/hooks/use-toast";
@@ -599,13 +599,6 @@ export default function DefenseRules() {
   const [tab, setTab] = useState<TabId>("rules");
   const qc = useQueryClient();
 
-  function handleRefresh() {
-    qc.invalidateQueries({ queryKey: ["ui-rules"] });
-    qc.invalidateQueries({ queryKey: ["ui-fw"] });
-    qc.invalidateQueries({ queryKey: ["ui-cmds"] });
-    qc.invalidateQueries({ queryKey: ["ui-hotips"] });
-  }
-
   return (
     <div className="space-y-6 h-full flex flex-col">
       <div className="flex items-center justify-between">
@@ -613,9 +606,13 @@ export default function DefenseRules() {
           <h1 className="text-2xl font-bold tracking-tight text-primary uppercase">Defense Rules</h1>
           <p className="text-sm text-muted-foreground">Auto-defense rules, firewall policies, and command execution history.</p>
         </div>
-        <Button variant="outline" size="sm" onClick={handleRefresh} className="border-border">
-          <RefreshCcw className="w-4 h-4 mr-2" /> Refresh
-        </Button>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
+          </span>
+          Live · auto-refreshes every 10–15s
+        </div>
       </div>
 
       {/* Tabs */}

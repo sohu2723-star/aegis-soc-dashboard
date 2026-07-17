@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { RefreshCcw, Wifi, Monitor, Shield, Activity, X, AlertTriangle, Trash2 } from "lucide-react";
+import { Wifi, Monitor, Shield, Activity, X, AlertTriangle, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar } from "recharts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -328,11 +328,6 @@ export default function Network() {
     prevHostsRef.current = hosts;
   }, [hosts]);
 
-  function handleRefresh() {
-    qc.invalidateQueries({ queryKey: ["network-hosts"] });
-    qc.invalidateQueries({ queryKey: ["network-traffic"] });
-  }
-
   function removeHost(e: React.MouseEvent, host: NetworkHost) {
     e.stopPropagation();
     setDeleteTarget(host);
@@ -415,9 +410,13 @@ export default function Network() {
           <h1 className="text-2xl font-bold tracking-tight text-primary uppercase">Network Monitor</h1>
           <p className="text-sm text-muted-foreground">Real-time network topology and traffic analysis.</p>
         </div>
-        <Button variant="outline" size="sm" onClick={handleRefresh} className="border-border">
-          <RefreshCcw className="w-4 h-4 mr-2" /> Refresh
-        </Button>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
+          </span>
+          Live · auto-refreshes every 15s
+        </div>
       </div>
 
       <div className="grid grid-cols-3 gap-4">

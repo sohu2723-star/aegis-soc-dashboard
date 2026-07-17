@@ -1,14 +1,11 @@
 import { useGetSystemStatus, getGetSystemStatusQueryKey } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Server, Activity, AlertTriangle, CheckCircle, HelpCircle, Network, HardDrive, Shield, RefreshCcw } from "lucide-react";
+import { Server, Activity, AlertTriangle, CheckCircle, HelpCircle, Network, HardDrive, Shield } from "lucide-react";
 import { format } from "date-fns";
-import { useQueryClient } from "@tanstack/react-query";
 import { useDeviceContext } from "@/lib/device-context";
 
 export default function SystemStatus() {
-  const qc = useQueryClient();
   const { selectedIp, selectedDevice } = useDeviceContext();
   const { data: allSystems, isLoading } = useGetSystemStatus({ query: { queryKey: getGetSystemStatusQueryKey(), refetchInterval: 15000 } });
 
@@ -16,10 +13,6 @@ export default function SystemStatus() {
   const systems = selectedIp
     ? allSystems?.filter((s: any) => !s.hostIp || s.hostIp === selectedIp)
     : allSystems;
-
-  function handleRefresh() {
-    qc.invalidateQueries({ queryKey: getGetSystemStatusQueryKey() });
-  }
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -62,9 +55,13 @@ export default function SystemStatus() {
             {selectedDevice && <span className="text-cyan-400 font-mono"> — scoped to {selectedDevice.hostname} ({selectedDevice.ip})</span>}
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={handleRefresh} className="border-border">
-          <RefreshCcw className="w-4 h-4 mr-2" /> Refresh
-        </Button>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
+          </span>
+          Live · auto-refreshes every 15s
+        </div>
       </div>
 
       {/* Summary bar */}
