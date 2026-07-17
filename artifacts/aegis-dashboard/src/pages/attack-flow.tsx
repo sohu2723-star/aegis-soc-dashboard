@@ -119,6 +119,7 @@ interface LogEntry {
   target: string;
   desc: string;
   defense: boolean;
+  telegram: boolean;   // true = Telegram alert was sent for this event
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -200,14 +201,16 @@ export default function AttackFlowPage() {
           setPulseNodes(prev => new Set([...prev, "attacker"]));
           setTimeout(() => setPulseNodes(prev => { const n = new Set(prev); n.delete("attacker"); return n; }), 900);
 
+          const sev = ev.severity ?? "medium";
           setLog(prev => [{
             id: pkt.id, ts: now(),
             evType: ev.type ?? "unknown",
-            severity: ev.severity ?? "medium",
+            severity: sev,
             srcIp: ev.sourceIp ?? "?",
             target: ev.targetHost ?? "?",
             desc: ev.description ?? "",
             defense: false,
+            telegram: sev === "critical" || sev === "high",
           }, ...prev].slice(0, 60));
         } catch { /* skip malformed */ }
       });
@@ -237,7 +240,39 @@ export default function AttackFlowPage() {
             target: ev.targetHost ?? "?",
             desc: ev.reason ?? "Defense executed",
             defense: true,
+            telegram: false,
           }, ...prev].slice(0, 60));
+        } catch { /* skip */ }
+      });
+
+      // ── Telegram alert notification ────────────────────────────────────
+      // The API broadcasts "alert" whenever a Telegram message is sent
+      // (high/critical events). Mark the matching entry or add a new one.
+      es.addEventListener("alert", (e) => {
+        try {
+          const ev = JSON.parse(e.data);
+          // Mark the most recent matching entry as telegram-confirmed,
+          // or insert a standalone Telegram notification row.
+          setLog(prev => {
+            const idx = prev.findIndex(l => !l.telegram && (l.severity === "critical" || l.severity === "high"));
+            if (idx !== -1) {
+              const next = [...prev];
+              next[idx] = { ...next[idx], telegram: true };
+              return next;
+            }
+            // Standalone Telegram row (e.g. manual alert from admin)
+            return [{
+              id: `tg-${Date.now()}`,
+              ts: now(),
+              evType: "telegram_alert",
+              severity: ev.severity ?? "high",
+              srcIp: "—",
+              target: "—",
+              desc: "Alert dispatched via Telegram",
+              defense: false,
+              telegram: true,
+            }, ...prev].slice(0, 60);
+          });
         } catch { /* skip */ }
       });
 
@@ -493,11 +528,22 @@ export default function AttackFlowPage() {
                     background: `${col}0d`,
                   }}
                 >
-                  <div className="flex items-center justify-between">
-                    <span style={{ color: col }} className="font-bold truncate max-w-[60%]">
+                  <div className="flex items-center justify-between gap-1">
+                    <span style={{ color: col }} className="font-bold truncate max-w-[55%]">
                       {e.defense ? "🛡 DEFENSE" : "⚡ ATTACK"}
                     </span>
-                    <span className="text-muted-foreground/60 shrink-0">{e.ts}</span>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {e.telegram && (
+                        <span
+                          className="text-[9px] font-mono font-bold px-1 rounded"
+                          style={{ background: "rgba(0,136,204,0.2)", color: "#29b6f6", border: "1px solid rgba(0,136,204,0.35)" }}
+                          title="Telegram alert sent"
+                        >
+                          📱 TG
+                        </span>
+                      )}
+                      <span className="text-muted-foreground/60 text-[9px]">{e.ts}</span>
+                    </div>
                   </div>
                   <div className="text-white/75 truncate">{e.evType}</div>
                   <div className="text-white/40 truncate">
