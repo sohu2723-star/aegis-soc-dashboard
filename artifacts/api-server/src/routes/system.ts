@@ -81,10 +81,22 @@ router.get("/system/status", async (_req, res) => {
     s => !s.hostIp || activeIps.has(s.hostIp),
   );
 
-  res.json(statuses.map(s => ({
-    ...s,
-    lastCheck: s.lastCheck.toISOString(),
-  })));
+  // If a VM forwarder goes silent (crash/reboot/shutdown), its sensor rows stay
+  // "online" in the DB forever.  Treat any VM-reported row whose lastCheck is
+  // older than 3 minutes as offline so the dashboard reflects reality.
+  const STALE_MS = 3 * 60 * 1000; // 3 minutes
+  const now = Date.now();
+  res.json(statuses.map(s => {
+    const stale =
+      !!s.hostIp &&
+      s.status === "online" &&
+      now - s.lastCheck.getTime() > STALE_MS;
+    return {
+      ...s,
+      status:    stale ? "offline" : s.status,
+      lastCheck: s.lastCheck.toISOString(),
+    };
+  }));
 });
 
 router.post("/system/status", async (req, res) => {

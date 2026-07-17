@@ -36,12 +36,19 @@ interface DefenseAction {
   createdAt: string;
 }
 
+interface HostSensorRow {
+  hostIp: string;
+  fail2ban: boolean | null;
+  suricata: boolean | null;
+}
+
 interface DefenseStatus {
   autoDefenseEnabled: boolean;
   fail2banActive: boolean;
   suricataActive: boolean;
   totalBlocked: number;
   recentActions: DefenseAction[];
+  perHostSensors?: HostSensorRow[];
 }
 
 function useBlocks(device: string | null) {
@@ -353,12 +360,13 @@ export default function Defense() {
         </Button>
       </div>
 
-      <div className="grid grid-cols-4 gap-4">
+      {/* ── Top status row ─────────────────────────────────────────────────── */}
+      <div className={`grid gap-4 ${deviceFilter ? "grid-cols-4" : "grid-cols-2"}`}>
         {/* Auto Defense — real, persisted toggle (app_settings table) */}
-        <Card className="bg-card border-border">
+        <Card className={`bg-card border-border ${status?.autoDefenseEnabled ? "" : "border-red-800/40"}`}>
           <CardContent className="p-4 flex items-center gap-3">
-            <Bot className="w-8 h-8 text-cyan-400" />
-            <div className="flex-1">
+            <Bot className={`w-8 h-8 ${status?.autoDefenseEnabled ? "text-cyan-400" : "text-red-400"}`} />
+            <div className="flex-1 min-w-0">
               <p className="text-xs text-muted-foreground uppercase tracking-wider">Auto Defense</p>
               <div className="flex items-center gap-2 mt-0.5">
                 <Switch
@@ -370,25 +378,12 @@ export default function Defense() {
                   {status?.autoDefenseEnabled ? "ENABLED" : "DISABLED"}
                 </p>
               </div>
+              <p className="text-[10px] text-muted-foreground/60 mt-1 leading-tight">
+                ubuntu iptables · pfSense API · all active rules
+              </p>
             </div>
           </CardContent>
         </Card>
-
-        {/* Fail2ban — real-time with flash */}
-        <ServiceCard
-          label="Fail2Ban"
-          active={status?.fail2banActive}
-          icon={<Shield className="w-8 h-8 text-green-400" />}
-          justChanged={changedServices.has("fail2ban")}
-        />
-
-        {/* Suricata IDS — real-time with flash */}
-        <ServiceCard
-          label="Suricata IDS"
-          active={status?.suricataActive}
-          icon={<Shield className="w-8 h-8 text-primary" />}
-          justChanged={changedServices.has("suricata")}
-        />
 
         {/* IPs Blocked */}
         <Card className="bg-card border-border">
@@ -400,7 +395,83 @@ export default function Defense() {
             </div>
           </CardContent>
         </Card>
+
+        {/* When device scoped: show inline Fail2ban + Suricata in same 4-col row */}
+        {deviceFilter && (
+          <>
+            <ServiceCard
+              label="Fail2Ban"
+              active={status?.fail2banActive}
+              icon={<Shield className="w-8 h-8 text-green-400" />}
+              justChanged={changedServices.has("fail2ban")}
+            />
+            <ServiceCard
+              label="Suricata IDS"
+              active={status?.suricataActive}
+              icon={<Shield className="w-8 h-8 text-primary" />}
+              justChanged={changedServices.has("suricata")}
+            />
+          </>
+        )}
       </div>
+
+      {/* ── "All Devices" per-host sensor breakdown ─────────────────────────── */}
+      {!deviceFilter && (
+        <Card className="bg-card border-border">
+          <CardHeader className="pb-2 pt-3 px-4">
+            <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+              <Shield className="w-3.5 h-3.5 text-primary" />
+              Security Sensors — per host
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-4">
+            {(!status?.perHostSensors || status.perHostSensors.length === 0) ? (
+              <p className="text-xs text-muted-foreground py-2">No VM sensor data yet — forwarder must be running on each host</p>
+            ) : (
+              <div className="space-y-2">
+                {status.perHostSensors.map(h => (
+                  <div key={h.hostIp} className="flex items-center gap-3 bg-background rounded border border-border/50 px-3 py-2">
+                    {/* Host */}
+                    <div className="w-36 shrink-0">
+                      <HostLabel ip={h.hostIp} />
+                    </div>
+                    {/* Fail2ban */}
+                    <div className="flex items-center gap-1.5 w-32">
+                      <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-mono">Fail2ban</span>
+                      {h.fail2ban === null ? (
+                        <Badge variant="outline" className="text-[10px] border-border text-muted-foreground">N/A</Badge>
+                      ) : (
+                        <Badge variant="outline" className={`text-[10px] ${h.fail2ban ? "border-green-600 text-green-400" : "border-red-600 text-red-400"}`}>
+                          {h.fail2ban ? "●  UP" : "●  DOWN"}
+                        </Badge>
+                      )}
+                    </div>
+                    {/* Suricata */}
+                    <div className="flex items-center gap-1.5 w-32">
+                      <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-mono">Suricata</span>
+                      {h.suricata === null ? (
+                        <Badge variant="outline" className="text-[10px] border-border text-muted-foreground">N/A</Badge>
+                      ) : (
+                        <Badge variant="outline" className={`text-[10px] ${h.suricata ? "border-green-600 text-green-400" : "border-red-600 text-red-400"}`}>
+                          {h.suricata ? "●  UP" : "●  DOWN"}
+                        </Badge>
+                      )}
+                    </div>
+                    {/* pulse dot */}
+                    <div className="ml-auto">
+                      {(h.fail2ban || h.suricata) ? (
+                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400 animate-ping" />
+                      ) : (
+                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-500" />
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="bg-card border-border">
           <CardHeader className="pb-3">

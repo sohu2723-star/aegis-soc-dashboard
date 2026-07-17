@@ -51,7 +51,20 @@ const sevColor: Record<string, string> = {
   failed:   "border-orange-500 text-orange-400",
   success:  "border-green-500 text-green-400",
   blocked:  "border-red-500 text-red-400",
+  active:   "border-cyan-500 text-cyan-400",
+  stale:    "border-yellow-500 text-yellow-400",
+  ended:    "border-gray-500 text-gray-400",
 };
+
+// Derive real-time SSH session status.
+// A session recorded as "active" with no endedAt but older than 10 min is
+// almost certainly closed — the forwarder just never sent a termination event.
+function effectiveSshStatus(s: SshSession): string {
+  if (s.status !== "active") return s.status;
+  if (s.endedAt) return "ended";
+  const ageMs = Date.now() - new Date(s.createdAt).getTime();
+  return ageMs > 10 * 60 * 1000 ? "stale" : "active";
+}
 
 function Ts({ v }: { v: string }) {
   return <span className="font-mono text-xs text-muted-foreground whitespace-nowrap">{format(new Date(v), "MM/dd HH:mm:ss")}</span>;
@@ -96,9 +109,19 @@ function SshTab() {
             <TableCell><Ip v={s.sourceIp} /></TableCell>
             <TableCell className="font-mono text-xs text-foreground">{s.username ?? "—"}</TableCell>
             <TableCell>
-              <Badge variant="outline" className={`text-[10px] uppercase ${sevColor[s.status] ?? "border-border text-muted-foreground"}`}>
-                {s.status}
-              </Badge>
+              {(() => {
+                const eff = effectiveSshStatus(s);
+                return (
+                  <div className="flex items-center gap-1">
+                    <Badge variant="outline" className={`text-[10px] uppercase ${sevColor[eff] ?? "border-border text-muted-foreground"}`}>
+                      {eff}
+                    </Badge>
+                    {eff === "stale" && (
+                      <span className="text-[9px] text-yellow-500/70 font-mono">no heartbeat</span>
+                    )}
+                  </div>
+                );
+              })()}
             </TableCell>
             <TableCell className="text-xs text-muted-foreground">{s.authMethod ?? "—"}</TableCell>
             <TableCell className="text-right font-mono text-xs">

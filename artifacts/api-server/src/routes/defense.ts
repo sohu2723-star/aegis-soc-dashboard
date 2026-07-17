@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { db, blockedIpsTable, defenseActionsTable, systemStatusTable, defenseCommandsTable } from "@workspace/db";
-import { eq, desc, and } from "drizzle-orm";
+import { db, blockedIpsTable, defenseActionsTable, systemStatusTable, defenseCommandsTable, defenseRulesTable } from "@workspace/db";
+import { eq, desc, and, sql } from "drizzle-orm";
 import { z } from "zod";
 import { isAutoDefenseEnabled, setSetting } from "../lib/app-settings";
 import { sanitizeIp } from "../lib/defense-sanitize";
@@ -129,6 +129,10 @@ router.get("/defense/actions", async (req, res) => {
 router.get("/defense/status", async (req, res) => {
   const device = (req.query.device as string) || null;
 
+  // 3-minute staleness threshold — same as system.ts
+  const STALE_MS = 3 * 60 * 1000;
+  const now = Date.now();
+
   const [activeBlocks, recentActions, sensorRows, autoDefenseEnabled] = await Promise.all([
     db.select().from(blockedIpsTable).where(eq(blockedIpsTable.isActive, true)),
     db.select().from(defenseActionsTable).orderBy(desc(defenseActionsTable.createdAt)).limit(5),
@@ -136,21 +140,41 @@ router.get("/defense/status", async (req, res) => {
     isAutoDefenseEnabled(),
   ]);
 
+  // Apply staleness: VM-reported sensors last seen > 3 min ago = offline
+  const liveSensorRows = sensorRows.map(r => ({
+    ...r,
+    status: (r.hostIp && r.status === "online" && now - r.lastCheck.getTime() > STALE_MS)
+      ? "offline"
+      : r.status,
+  }));
+
   // Derive sensor liveness from system_status rows.
   // If device is selected: check only that host's row.
   // If "All Devices": true if ANY registered VM has the sensor online.
   function sensorOnline(name: string): boolean {
-    const matching = sensorRows.filter(r =>
+    const matching = liveSensorRows.filter(r =>
       r.component.toLowerCase().includes(name.toLowerCase())
     );
     if (device) {
-      // Specific device selected — find its row by hostIp
       const row = matching.find(r => r.hostIp === device);
       return row?.status === "online";
     }
-    // All devices — true if at least one VM has it online
     return matching.some(r => r.status === "online");
   }
+
+  // Per-host sensor breakdown (only when "All Devices" selected so the UI
+  // knows which specific host has each sensor up or down).
+  const hostIps = [...new Set(liveSensorRows.filter(r => r.hostIp).map(r => r.hostIp as string))];
+  const perHostSensors = hostIps.map(hostIp => {
+    const rows = liveSensorRows.filter(r => r.hostIp === hostIp);
+    const f2b = rows.find(r => r.component.toLowerCase().includes("fail2ban"));
+    const sur = rows.find(r => r.component.toLowerCase().includes("suricata"));
+    return {
+      hostIp,
+      fail2ban: f2b ? f2b.status === "online" : null,
+      suricata: sur ? sur.status === "online" : null,
+    };
+  });
 
   res.json({
     autoDefenseEnabled,
@@ -158,6 +182,7 @@ router.get("/defense/status", async (req, res) => {
     suricataActive: sensorOnline("suricata"),
     totalBlocked:   activeBlocks.length,
     recentActions:  recentActions.map(a => ({ ...a, createdAt: a.createdAt.toISOString() })),
+    perHostSensors,
   });
 });
 
@@ -171,7 +196,25 @@ router.patch("/defense/settings", async (req, res) => {
   if (!body.success) { res.status(400).json({ error: "autoDefenseEnabled (boolean) required" }); return; }
 
   await setSetting("autoDefenseEnabled", String(body.data.autoDefenseEnabled));
-  res.json({ autoDefenseEnabled: body.data.autoDefenseEnabled });
+
+  let cancelledCommands = 0;
+  if (!body.data.autoDefenseEnabled) {
+    // Cancel ALL pending defense commands that were queued by the auto-defense
+    // engine (ubuntu iptables + pfSense API).  Commands that were already
+    // claimed by a VM agent (status "running" or "done") are not touched —
+    // those cannot be recalled, and the VM agent will execute or skip them
+    // based on its own state.  Only "pending" (not yet claimed) commands are
+    // cancelled here so that turning the toggle off has immediate effect on
+    // queued-but-not-yet-dispatched rules.
+    const result = await db
+      .update(defenseCommandsTable)
+      .set({ status: "cancelled" })
+      .where(eq(defenseCommandsTable.status, "pending"))
+      .returning();
+    cancelledCommands = result.length;
+  }
+
+  res.json({ autoDefenseEnabled: body.data.autoDefenseEnabled, cancelledCommands });
 });
 
 export default router;
