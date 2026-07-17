@@ -129,6 +129,7 @@ export default function AttackFlowPage() {
   const [alertNodes, setAlertNodes] = useState<Set<NodeKey>>(new Set());  // red border flash
   const [pulseNodes, setPulseNodes] = useState<Set<NodeKey>>(new Set());  // expanding ring
   const [stats, setStats]           = useState({ attacks: 0, blocked: 0 });
+  const [tgToasts, setTgToasts]     = useState<{ id: string; sev: string; ts: string }[]>([]);
 
   const rafRef      = useRef<number | null>(null);
   const prevNowRef  = useRef<number>(0);
@@ -246,13 +247,13 @@ export default function AttackFlowPage() {
       });
 
       // ── Telegram alert notification ────────────────────────────────────
-      // The API broadcasts "alert" whenever a Telegram message is sent
-      // (high/critical events). Mark the matching entry or add a new one.
       es.addEventListener("alert", (e) => {
         try {
           const ev = JSON.parse(e.data);
-          // Mark the most recent matching entry as telegram-confirmed,
-          // or insert a standalone Telegram notification row.
+          const sev = ev.severity ?? "high";
+          const toastId = `tg-${Date.now()}`;
+
+          // 1. Mark in live feed log
           setLog(prev => {
             const idx = prev.findIndex(l => !l.telegram && (l.severity === "critical" || l.severity === "high"));
             if (idx !== -1) {
@@ -260,19 +261,25 @@ export default function AttackFlowPage() {
               next[idx] = { ...next[idx], telegram: true };
               return next;
             }
-            // Standalone Telegram row (e.g. manual alert from admin)
             return [{
-              id: `tg-${Date.now()}`,
-              ts: now(),
+              id: toastId, ts: now(),
               evType: "telegram_alert",
-              severity: ev.severity ?? "high",
-              srcIp: "—",
-              target: "—",
+              severity: sev,
+              srcIp: "—", target: "—",
               desc: "Alert dispatched via Telegram",
-              defense: false,
-              telegram: true,
+              defense: false, telegram: true,
             }, ...prev].slice(0, 60);
           });
+
+          // 2. Show floating toast on SVG topology canvas (auto-dismiss 4s)
+          setTgToasts(prev => [
+            { id: toastId, sev, ts: now() },
+            ...prev.slice(0, 4),
+          ]);
+          setTimeout(() => {
+            setTgToasts(prev => prev.filter(t => t.id !== toastId));
+          }, 4000);
+
         } catch { /* skip */ }
       });
 
@@ -494,6 +501,35 @@ export default function AttackFlowPage() {
                 </g>
               ))}
             </g>
+
+            {/* ── Telegram toast notifications on SVG canvas ─────────────── */}
+            {tgToasts.map((t, i) => {
+              const sevCol = t.sev === "critical" ? "#ef4444" : "#f97316";
+              return (
+                <g key={t.id} transform={`translate(${VW - 210}, ${40 + i * 52})`}>
+                  <rect width={200} height={44} rx={6}
+                    fill="rgba(0,10,25,0.92)"
+                    stroke="#29b6f6"
+                    strokeWidth="1.2"
+                  />
+                  {/* Blue left accent bar */}
+                  <rect width={4} height={44} rx={2} fill="#29b6f6" />
+                  {/* Telegram icon circle */}
+                  <circle cx={20} cy={22} r={11} fill="rgba(0,136,204,0.2)" stroke="#29b6f6" strokeWidth="1" />
+                  <text x={20} y={27} textAnchor="middle" fontSize="13">📱</text>
+                  {/* Text */}
+                  <text x={38} y={16} fontSize="8.5" fill="#29b6f6" fontFamily="monospace" fontWeight="bold">
+                    TELEGRAM ALERT SENT
+                  </text>
+                  <text x={38} y={28} fontSize="8" fontFamily="monospace" fill={sevCol} fontWeight="bold">
+                    {t.sev.toUpperCase()}
+                  </text>
+                  <text x={38} y={39} fontSize="7.5" fontFamily="monospace" fill="rgba(255,255,255,0.35)">
+                    {t.ts}
+                  </text>
+                </g>
+              );
+            })}
           </svg>
         </div>
       </div>
