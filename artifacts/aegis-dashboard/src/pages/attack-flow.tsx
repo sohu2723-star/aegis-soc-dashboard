@@ -271,7 +271,7 @@ export default function AttackFlowPage() {
         <div className="flex items-center gap-4 px-4 py-2 border-b border-border bg-card/40 shrink-0">
           <div className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-            <span className="text-xs font-mono text-green-400 font-bold tracking-wider">SSE LIVE</span>
+            <span className="text-xs font-mono text-green-400 font-bold tracking-wider">STREAMING</span>
           </div>
           <div className="h-4 w-px bg-border" />
           <span className="text-xs font-mono text-muted-foreground">
@@ -477,8 +477,7 @@ export default function AttackFlowPage() {
         {log.length === 0 ? (
           <div className="flex-1 flex items-center justify-center">
             <p className="text-[11px] font-mono text-muted-foreground text-center px-4">
-              Live monitoring active.<br />
-              <span className="opacity-50">Events will appear as they arrive.</span>
+              No events yet — monitoring active.
             </p>
           </div>
         ) : (
