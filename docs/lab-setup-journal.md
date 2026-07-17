@@ -3720,3 +3720,70 @@ Stale: lastCheck > 3 min → dashboard မှာ offline ပြ (DB မပြေ
 **Commits:**  
 - `fix: system status — correct per-host sensor seeds, fix purge logic, remove wrong sensors`  
 - `feat: add aegis-forwarder (10.30.30.10) sensors — Hub Forwarder, SSH Monitor, Fail2ban`
+
+---
+
+### [2026-07-17] — Fix: Service Status UP/DOWN Flapping (seconds ပိုင်းအတွင်း)
+
+**Status:** ✅ Done  
+**Symptom:** Dashboard မှာ "fail2ban is now ACTIVE" → seconds ပိုင်းအတွင်း "fail2ban, suricata is now DOWN" ပြနေတာ ထပ်ခါတလဲ ဖြစ်နေ
+
+---
+
+#### Root Cause
+
+`scripts/src/aegis_forwarder.py` main block မှာ:
+
+```python
+# Local service health — always run (covers AEGIS VM itself in hub mode too)
+sh = threading.Thread(target=service_health_loop, ...)
+sh.start()
+```
+
+`service_health_loop()` ဟာ AEGIS VM (10.30.30.10) ပေါ်မှာ locally `systemctl is-active suricata` run တယ်  
+AEGIS VM မှာ suricata မရှိ → status = **OFFLINE** → POST → SSE broadcast "DOWN"
+
+**ပြိုင်ပြီး** `run_hub_mode()` က `_remote_service_health_loop()` ကို SSH ဖြင့် bank-web ဝင် → suricata RUNNING → status = **ONLINE** → POST → SSE broadcast "ACTIVE"
+
+Thread 2 ခု ပြိုင်ပြီး run နေ → seconds ပိုင်းအတွင်း DOWN/ACTIVE/DOWN/ACTIVE loop ဖြစ်  
+Dashboard ရဲ့ toast notification က hostIp မပြတာကြောင့် user မြင်ရတာ component name တစ်ခုတည်းဖြင့် UP/DOWN မြင်ရတယ်
+
+---
+
+#### Fix
+
+Hub/remote mode မှာ `service_health_loop()` ကို **မ run တော့ဘဲ** hub-only heartbeat thread နဲ့ အစားထိုး:
+
+```python
+if not _is_hub:
+    # Non-hub: local systemctl checks (suricata/fail2ban on THIS VM)
+    sh = threading.Thread(target=service_health_loop, ...)
+    sh.start()
+else:
+    # Hub mode: skip local checks — _remote_service_health_loop() covers bank VMs via SSH
+    # Just heartbeat "Hub Forwarder" component as ONLINE every 30s
+    def _hub_self_health():
+        while True:
+            requests.post(".../system/status", json={
+                "component": "Hub Forwarder",
+                "status":    "online",
+                "hostIp":    own_ip,   # 10.30.30.10
+            })
+            time.sleep(30)
+```
+
+**Result:**
+- Hub mode: local service_health_loop မ run → conflict မဖြစ်
+- bank-web/customer-db sensors → `_remote_service_health_loop()` SSH check သာ
+- 10.30.30.10 System Status → "Hub Forwarder: ONLINE" heartbeat သာ
+- DOWN/UP flapping မဖြစ်တော့
+
+**VM မှာ update ဆွဲဖို့:**
+```bash
+cd /opt && wget -O aegis_forwarder.py \
+  https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/scripts/src/aegis_forwarder.py
+# ဟောင်း process kill ပြီး restart
+python3 aegis_forwarder.py --mode hub
+```
+
+**Commit:** `fix: hub mode flapping — skip local service_health_loop, add hub_self_health heartbeat`
