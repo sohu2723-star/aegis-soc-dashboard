@@ -23,12 +23,13 @@ Lab network ဆက်သွယ်မှု:
 - Attacker: မည်သည့် IP မဆို attacker ဖြစ်နိုင်သည် — 192.168.122.x range သာမဟုတ်ဘဲ မည်သည့် external IP, internal IP မဆို threat ဖြစ်နိုင်သည်။ IP ကို trust မလုပ်ရ။
 
 Response rules (အသေချာလိုက်နာပါ):
-1. မြန်မာဘာသာ (Burmese) ဖြင့် ရေးပါ — technical terms (IP, port, protocol, tool names) သာ English သုံးပါ
-2. Section labels ကို CAPS ဖြင့် ရေးပါ (e.g., "ခြိမ်းခြောက်မှု အကျဉ်းချုပ်:", "ထောက်ပံ့ချက်:")
-3. IP address, attack type, failure count, severity တိကျစွာ ဖော်ပြပါ
-4. မြန်မာဘာသာ ပြည့်ပြည့်စုံစုံ ရေးပါ — sentence ကြားမှာ မဖြတ်ပါနှင့်
-5. Markdown # headers မသုံးပါနှင့် — plain text သာ
-6. Professional SOC analyst ကဲ့သို့ actionable ဖြစ်ပါစေ`;
+1. မြန်မာဘာသာ (Burmese) ဖြင့် ရေးပါ — technical terms (IP, port, protocol, tool names, commands) သာ English သုံးပါ
+2. ဂဏန်းများ၊ count များ၊ port numbers၊ IP addresses — ENGLISH DIGITS သာ သုံးပါ (မြန်မာ ဂဏန်း ၁၂၃ မဟုတ်ဘဲ 123 သုံးပါ)
+3. Section labels ကို CAPS ဖြင့် ရေးပါ (e.g., "ခြိမ်းခြောက်မှု အကျဉ်းချုပ်:", "ထောက်ပံ့ချက်:")
+4. IP address, attack type, failure count, severity တိကျစွာ ဖော်ပြပါ
+5. မြန်မာဘာသာ ပြည့်ပြည့်စုံစုံ ရေးပါ — sentence ကြားမှာ မဖြတ်ပါနှင့်
+6. Markdown # headers မသုံးပါနှင့် — plain text သာ
+7. Professional SOC analyst ကဲ့သို့ actionable ဖြစ်ပါစေ`;
 
 // ─── Status ───────────────────────────────────────────────────────────────────
 
@@ -257,8 +258,119 @@ Time: ${event.createdAt.toISOString()}
 (သက်ဆိုင်ရာ command သို့မဟုတ် action ပါဝင်ပါစေ)
 `.trim();
 
-    const explanation = await askGroq({ system: SOC_SYSTEM, user: userPrompt, maxTokens: 800 });
+    const explanation = await askGroq({ system: SOC_SYSTEM, user: userPrompt, maxTokens: 1500 });
     res.json({ id, explanation, generatedAt: new Date().toISOString() });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── AI Rule Recommendations ──────────────────────────────────────────────────
+// POST /ai/recommend-rules
+// Analyses recent attack patterns and returns structured defense rule
+// suggestions that can be applied directly to the defense_rules table.
+
+router.post("/ai/recommend-rules", async (_req, res) => {
+  if (!groqAvailable()) {
+    res.status(503).json({ error: "Groq API key not configured" });
+    return;
+  }
+
+  try {
+    const since24h = new Date(Date.now() - 24 * 3_600_000);
+
+    const [recentEvents, currentRules] = await Promise.all([
+      db.select({
+        type: securityEventsTable.type,
+        subtype: securityEventsTable.subtype,
+        severity: securityEventsTable.severity,
+        sourceIp: securityEventsTable.sourceIp,
+        targetHost: securityEventsTable.targetHost,
+        toolUsed: securityEventsTable.toolUsed,
+      })
+        .from(securityEventsTable)
+        .where(gte(securityEventsTable.createdAt, since24h))
+        .orderBy(desc(securityEventsTable.createdAt))
+        .limit(300),
+      db.select({
+        name: sql<string>`name`,
+        triggerAttackType: sql<string>`trigger_attack_type`,
+        isActive: sql<boolean>`is_active`,
+        actionType: sql<string>`action_type`,
+        defenseType: sql<string>`defense_type`,
+      }).from(sql`defense_rules`),
+    ]);
+
+    // Aggregate attack patterns
+    const byType: Record<string, number> = {};
+    const bySeverity: Record<string, number> = {};
+    const byTarget: Record<string, number> = {};
+    for (const e of recentEvents) {
+      byType[e.type] = (byType[e.type] ?? 0) + 1;
+      bySeverity[e.severity] = (bySeverity[e.severity] ?? 0) + 1;
+      byTarget[e.targetHost] = (byTarget[e.targetHost] ?? 0) + 1;
+    }
+
+    const activeRuleNames = currentRules.filter(r => r.isActive).map(r => r.name).join(", ") || "none";
+    const attackSummary = Object.entries(byType).sort(([,a],[,b])=>b-a).map(([t,n])=>`${t}: ${n}`).join(", ") || "none";
+    const severityBreakdown = Object.entries(bySeverity).map(([s,n])=>`${s}: ${n}`).join(", ");
+    const topTargets = Object.entries(byTarget).sort(([,a],[,b])=>b-a).slice(0,3).map(([h,n])=>`${h}(${n})`).join(", ");
+
+    const userPrompt = `
+လက်ရှိ attack pattern (နောက်ဆုံး 24 နာရီ):
+Attack types: ${attackSummary}
+Severity: ${severityBreakdown}
+Top targets: ${topTargets}
+Total events: ${recentEvents.length}
+
+လက်ရှိ active rules: ${activeRuleNames}
+
+Valid values:
+- triggerAttackType: ssh_brute | ftp_brute | web_attack | ddos | port_scan | mitm | dns_attack | tls_suspicious | mail_attack | honeypot | any
+- triggerSeverity: any | medium | high | critical
+- actionType: auto | suggest
+- defenseType: block_ip | null_route | rate_limit | port_block | pfsense_block | alert_only
+- targetVm: ubuntu | pfsense
+
+Attack data ကို ကြည့်ပြီး defense rules 3-5 ခု recommend ပေးပါ။
+တစ်ခုချင်းစီကို ဒီ JSON format အတိုင်း ဖော်ပြပါ:
+
+{
+  "recommendations": [
+    {
+      "name": "rule name",
+      "description": "Burmese description of what this rule does",
+      "reasoning": "Burmese explanation of WHY this rule is needed based on attack data",
+      "triggerAttackType": "...",
+      "triggerSeverity": "...",
+      "triggerThreshold": 3,
+      "triggerWindowSecs": 60,
+      "actionType": "auto",
+      "defenseType": "block_ip",
+      "targetVm": "ubuntu",
+      "priority": 20
+    }
+  ]
+}
+
+JSON ONLY ပြန်ပါ — ရှင်းလင်းချက် plain text မထည့်ပါနှင့်
+`.trim();
+
+    const raw = await askGroq({ system: SOC_SYSTEM, user: userPrompt, maxTokens: 2000 });
+
+    // Extract JSON from response (Groq sometimes wraps in markdown)
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      res.status(500).json({ error: "AI returned non-JSON response", raw });
+      return;
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    res.json({
+      recommendations: parsed.recommendations ?? [],
+      generatedAt: new Date().toISOString(),
+      basedOn: { totalEvents: recentEvents.length, attackTypes: byType },
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

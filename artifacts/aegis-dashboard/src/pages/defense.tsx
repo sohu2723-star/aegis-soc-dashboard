@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Shield, ShieldOff, Lock, Unlock, Bot, UserCheck, AlertTriangle, RefreshCcw, Sparkles, Zap } from "lucide-react";
+import { Shield, ShieldOff, Lock, Unlock, Bot, UserCheck, AlertTriangle, RefreshCcw, Sparkles, Zap, Plus, Check } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { HostLabel } from "@/lib/host-utils";
@@ -151,6 +151,19 @@ export default function Defense() {
   const [aiResult, setAiResult] = useState<{ ip: string; recommendation: string; eventCount: number; attackTypes: Record<string, number> } | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+
+  // AI Rule Recommendations state
+  interface RuleRec {
+    name: string; description: string; reasoning: string;
+    triggerAttackType: string; triggerSeverity: string;
+    triggerThreshold: number; triggerWindowSecs: number;
+    actionType: string; defenseType: string;
+    targetVm: string; priority: number;
+  }
+  const [ruleRecs, setRuleRecs] = useState<RuleRec[] | null>(null);
+  const [ruleRecsLoading, setRuleRecsLoading] = useState(false);
+  const [ruleRecsError, setRuleRecsError] = useState<string | null>(null);
+  const [appliedRules, setAppliedRules] = useState<Set<string>>(new Set());
   const { toast } = useToast();
   const qc = useQueryClient();
   const { selectedDevice } = useDeviceContext();
@@ -262,6 +275,44 @@ export default function Defense() {
     if (!blockIp || !blockReason) return;
     blockMutation.mutate({ ip: blockIp, reason: blockReason });
   };
+
+  async function fetchRuleRecs() {
+    setRuleRecsLoading(true);
+    setRuleRecsError(null);
+    setRuleRecs(null);
+    setAppliedRules(new Set());
+    try {
+      const r = await fetch(`${BASE}/api/ai/recommend-rules`, { method: "POST" });
+      if (!r.ok) { const e = await r.json(); throw new Error(e.error ?? `HTTP ${r.status}`); }
+      const data = await r.json();
+      setRuleRecs(data.recommendations ?? []);
+    } catch (err: any) {
+      setRuleRecsError(err.message);
+    } finally {
+      setRuleRecsLoading(false);
+    }
+  }
+
+  async function applyRule(rec: RuleRec) {
+    try {
+      const r = await fetch(`${BASE}/api/ui/defense-rules`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: rec.name, description: rec.description,
+          triggerAttackType: rec.triggerAttackType, triggerSeverity: rec.triggerSeverity,
+          triggerThreshold: rec.triggerThreshold, triggerWindowSecs: rec.triggerWindowSecs,
+          actionType: rec.actionType, defenseType: rec.defenseType,
+          targetVm: rec.targetVm, priority: rec.priority, isActive: true,
+        }),
+      });
+      if (!r.ok) { const e = await r.json(); throw new Error(e.error ?? "Failed"); }
+      setAppliedRules(prev => new Set([...prev, rec.name]));
+      toast({ title: "Rule Applied", description: `"${rec.name}" — Defense Rules page မှာ ကြည့်နိုင်သည်` });
+    } catch (err: any) {
+      toast({ title: "Failed", description: err.message, variant: "destructive" });
+    }
+  }
 
   async function runAiDefend(ip: string) {
     if (!ip) return;
@@ -517,6 +568,98 @@ export default function Defense() {
             <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/30 rounded p-3">
               <Zap className="w-3.5 h-3.5 text-primary/50" />
               IP တစ်ခု ထည့်ပြီး Analyze လုပ်ပါ — AI မှ attack history ကို ခွဲခြမ်းပြီး defense action recommend လုပ်မည်
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ── AI RULE RECOMMENDATIONS ───────────────────────────────── */}
+      <Card className="bg-card border-primary/30 shadow-[0_0_16px_rgba(var(--primary-rgb),0.06)]">
+        <CardHeader className="pb-3 border-b border-border/50">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 rounded bg-primary/10 flex items-center justify-center">
+                <Sparkles className="w-3.5 h-3.5 text-primary" />
+              </div>
+              <CardTitle className="text-sm font-bold uppercase tracking-widest text-primary">
+                AI Rule Suggestions
+              </CardTitle>
+            </div>
+            <Button
+              size="sm"
+              onClick={fetchRuleRecs}
+              disabled={ruleRecsLoading}
+              className="text-xs"
+            >
+              {ruleRecsLoading ? (
+                <><RefreshCcw className="w-3.5 h-3.5 mr-1.5 animate-spin" />Generating…</>
+              ) : (
+                <><Sparkles className="w-3.5 h-3.5 mr-1.5" />Get AI Suggestions</>
+              )}
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="pt-4">
+          {!ruleRecs && !ruleRecsLoading && !ruleRecsError && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/30 rounded p-3">
+              <Zap className="w-3.5 h-3.5 text-primary/50" />
+              Recent attack pattern ကို analyze ပြီး defense rules suggest ပေးမည် — "Get AI Suggestions" နှိပ်ပါ
+            </div>
+          )}
+          {ruleRecsError && (
+            <div className="flex items-center gap-2 text-sm text-red-400 bg-red-900/20 border border-red-500/30 rounded p-3">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0" />{ruleRecsError}
+            </div>
+          )}
+          {ruleRecs && ruleRecs.length === 0 && (
+            <p className="text-xs text-muted-foreground text-center py-4">Attack data မလုံလောက်ဘဲ recommendation မထွက်သေးပါ</p>
+          )}
+          {ruleRecs && ruleRecs.length > 0 && (
+            <div className="space-y-3">
+              {ruleRecs.map((rec) => {
+                const applied = appliedRules.has(rec.name);
+                return (
+                  <div key={rec.name} className={`rounded border p-3 space-y-2 transition-colors ${applied ? "border-green-700/50 bg-green-900/10" : "border-border bg-background/60"}`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-bold text-foreground truncate">{rec.name}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{rec.description}</p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant={applied ? "outline" : "default"}
+                        className={`shrink-0 text-xs h-7 px-2 ${applied ? "border-green-700 text-green-400" : ""}`}
+                        onClick={() => !applied && applyRule(rec)}
+                        disabled={applied}
+                      >
+                        {applied ? <><Check className="w-3 h-3 mr-1" />Applied</> : <><Plus className="w-3 h-3 mr-1" />Apply</>}
+                      </Button>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      <Badge variant="outline" className="text-[10px] border-border text-muted-foreground">
+                        {rec.triggerAttackType}
+                      </Badge>
+                      <Badge variant="outline" className="text-[10px] border-orange-800 text-orange-400">
+                        {rec.triggerSeverity}
+                      </Badge>
+                      <Badge variant="outline" className="text-[10px] border-border text-muted-foreground">
+                        ≥{rec.triggerThreshold} / {rec.triggerWindowSecs}s
+                      </Badge>
+                      <Badge variant="outline" className={`text-[10px] ${rec.actionType === "auto" ? "border-cyan-800 text-cyan-400" : "border-yellow-800 text-yellow-400"}`}>
+                        {rec.actionType.toUpperCase()}
+                      </Badge>
+                      <Badge variant="outline" className="text-[10px] border-border text-muted-foreground">
+                        {rec.defenseType} @ {rec.targetVm}
+                      </Badge>
+                    </div>
+                    {rec.reasoning && (
+                      <p className="text-[11px] text-muted-foreground/80 leading-relaxed border-t border-border/40 pt-2">
+                        {rec.reasoning}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </CardContent>

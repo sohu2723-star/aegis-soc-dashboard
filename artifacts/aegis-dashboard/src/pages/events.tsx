@@ -159,16 +159,16 @@ export default function Events() {
 
       {/* AI Explanation Dialog */}
       <Dialog open={!!aiPanel} onOpenChange={open => { if (!open) setAiPanel(null); }}>
-        <DialogContent className="sm:max-w-[500px] bg-card border-border">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-[680px] max-h-[90vh] flex flex-col bg-card border-border">
+          <DialogHeader className="flex-shrink-0">
             <DialogTitle className="flex items-center gap-2 text-primary uppercase tracking-widest text-sm">
               <Bot className="w-4 h-4" />
               AI Event Analysis
             </DialogTitle>
           </DialogHeader>
           {aiPanel && (
-            <div className="space-y-4 pt-2">
-              <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="space-y-4 pt-2 flex flex-col overflow-hidden min-h-0">
+              <div className="grid grid-cols-2 gap-2 text-xs flex-shrink-0">
                 <div className="bg-background border border-border rounded p-2">
                   <div className="text-muted-foreground uppercase tracking-wider mb-0.5">Event ID</div>
                   <div className="font-mono font-bold">#{aiPanel.eventId}</div>
@@ -183,7 +183,8 @@ export default function Events() {
                 </div>
               </div>
 
-              <div className="bg-background border border-primary/20 rounded p-4 min-h-[100px]">
+              {/* Scrollable AI response — grows to fill available space */}
+              <div className="bg-background border border-primary/20 rounded p-4 overflow-y-auto min-h-[120px] flex-1">
                 {aiPanel.loading && (
                   <div className="flex items-center gap-2 text-muted-foreground text-sm">
                     <RefreshCcw className="w-4 h-4 animate-spin text-primary" />
@@ -194,11 +195,11 @@ export default function Events() {
                   <div className="text-red-400 text-sm">{aiPanel.error}</div>
                 )}
                 {aiPanel.explanation && (
-                  <p className="text-sm text-foreground leading-relaxed">{aiPanel.explanation}</p>
+                  <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{aiPanel.explanation}</p>
                 )}
               </div>
 
-              <div className="flex justify-end gap-2">
+              <div className="flex justify-end gap-2 flex-shrink-0">
                 <Button
                   size="sm"
                   variant="outline"

@@ -348,12 +348,6 @@ export default function SettingsPage() {
             </div>
           )}
 
-          <div className="text-xs text-muted-foreground bg-muted/30 rounded p-3 space-y-1">
-            <p className="font-medium text-foreground/60 uppercase tracking-wider">How to get credentials:</p>
-            <p>1. Telegram မှာ <span className="font-mono text-primary">@BotFather</span> ကို message ပို့ → <span className="font-mono">/newbot</span> → token ရမည်</p>
-            <p>2. Chat ID — <span className="font-mono text-primary">@userinfobot</span> ကို message ပို့ → ID ရမည်</p>
-            <p>3. Group ပို့ချင်ရင် group ထဲ bot ထည့်ပြီး group ID (<span className="font-mono">-100xxxxxxx</span>) သုံးပါ</p>
-          </div>
         </CardContent>
       </Card>
 
@@ -402,16 +396,6 @@ function GroqStatus() {
           <><XCircle className="w-4 h-4 text-red-400" /><span className="text-sm text-red-400">GROQ_API_KEY not configured</span></>
         )}
       </div>
-      {!status?.available && (
-        <div className="bg-red-500/10 border border-red-500/30 rounded p-3 text-xs space-y-2 text-red-300">
-          <p className="font-medium">Fix: Render Dashboard မှာ env var ထည့်ပါ</p>
-          <div className="font-mono bg-black/30 rounded p-2">
-            <span className="text-primary">GROQ_API_KEY</span> = [console.groq.com မှ API key]
-          </div>
-          <p className="text-red-300/70">⚠️ Vercel မဟုတ်ဘဲ <strong>Render</strong> မှာ ထည့်ရမည် — API server သည် Render ပေါ်တွင် run နေသောကြောင့်။</p>
-          <p className="text-red-300/70">ထည့်ပြီးရင် Render → Manual Deploy လုပ်ပါ။</p>
-        </div>
-      )}
     </div>
   );
 }

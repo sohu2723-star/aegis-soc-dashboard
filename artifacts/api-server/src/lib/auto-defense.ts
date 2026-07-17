@@ -342,7 +342,6 @@ async function suggestManualDefense(rule: DefenseRule, event: IngestEvent) {
 // seeded version takes effect immediately on next restart.
 const OBSOLETE_RULE_NAMES = [
   "Honeypot Touch → Instant Block",   // Cowrie honeypot removed
-  "FTP Brute Force → Block",          // no FTP server on bank-web/customer-db
   "Mail Spam → Auto Block",           // bank-mail removed from lab
   // pfSense rules promoted from "suggest" → "auto" (PFSENSE_API_KEY now set)
   "Critical Attack → pfSense Block",  // re-seeded below as actionType:"auto"
@@ -416,6 +415,24 @@ export async function seedDefaultRules() {
       actionType: "auto", defenseType: "pfsense_block",
       targetVm: "pfsense", priority: 45, isActive: true,
     },
+    // ── FTP brute force: ubuntu block + pfSense WAN block ──────────────────────
+    {
+      name: "FTP Brute Force → Block",
+      description: "Block any IP with ≥3 FTP auth failures in 60 s on bank-web (vsftpd)",
+      triggerAttackType: "ftp_brute", triggerSeverity: "any",
+      triggerThreshold: 3, triggerWindowSecs: 60,
+      actionType: "auto", defenseType: "block_ip",
+      targetVm: "ubuntu", priority: 12, isActive: true,
+    },
+    {
+      name: "FTP Brute → pfSense Block",
+      description: "FTP brute force ≥5 events in 2 min → persistent block at pfSense WAN (via REST API). Requires defense_agent.py --vm pfsense.",
+      triggerAttackType: "ftp_brute", triggerSeverity: "any",
+      triggerThreshold: 5, triggerWindowSecs: 120,
+      actionType: "auto", defenseType: "pfsense_block",
+      targetVm: "pfsense", priority: 32, isActive: true,
+    },
+
     {
       name: "MITM / ARP Spoof → Incident",
       description: "ARP spoofing detected — creates incident with VLAN isolation steps. Manual action required on pfSense.",
