@@ -347,6 +347,13 @@ const OBSOLETE_RULE_NAMES = [
   // pfSense rules promoted from "suggest" → "auto" (PFSENSE_API_KEY now set)
   "Critical Attack → pfSense Block",  // re-seeded below as actionType:"auto"
   "Web Attack → pfSense Block",       // re-seeded below as actionType:"auto"
+  // targetVm renamed from generic "ubuntu" to actual VM hostnames
+  "SSH Brute Force → Auto Block",
+  "DDoS → Null Route",
+  "Web Attack (High) → Auto Block",
+  "Port Scan → Auto Block",
+  "FTP Brute Force → Block",
+  "FTP Brute → pfSense Block",
 ];
 
 // ─── Seed default rules ───────────────────────────────────────────────────────
@@ -365,44 +372,63 @@ export async function seedDefaultRules() {
   const existingNames = new Set(existing.map(r => r.name));
 
   const defaults: Array<typeof defenseRulesTable.$inferInsert> = [
-    // ── bank-web + customer-db: iptables / null-route (executed by forwarder) ──
+    // ── SSH brute force — both bank-web (10.10.10.10) and customer-db (10.20.20.20) ──
     {
-      name: "SSH Brute Force → Auto Block",
-      description: "Block any IP with ≥5 SSH failures in 60s on bank-web or customer-db",
+      name: "SSH Brute Force → Auto Block (bank-web)",
+      description: "Block any IP with ≥5 SSH failures in 60s on bank-web (10.10.10.10). Executed by forwarder via iptables.",
       triggerAttackType: "ssh_brute", triggerSeverity: "any",
       triggerThreshold: 5, triggerWindowSecs: 60,
       actionType: "auto", defenseType: "block_ip",
-      targetVm: "ubuntu", priority: 10, isActive: true,
+      targetVm: "bank-web", priority: 10, isActive: true,
     },
     {
-      name: "DDoS → Null Route",
-      description: "Null-route any IP flooding ≥50 events in 30s",
+      name: "SSH Brute Force → Auto Block (customer-db)",
+      description: "Block any IP with ≥5 SSH failures in 60s on customer-db (10.20.20.20). Executed by forwarder via iptables.",
+      triggerAttackType: "ssh_brute", triggerSeverity: "any",
+      triggerThreshold: 5, triggerWindowSecs: 60,
+      actionType: "auto", defenseType: "block_ip",
+      targetVm: "customer-db", priority: 11, isActive: true,
+    },
+    // ── DDoS / SYN flood — all VMs ──────────────────────────────────────────────
+    {
+      name: "DDoS → Null Route (all VMs)",
+      description: "Null-route any IP flooding ≥50 events in 30s — applied on all monitored VMs.",
       triggerAttackType: "ddos", triggerSeverity: "any",
       triggerThreshold: 50, triggerWindowSecs: 30,
       actionType: "auto", defenseType: "null_route",
-      targetVm: "ubuntu", priority: 8, isActive: true,
+      targetVm: "all", priority: 8, isActive: true,
     },
+    // ── Web attacks — bank-web only (Apache2 + ModSecurity on 10.10.10.10) ─────
     {
-      name: "Web Attack (High) → Auto Block",
-      description: "Block IP on first high/critical SQLi, XSS, LFI, RFI against bank-web",
+      name: "Web Attack (High) → Auto Block (bank-web)",
+      description: "Block IP on first high/critical SQLi, XSS, LFI, RFI against bank-web (10.10.10.10). ModSecurity / Suricata detection.",
       triggerAttackType: "web_attack", triggerSeverity: "high",
       triggerThreshold: 1, triggerWindowSecs: 60,
       actionType: "auto", defenseType: "block_ip",
-      targetVm: "ubuntu", priority: 15, isActive: true,
+      targetVm: "bank-web", priority: 15, isActive: true,
     },
+    // ── Port scan — bank-web (primary entry point) ───────────────────────────
     {
-      name: "Port Scan → Auto Block",
-      description: "Block any IP detected doing a port scan",
+      name: "Port Scan → Auto Block (bank-web)",
+      description: "Block any IP detected running a port scan (nmap) against bank-web (10.10.10.10).",
       triggerAttackType: "port_scan", triggerSeverity: "any",
       triggerThreshold: 1, triggerWindowSecs: 60,
       actionType: "auto", defenseType: "block_ip",
-      targetVm: "ubuntu", priority: 20, isActive: true,
+      targetVm: "bank-web", priority: 20, isActive: true,
     },
-
-    // ── pfSense WAN: auto-block at WAN boundary (defense_agent.py --vm pfsense) ──
+    // ── FTP brute force — bank-web only (vsftpd on 10.10.10.10) ─────────────
+    {
+      name: "FTP Brute Force → Block (bank-web)",
+      description: "Block any IP with ≥3 FTP auth failures in 60s on bank-web (10.10.10.10 vsftpd).",
+      triggerAttackType: "ftp_brute", triggerSeverity: "any",
+      triggerThreshold: 3, triggerWindowSecs: 60,
+      actionType: "auto", defenseType: "block_ip",
+      targetVm: "bank-web", priority: 12, isActive: true,
+    },
+    // ── pfSense WAN boundary blocks (defense_agent.py --vm pfsense) ──────────
     {
       name: "Critical Attack → pfSense Block",
-      description: "Critical attack → block at pfSense WAN firewall (persistent rule via REST API). Requires defense_agent.py --vm pfsense running on pfSense with PFSENSE_API_KEY set.",
+      description: "Critical severity attack → persistent block at pfSense WAN firewall via REST API. Requires defense_agent.py --vm pfsense on pfSense with PFSENSE_API_KEY set.",
       triggerAttackType: "any", triggerSeverity: "critical",
       triggerThreshold: 1, triggerWindowSecs: 60,
       actionType: "auto", defenseType: "pfsense_block",
@@ -410,30 +436,20 @@ export async function seedDefaultRules() {
     },
     {
       name: "Web Attack → pfSense Block",
-      description: "High/critical web attack → block attacker at pfSense WAN boundary (persistent firewall rule). Requires defense_agent.py --vm pfsense on pfSense.",
+      description: "High/critical web attack → persistent block at pfSense WAN boundary. Requires defense_agent.py --vm pfsense on pfSense.",
       triggerAttackType: "web_attack", triggerSeverity: "high",
       triggerThreshold: 1, triggerWindowSecs: 60,
       actionType: "auto", defenseType: "pfsense_block",
       targetVm: "pfsense", priority: 45, isActive: true,
     },
-    // ── FTP brute force: ubuntu block + pfSense WAN block ──────────────────────
-    {
-      name: "FTP Brute Force → Block",
-      description: "Block any IP with ≥3 FTP auth failures in 60 s on bank-web (vsftpd)",
-      triggerAttackType: "ftp_brute", triggerSeverity: "any",
-      triggerThreshold: 3, triggerWindowSecs: 60,
-      actionType: "auto", defenseType: "block_ip",
-      targetVm: "ubuntu", priority: 12, isActive: true,
-    },
     {
       name: "FTP Brute → pfSense Block",
-      description: "FTP brute force ≥5 events in 2 min → persistent block at pfSense WAN (via REST API). Requires defense_agent.py --vm pfsense.",
+      description: "FTP brute force ≥5 events in 2 min → persistent block at pfSense WAN via REST API. Requires defense_agent.py --vm pfsense.",
       triggerAttackType: "ftp_brute", triggerSeverity: "any",
       triggerThreshold: 5, triggerWindowSecs: 120,
       actionType: "auto", defenseType: "pfsense_block",
       targetVm: "pfsense", priority: 32, isActive: true,
     },
-
   ];
 
   for (const rule of defaults) {

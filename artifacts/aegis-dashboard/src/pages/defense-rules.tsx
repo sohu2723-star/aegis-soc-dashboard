@@ -93,7 +93,7 @@ function RulesTab() {
   const [triggerWindow, setTriggerWindow]       = useState(60);
   const [actionType, setActionType]             = useState("auto");
   const [defenseType, setDefenseType]           = useState("block_ip");
-  const [targetVm, setTargetVm]                 = useState("ubuntu");
+  const [targetVm, setTargetVm]                 = useState("bank-web");
   const [priority, setPriority]                 = useState(100);
 
   const toggleMutation = useMutation({
@@ -190,8 +190,16 @@ function RulesTab() {
                   <Select value={triggerAttackType} onValueChange={setTriggerAttack}>
                     <SelectTrigger className="bg-background border-border text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {["any","network_attack","web_attack","mail_attack","honeypot"].map(v => (
-                        <SelectItem key={v} value={v}>{v}</SelectItem>
+                      {[
+                        { v: "any",            label: "any (all types)" },
+                        { v: "network_attack", label: "network_attack" },
+                        { v: "web_attack",     label: "web_attack (SQLi/XSS/LFI/RFI)" },
+                        { v: "ssh_brute",      label: "ssh_brute" },
+                        { v: "ftp_brute",      label: "ftp_brute" },
+                        { v: "ddos",           label: "ddos / SYN flood" },
+                        { v: "port_scan",      label: "port_scan (nmap)" },
+                      ].map(({ v, label }) => (
+                        <SelectItem key={v} value={v}>{label}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -241,9 +249,10 @@ function RulesTab() {
                   <Select value={targetVm} onValueChange={setTargetVm}>
                     <SelectTrigger className="bg-background border-border text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="ubuntu">ubuntu</SelectItem>
-                      <SelectItem value="pfsense">pfsense</SelectItem>
-                      <SelectItem value="all">all</SelectItem>
+                      <SelectItem value="bank-web">bank-web (10.10.10.10)</SelectItem>
+                      <SelectItem value="customer-db">customer-db (10.20.20.20)</SelectItem>
+                      <SelectItem value="aegis">aegis (10.30.30.10)</SelectItem>
+                      <SelectItem value="all">all (every VM)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
