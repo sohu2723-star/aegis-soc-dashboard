@@ -3,35 +3,63 @@ import { useListEvents, getListEventsQueryKey } from "@workspace/api-client-reac
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { format } from "date-fns";
-import { Search, Filter, RefreshCcw } from "lucide-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { Search, Filter } from "lucide-react";
 import { HostLabel } from "@/lib/host-utils";
-
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+import { useDeviceContext } from "@/lib/device-context";
 
 export default function Events() {
   const [severityFilter, setSeverityFilter] = useState<string>("all");
-  const queryClient = useQueryClient();
+  const [search, setSearch] = useState("");
+  const { selectedIp, selectedDevice } = useDeviceContext();
 
-  const { data: events, isLoading, refetch, isRefetching } = useListEvents(
-    severityFilter !== "all" ? { severity: severityFilter as any } : {},
-    { query: { queryKey: getListEventsQueryKey(severityFilter !== "all" ? { severity: severityFilter as any } : {}) } }
-  );
+  const params = severityFilter !== "all" ? { severity: severityFilter as any } : {};
+
+  const { data: events, isLoading } = useListEvents(params, {
+    query: {
+      queryKey: getListEventsQueryKey(params),
+      refetchInterval: 5000,
+    },
+  });
+
+  // Client-side device filter
+  const deviceFiltered = selectedIp
+    ? (events ?? []).filter(
+        (e: any) => e.targetHost === selectedIp || e.sourceIp === selectedIp,
+      )
+    : events ?? [];
+
+  // Client-side search filter
+  const filtered = search.trim()
+    ? deviceFiltered.filter((e: any) =>
+        e.sourceIp?.includes(search) ||
+        e.targetHost?.toLowerCase().includes(search.toLowerCase()) ||
+        e.type?.toLowerCase().includes(search.toLowerCase()) ||
+        e.subtype?.toLowerCase().includes(search.toLowerCase()),
+      )
+    : deviceFiltered;
 
   return (
     <div className="space-y-6 h-full flex flex-col">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-primary uppercase">Security Events</h1>
-          <p className="text-sm text-muted-foreground">Raw telemetry from all network and host sensors.</p>
+          {selectedDevice ? (
+            <p className="text-xs text-cyan-400 font-mono mt-0.5">
+              Scoped to: {selectedDevice.hostname} ({selectedDevice.ip})
+            </p>
+          ) : (
+            <p className="text-sm text-muted-foreground">Raw telemetry from all network and host sensors.</p>
+          )}
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isRefetching} className="border-border">
-          <RefreshCcw className={`w-4 h-4 mr-2 ${isRefetching ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
+          </span>
+          Live · {filtered.length} events
+        </div>
       </div>
 
       <div className="flex gap-4 items-center bg-card p-4 border border-border rounded-lg">
@@ -39,6 +67,8 @@ export default function Events() {
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Search IP, host, or type..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
             className="pl-9 bg-background border-border"
           />
         </div>
@@ -76,13 +106,15 @@ export default function Events() {
                   Analyzing network traffic...
                 </TableCell>
               </TableRow>
-            ) : events?.length === 0 ? (
+            ) : filtered.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                  No events detected.
+                  {selectedDevice
+                    ? `No events for ${selectedDevice.hostname} (${selectedDevice.ip}).`
+                    : "No events detected."}
                 </TableCell>
               </TableRow>
-            ) : events?.map((event) => (
+            ) : filtered.map((event: any) => (
               <TableRow
                 key={event.id}
                 className="border-border hover:bg-muted/20"

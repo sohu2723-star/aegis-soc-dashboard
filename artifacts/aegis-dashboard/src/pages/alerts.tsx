@@ -6,6 +6,7 @@ import { format } from "date-fns";
 import { HostLabel } from "@/lib/host-utils";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import { useDeviceContext } from "@/lib/device-context";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -71,6 +72,7 @@ export default function Alerts() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [filter, setFilter] = useState<"all" | "unacknowledged">("unacknowledged");
+  const { selectedIp, selectedDevice } = useDeviceContext();
 
   const { data: allAlerts = [], isLoading } = useAlerts();
 
@@ -86,18 +88,31 @@ export default function Alerts() {
     },
   });
 
-  const displayed = filter === "unacknowledged"
-    ? allAlerts.filter(a => !a.acknowledged)
+  // Device filter — match on sourceIp or targetHost
+  const deviceFiltered = selectedIp
+    ? allAlerts.filter(
+        a => a.sourceIp === selectedIp || a.targetHost === selectedIp,
+      )
     : allAlerts;
 
-  const unackCount = allAlerts.filter(a => !a.acknowledged).length;
+  const displayed = filter === "unacknowledged"
+    ? deviceFiltered.filter(a => !a.acknowledged)
+    : deviceFiltered;
+
+  const unackCount = deviceFiltered.filter(a => !a.acknowledged).length;
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-primary uppercase">Active Alerts</h1>
-          <p className="text-sm text-muted-foreground">Real-time notifications from real lab devices requiring immediate attention.</p>
+          {selectedDevice ? (
+            <p className="text-xs text-cyan-400 font-mono mt-0.5">
+              Scoped to: {selectedDevice.hostname} ({selectedDevice.ip})
+            </p>
+          ) : (
+            <p className="text-sm text-muted-foreground">Real-time notifications from real lab devices requiring immediate attention.</p>
+          )}
         </div>
         {/* Filter toggle */}
         <div className="flex items-center gap-1 border border-border rounded p-0.5 shrink-0">
@@ -111,7 +126,7 @@ export default function Alerts() {
             onClick={() => setFilter("all")}
             className={`px-3 py-1 text-xs rounded transition-colors ${filter === "all" ? "bg-primary/20 text-primary" : "text-muted-foreground hover:text-foreground"}`}
           >
-            All ({allAlerts.length})
+            All ({deviceFiltered.length})
           </button>
         </div>
       </div>
@@ -124,7 +139,15 @@ export default function Alerts() {
         ) : displayed.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground border border-border rounded-lg bg-card border-dashed flex flex-col items-center justify-center">
             <Bell className="h-8 w-8 mb-4 text-muted-foreground/50" />
-            <p>{filter === "unacknowledged" ? "No unacknowledged alerts. All clear." : "No alerts yet. Systems normal."}</p>
+            <p>
+              {filter === "unacknowledged"
+                ? selectedDevice
+                  ? `No unacknowledged alerts for ${selectedDevice.hostname}.`
+                  : "No unacknowledged alerts. All clear."
+                : selectedDevice
+                  ? `No alerts for ${selectedDevice.hostname} (${selectedDevice.ip}).`
+                  : "No alerts yet. Systems normal."}
+            </p>
           </div>
         ) : displayed.map((alert) => (
           <div
@@ -171,7 +194,7 @@ export default function Alerts() {
                     {alert.message}
                   </p>
 
-                  {/* Device / IP info — real data from security event */}
+                  {/* Device / IP info */}
                   {(alert.sourceIp || alert.targetHost) && (
                     <div className="flex items-center gap-1.5 text-xs font-mono mt-1">
                       <Monitor className="w-3 h-3 text-muted-foreground shrink-0" />
