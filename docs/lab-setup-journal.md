@@ -3109,3 +3109,39 @@ Kali hydra → bank-web SSH port 22 → auth.log fail entry
 1. SSH key setup on AEGIS VM: `ssh-copy-id sithu@10.10.10.10` + `ssh-copy-id sithu@10.20.20.20`  
 2. pfSense REST API package install + API key generate  
 3. Fill `aegis_forwarder.local.conf` with real keys, run `python3 aegis_forwarder.py --mode hub`
+
+---
+
+### [2026-07-17] — Replit Dev Environment Setup (Dependencies + Secrets)
+
+**Status:** ✅ Done  
+**What:** GitHub မှ import လုပ်ပြီးနောက် Replit dev environment ကို fully working ဖြစ်အောင် configure လုပ်ခဲ့သည်  
+**How:**  
+```bash
+# Root workspace မှ dependencies အကုန် install
+pnpm install   # 440 packages installed
+
+# Replit Secrets (encrypted) မှာ သိမ်းထားသော env vars:
+# SUPABASE_DB_URL  — Supabase pooler (aws-1-ap-southeast-2:6543)
+# AEGIS_INGEST_KEY — Sensor auth key (X-AEGIS-Key header)
+# AEGIS_ADMIN_KEY  — Admin key (X-AEGIS-Admin-Key header)
+# GROQ_API_KEY     — Groq llama-3.3-70b AI summaries
+# TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID — Alert notifications
+# SESSION_SECRET   — (pre-existing)
+
+# Workflows (both RUNNING):
+# "Start application" → pnpm --filter @workspace/aegis-dashboard run dev (port 5000)
+# "API Server"        → PORT=3000 pnpm --filter @workspace/api-server run dev (port 3000)
+```
+**Result:**  
+- Dashboard UI: http://localhost:5000 ✅ — Command Center မှာ live data ပြနေသည် (15 events, 1 critical, 7 alerts)  
+- API Server: http://localhost:3000 ✅ — Supabase connected, auto-report scheduler started (1440 min interval)  
+- Real-time SSE (/api/stream) ✅ working  
+**Notes:**  
+- Replit = code editing only; production URL များ: Render (`https://aegis-api-server-jp3b.onrender.com`) + Vercel  
+- Render free tier cold start ~50s — expected, not a bug  
+- `pnpm --filter @workspace/db run push` — schema changes ရှိရင် Supabase ကို push ဖို့  
+**Next:**  
+1. Render API server ကို `SUPABASE_DB_URL`, `AEGIS_INGEST_KEY`, `AEGIS_ADMIN_KEY` secrets ထည့်ပြီး deploy လုပ်  
+2. AEGIS VM (10.30.30.10) မှာ `aegis_forwarder.local.conf` ဖြည့်ပြီး `python3 aegis_forwarder.py --mode hub` run  
+3. pfSense REST API package install + PFSENSE_API_KEY generate
