@@ -1,75 +1,117 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { securityEventsTable, incidentsTable, alertsTable, systemStatusTable } from "@workspace/db";
-import { count, eq, and, gte, desc } from "drizzle-orm";
+import { count, eq, and, gte, desc, sql } from "drizzle-orm";
 
 const router = Router();
 
 router.get("/dashboard/summary", async (req, res) => {
   // Optional ?targetHost=IP — scope all event stats to a specific host
-  const targetHost = typeof req.query.targetHost === "string" && req.query.targetHost
-    ? req.query.targetHost
-    : null;
+  const targetHost =
+    typeof req.query.targetHost === "string" && req.query.targetHost
+      ? req.query.targetHost
+      : null;
 
-  const hostFilter = targetHost
-    ? eq(securityEventsTable.targetHost, targetHost)
-    : undefined;
+  // Pre-build filters so we don't branch inside Promise.all
+  const baseWhere   = targetHost ? eq(securityEventsTable.targetHost, targetHost) : undefined;
+  const critWhere   = targetHost
+    ? and(eq(securityEventsTable.severity, "critical"), eq(securityEventsTable.targetHost, targetHost))
+    : eq(securityEventsTable.severity, "critical");
+  const blockedWhere = targetHost
+    ? and(eq(securityEventsTable.status, "blocked"), eq(securityEventsTable.targetHost, targetHost))
+    : eq(securityEventsTable.status, "blocked");
 
-  const [totalEventsRes] = hostFilter
-    ? await db.select({ count: count() }).from(securityEventsTable).where(hostFilter)
-    : await db.select({ count: count() }).from(securityEventsTable);
+  const since12h = sql`now() - interval '12 hours'`;
 
-  const [criticalRes] = hostFilter
-    ? await db.select({ count: count() }).from(securityEventsTable).where(and(eq(securityEventsTable.severity, "critical"), hostFilter))
-    : await db.select({ count: count() }).from(securityEventsTable).where(eq(securityEventsTable.severity, "critical"));
+  // ─── Run all 7 queries in parallel ──────────────────────────────────────────
+  const [
+    [totalEventsRes],
+    [criticalRes],
+    [openIncidentsRes],
+    [activeAlertsRes],
+    [blockedRes],
+    allStatuses,
+    attacksByTypeRows,
+    trendRows,
+  ] = await Promise.all([
+    // 1. Total events
+    baseWhere
+      ? db.select({ count: count() }).from(securityEventsTable).where(baseWhere)
+      : db.select({ count: count() }).from(securityEventsTable),
 
-  const [openIncidentsRes] = await db.select({ count: count() }).from(incidentsTable).where(eq(incidentsTable.status, "open"));
-  const [activeAlertsRes] = await db.select({ count: count() }).from(alertsTable).where(eq(alertsTable.acknowledged, false));
+    // 2. Critical events
+    db.select({ count: count() }).from(securityEventsTable).where(critWhere),
 
-  const [blockedRes] = hostFilter
-    ? await db.select({ count: count() }).from(securityEventsTable).where(and(eq(securityEventsTable.status, "blocked"), hostFilter))
-    : await db.select({ count: count() }).from(securityEventsTable).where(eq(securityEventsTable.status, "blocked"));
+    // 3. Open incidents
+    db.select({ count: count() }).from(incidentsTable).where(eq(incidentsTable.status, "open")),
 
-  const allStatuses = await db.select().from(systemStatusTable);
+    // 4. Unacknowledged alerts
+    db.select({ count: count() }).from(alertsTable).where(eq(alertsTable.acknowledged, false)),
+
+    // 5. Blocked events
+    db.select({ count: count() }).from(securityEventsTable).where(blockedWhere),
+
+    // 6. System status (light — just online count)
+    db.select({ status: systemStatusTable.status }).from(systemStatusTable),
+
+    // 7. Attack type breakdown — GROUP BY at DB level (replaces 500-row fetch)
+    baseWhere
+      ? db
+          .select({ type: securityEventsTable.type, count: count() })
+          .from(securityEventsTable)
+          .where(baseWhere)
+          .groupBy(securityEventsTable.type)
+          .orderBy(desc(count()))
+          .limit(10)
+      : db
+          .select({ type: securityEventsTable.type, count: count() })
+          .from(securityEventsTable)
+          .groupBy(securityEventsTable.type)
+          .orderBy(desc(count()))
+          .limit(10),
+
+    // 8. Hourly trend (last 12 h) — date_trunc at DB level
+    baseWhere
+      ? db
+          .select({
+            hour: sql<string>`to_char(date_trunc('hour', ${securityEventsTable.createdAt}), 'HH24":00"')`,
+            count: count(),
+          })
+          .from(securityEventsTable)
+          .where(and(baseWhere, gte(securityEventsTable.createdAt, sql`now() - interval '12 hours'`)))
+          .groupBy(sql`date_trunc('hour', ${securityEventsTable.createdAt})`)
+          .orderBy(sql`date_trunc('hour', ${securityEventsTable.createdAt})`)
+      : db
+          .select({
+            hour: sql<string>`to_char(date_trunc('hour', ${securityEventsTable.createdAt}), 'HH24":00"')`,
+            count: count(),
+          })
+          .from(securityEventsTable)
+          .where(gte(securityEventsTable.createdAt, sql`now() - interval '12 hours'`))
+          .groupBy(sql`date_trunc('hour', ${securityEventsTable.createdAt})`)
+          .orderBy(sql`date_trunc('hour', ${securityEventsTable.createdAt})`),
+  ]);
+  // ────────────────────────────────────────────────────────────────────────────
+
   const systemsOnline = allStatuses.filter(s => s.status === "online").length;
-  const systemsTotal = allStatuses.length;
+  const systemsTotal  = allStatuses.length;
 
-  const allEvents = hostFilter
-    ? await db.select().from(securityEventsTable).where(hostFilter).orderBy(desc(securityEventsTable.createdAt)).limit(500)
-    : await db.select().from(securityEventsTable).orderBy(desc(securityEventsTable.createdAt)).limit(500);
-
-  const typeCounts: Record<string, { count: number; severity: string }> = {};
-  for (const e of allEvents) {
-    if (!typeCounts[e.type]) {
-      typeCounts[e.type] = { count: 0, severity: e.severity };
-    }
-    typeCounts[e.type].count++;
-    if (e.severity === "critical") typeCounts[e.type].severity = "critical";
-    else if (e.severity === "high" && typeCounts[e.type].severity !== "critical") typeCounts[e.type].severity = "high";
-  }
-
-  const attacksByType = Object.entries(typeCounts).map(([type, val]) => ({
-    type,
-    count: val.count,
-    severity: val.severity,
+  const attacksByType = attacksByTypeRows.map(r => ({
+    type:  r.type,
+    count: Number(r.count),
   }));
 
-  const hourCounts: Record<string, number> = {};
-  for (const e of allEvents) {
-    const hour = new Date(e.createdAt).toISOString().slice(0, 13) + ":00";
-    hourCounts[hour] = (hourCounts[hour] || 0) + 1;
-  }
-  const eventsTrend = Object.entries(hourCounts)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .slice(-12)
-    .map(([hour, c]) => ({ hour, count: c }));
+  const eventsTrend = trendRows.map(r => ({
+    hour:  r.hour,
+    count: Number(r.count),
+  }));
 
   res.json({
-    totalEvents: Number(totalEventsRes?.count ?? 0),
-    criticalEvents: Number(criticalRes?.count ?? 0),
-    openIncidents: Number(openIncidentsRes?.count ?? 0),
-    activeAlerts: Number(activeAlertsRes?.count ?? 0),
-    blockedIPs: Number(blockedRes?.count ?? 0),
+    totalEvents:    Number(totalEventsRes?.count  ?? 0),
+    criticalEvents: Number(criticalRes?.count     ?? 0),
+    openIncidents:  Number(openIncidentsRes?.count ?? 0),
+    activeAlerts:   Number(activeAlertsRes?.count  ?? 0),
+    blockedIPs:     Number(blockedRes?.count       ?? 0),
     systemsOnline,
     systemsTotal,
     attacksByType,
