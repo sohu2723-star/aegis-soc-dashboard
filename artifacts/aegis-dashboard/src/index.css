@@ -144,5 +144,19 @@
   }
   body {
     @apply font-mono antialiased bg-background text-foreground;
+    cursor: default;
+  }
+  /* Prevent I-beam text cursor on non-interactive elements */
+  h1, h2, h3, h4, h5, h6, p, span, div, li, td, th, label {
+    cursor: default;
+  }
+  /* Restore pointer for interactive elements */
+  a, button, [role="button"], [role="tab"], [role="checkbox"],
+  [role="switch"], select, summary, [tabindex]:not([tabindex="-1"]) {
+    cursor: pointer;
+  }
+  /* Restore text cursor only for actual inputs */
+  input, textarea {
+    cursor: text;
   }
 }
