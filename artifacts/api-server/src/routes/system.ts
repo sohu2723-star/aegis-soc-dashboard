@@ -24,46 +24,93 @@ const GLOBAL_COMPONENTS = [
 
 // Per-host sensors seeded as initial "unknown" state.
 // The aegis_forwarder (hub mode) will update these to online/offline via POST /system/status.
+// Match component names exactly with what the forwarder POSTs to /system/status.
 const PER_HOST_SENSORS = [
+  // ── bank-web (10.10.10.10): Apache/vsftpd/Suricata/Fail2ban ─────────────────
   {
     component: "Suricata IDS",
     layer: "sensor",
     status: "unknown",
-    description: "Network intrusion detection — alerts on port scans, DDoS, web attacks, SSH brute force",
+    description: "Network intrusion detection — port scans, DDoS, SQLi, XSS, SSH brute force",
     hostIp: "10.10.10.10",
   },
   {
     component: "Fail2ban",
     layer: "sensor",
     status: "unknown",
-    description: "Brute-force IP banning — SSH, FTP, Apache auth failures",
+    description: "Brute-force IP banning — SSH, FTP, Apache auth failures → auto-ban",
     hostIp: "10.10.10.10",
   },
+  {
+    component: "SSH Monitor",
+    layer: "sensor",
+    status: "unknown",
+    description: "SSH auth.log watcher — detects brute force, failed logins, unauthorized access",
+    hostIp: "10.10.10.10",
+  },
+  {
+    component: "FTP Monitor",
+    layer: "sensor",
+    status: "unknown",
+    description: "vsftpd log watcher — FTP sessions, file transfers, brute force attempts",
+    hostIp: "10.10.10.10",
+  },
+  {
+    component: "Apache Monitor",
+    layer: "sensor",
+    status: "unknown",
+    description: "Apache/ModSecurity log watcher — SQLi, XSS, LFI, RFI, directory traversal",
+    hostIp: "10.10.10.10",
+  },
+
+  // ── customer-db (10.20.20.20): PostgreSQL/Suricata/Fail2ban ─────────────────
   {
     component: "Suricata IDS",
     layer: "sensor",
     status: "unknown",
-    description: "Network intrusion detection — alerts on port scans, DDoS, SQL injection attempts",
+    description: "Network intrusion detection — port scans, DDoS, SQL injection attempts",
     hostIp: "10.20.20.20",
   },
   {
     component: "Fail2ban",
     layer: "sensor",
     status: "unknown",
-    description: "Brute-force IP banning — SSH and PostgreSQL auth failures",
+    description: "Brute-force IP banning — SSH and service auth failures",
+    hostIp: "10.20.20.20",
+  },
+  {
+    component: "SSH Monitor",
+    layer: "sensor",
+    status: "unknown",
+    description: "SSH auth.log watcher — detects brute force and unauthorized access to DB host",
+    hostIp: "10.20.20.20",
+  },
+  {
+    component: "PostgreSQL Monitor",
+    layer: "sensor",
+    status: "unknown",
+    description: "PostgreSQL log watcher — auth failures, suspicious queries, connection anomalies",
     hostIp: "10.20.20.20",
   },
 ];
 
-// Components that are obsolete and should be removed from the DB on startup
-const OBSOLETE_COMPONENTS = [
+// Components that are obsolete globally (no hostIp) — old naming before per-host refactor.
+// Only deletes rows WHERE hostIp IS NULL to avoid killing valid per-host sensor entries.
+const GLOBAL_OBSOLETE_COMPONENTS = [
   "Snort IDS",
   "Cowrie Honeypot",
   "ModSecurity WAF",
   "AEGIS Dashboard",
   "Kali Linux (Red)",
-  "Suricata IDS/IPS",   // now registered per-host by the VM forwarder
-  "Fail2ban",           // now registered per-host by the VM forwarder
+  "Suricata IDS/IPS",   // renamed to "Suricata IDS" (per-host)
+  "Fail2ban",           // old global entry — per-host entries are kept
+];
+
+// Components that are ALWAYS wrong regardless of hostIp (old broken forwarder versions).
+// These never belonged to any host and are safe to delete unconditionally.
+const ALWAYS_DELETE_COMPONENTS = [
+  "Morgan HTTP Logger",   // old forwarder wrongly registered under aegis-forwarder
+  "PostgreSQL Monitor",   // old forwarder wrongly registered under 10.30.30.10; now seeded correctly for customer-db only
 ];
 
 async function purgeStaleRows() {
@@ -73,12 +120,23 @@ async function purgeStaleRows() {
   ]);
   const activeIps = new Set(hosts.map(h => h.ip).filter(Boolean));
 
-  const toDelete = all.filter(s =>
-    // Delete obsolete component names regardless of host
-    OBSOLETE_COMPONENTS.includes(s.component) ||
-    // Delete orphaned sensor rows (hostIp set but no matching host in network_hosts)
-    (s.hostIp != null && !activeIps.has(s.hostIp))
+  // Known correct (hostIp, component) pairs — never delete these even if host is not yet registered
+  const seededPairs = new Set(
+    PER_HOST_SENSORS.map(s => `${s.hostIp}::${s.component}`)
   );
+
+  const toDelete = all.filter(s => {
+    const pair = `${s.hostIp}::${s.component}`;
+    // Never delete our own seeded entries
+    if (seededPairs.has(pair)) return false;
+    // Always delete broken old sensor names
+    if (ALWAYS_DELETE_COMPONENTS.includes(s.component)) return true;
+    // Delete old global (no-hostIp) obsolete entries
+    if (!s.hostIp && GLOBAL_OBSOLETE_COMPONENTS.includes(s.component)) return true;
+    // Delete orphaned per-host rows whose host is no longer registered
+    if (s.hostIp != null && !activeIps.has(s.hostIp)) return true;
+    return false;
+  });
 
   if (toDelete.length > 0) {
     await db.delete(systemStatusTable).where(
