@@ -196,7 +196,16 @@ function HostDetailPanel({ host, onClose }: { host: NetworkHost; onClose: () => 
               { label: "MAC", value: host.mac ?? "—" },
               { label: "Open Ports", value: host.openPorts ?? "—" },
               { label: "Last Seen", value: format(new Date(host.lastSeen), "MM/dd HH:mm:ss") },
-              { label: "Monitored", value: host.isMonitored ? "✅ ACTIVE" : "⬜ PASSIVE" },
+              {
+                label: "Monitored",
+                value: (() => {
+                  if (!host.isMonitored) return "⬜ PASSIVE";
+                  const ageS = Math.floor((Date.now() - new Date(host.lastSeen).getTime()) / 1000);
+                  if (ageS < 120)  return "🟢 LIVE";
+                  if (ageS < 900)  return `⚠️ STALE (${Math.floor(ageS / 60)}m ago)`;
+                  return "🔴 OFFLINE";
+                })(),
+              },
             ].map(({ label, value }) => (
               <div key={label} className="bg-card border border-border rounded p-2">
                 <p className="text-muted-foreground uppercase tracking-wider text-[10px]">{label}</p>

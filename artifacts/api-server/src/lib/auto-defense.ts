@@ -343,6 +343,7 @@ async function suggestManualDefense(rule: DefenseRule, event: IngestEvent) {
 const OBSOLETE_RULE_NAMES = [
   "Honeypot Touch → Instant Block",   // Cowrie honeypot removed
   "Mail Spam → Auto Block",           // bank-mail removed from lab
+  "MITM / ARP Spoof → Incident",      // No dedicated MITM sensor; Suricata handles detection only
   // pfSense rules promoted from "suggest" → "auto" (PFSENSE_API_KEY now set)
   "Critical Attack → pfSense Block",  // re-seeded below as actionType:"auto"
   "Web Attack → pfSense Block",       // re-seeded below as actionType:"auto"
@@ -433,14 +434,6 @@ export async function seedDefaultRules() {
       targetVm: "pfsense", priority: 32, isActive: true,
     },
 
-    {
-      name: "MITM / ARP Spoof → Incident",
-      description: "ARP spoofing detected — creates incident with VLAN isolation steps. Manual action required on pfSense.",
-      triggerAttackType: "mitm", triggerSeverity: "any",
-      triggerThreshold: 1, triggerWindowSecs: 60,
-      actionType: "suggest", defenseType: "alert_only",
-      targetVm: "pfsense", priority: 40, isActive: true,
-    },
   ];
 
   for (const rule of defaults) {

@@ -13,23 +13,21 @@ import { askGroq, groqAvailable } from "../lib/groq-client";
 
 const router = Router();
 
-const SOC_SYSTEM = `သင်သည် AEGIS-AI ဖြစ်ပြီး AEGIS Tactical SOC Dashboard တွင် built-in AI analyst ဖြစ်သည်။
+const SOC_SYSTEM = `သင်သည် AEGIS-AI — AEGIS SOC Dashboard ၏ built-in security analyst ဖြစ်သည်။
 
-Lab network ဆက်သွယ်မှု:
-- bank-web (10.10.10.10): Fail2ban, Suricata, Apache2, vsftpd, Cowrie honeypot
-- customer-db (10.20.20.20): PostgreSQL, Suricata, Fail2ban
-- AEGIS VM (10.30.30.10): Hub forwarder, monitoring center
-- pfSense Firewall (10.30.30.1): WAN gateway, firewall
-- Attacker: မည်သည့် IP မဆို attacker ဖြစ်နိုင်သည် — 192.168.122.x range သာမဟုတ်ဘဲ မည်သည့် external IP, internal IP မဆို threat ဖြစ်နိုင်သည်။ IP ကို trust မလုပ်ရ။
+Lab topology:
+- bank-web (10.10.10.10): Suricata, Fail2ban, Apache2, vsftpd
+- customer-db (10.20.20.20): Suricata, Fail2ban, PostgreSQL
+- AEGIS VM (10.30.30.10): hub forwarder
+- pfSense (10.30.30.1): WAN firewall
+- Attacker: မည်သည့် IP မဆို — 192.168.122.x မဟုတ်ဘဲ မည်သည့် IP မဆို threat ဖြစ်နိုင်သည်
 
-Response rules (အသေချာလိုက်နာပါ):
-1. မြန်မာဘာသာ (Burmese) ဖြင့် ရေးပါ — technical terms (IP, port, protocol, tool names, commands) သာ English သုံးပါ
-2. ဂဏန်းများ၊ count များ၊ port numbers၊ IP addresses — ENGLISH DIGITS သာ သုံးပါ (မြန်မာ ဂဏန်း ၁၂၃ မဟုတ်ဘဲ 123 သုံးပါ)
-3. Section labels ကို CAPS ဖြင့် ရေးပါ (e.g., "ခြိမ်းခြောက်မှု အကျဉ်းချုပ်:", "ထောက်ပံ့ချက်:")
-4. IP address, attack type, failure count, severity တိကျစွာ ဖော်ပြပါ
-5. မြန်မာဘာသာ ပြည့်ပြည့်စုံစုံ ရေးပါ — sentence ကြားမှာ မဖြတ်ပါနှင့်
-6. Markdown # headers မသုံးပါနှင့် — plain text သာ
-7. Professional SOC analyst ကဲ့သို့ actionable ဖြစ်ပါစေ`;
+Response rules:
+1. မြန်မာဘာသာ ဖြင့်ရေး — IP, port, command, tool names သာ English
+2. Numbers/IPs — English digits သာ (123, မဟုတ် ၁၂၃)
+3. Markdown headers (#, ##) မသုံးပါ — plain text paragraph သာ
+4. တိုတိုနဲ့ ထိထိမိမိ — မလိုအပ်တဲ့ sections မထည့်ပါ
+5. ချက်ချင်း actionable ဖြစ်ပါစေ — concrete command/step ပါဝင်ပါစေ`;
 
 // ─── Status ───────────────────────────────────────────────────────────────────
 
@@ -233,32 +231,15 @@ router.get("/ai/analyze-event/:id", async (req, res) => {
     const ipHistory = await db.select({ count: count() }).from(securityEventsTable)
       .where(eq(securityEventsTable.sourceIp, event.sourceIp));
 
-    const userPrompt = `
-EVENT အသေးစိတ်:
-ID: ${event.id}
-Type: ${event.type} / ${event.subtype}
-Severity: ${event.severity}
-Source IP: ${event.sourceIp}  ← မည်သည့် IP မဆို attacker ဖြစ်နိုင်သည်
-Target: ${event.targetHost}
-Tool: ${event.toolUsed ?? "unknown"}
-Description: ${event.description ?? "none"}
-Status: ${event.status}
-Time: ${event.createdAt.toISOString()}
-ဒီ IP မှ စုစုပေါင်း event: ${Number(ipHistory[0]?.count ?? 0)}
+    const userPrompt = `Event #${event.id}: ${event.type}/${event.subtype} [${event.severity.toUpperCase()}]
+Source: ${event.sourceIp} → Target: ${event.targetHost}
+Tool: ${event.toolUsed ?? "unknown"} | ${event.description ?? ""}
+ဒီ IP မှ event ${Number(ipHistory[0]?.count ?? 0)} ခု ရှိပြီ
 
-မြန်မာဘာသာဖြင့် ဒီ security event ကို ပြည့်ပြည့်စုံစုံ ရှင်းပြပါ:
+မြန်မာဘာသာဖြင့် 3-4 ကြောင်းသာ ဖြင့် ရေးပါ:
+(1) ဘာဖြစ်နေသလဲ (2) ဘာကြောင့် ဒီ severity (3) ချက်ချင်း လုပ်ရမည့် command 1 ခု — တိုတိုနဲ့ ထိထိမိမိ`.trim();
 
-ဘာဖြစ်နေသလဲ:
-(event ကို technical ရှင်းပြချက်)
-
-အန္တရာယ် အဆင့်:
-(ဘာကြောင့် ဒီလောက် ဆိုးသလဲ)
-
-ချက်ချင်း လုပ်ဆောင်ရမည်:
-(သက်ဆိုင်ရာ command သို့မဟုတ် action ပါဝင်ပါစေ)
-`.trim();
-
-    const explanation = await askGroq({ system: SOC_SYSTEM, user: userPrompt, maxTokens: 1500 });
+    const explanation = await askGroq({ system: SOC_SYSTEM, user: userPrompt, maxTokens: 400 });
     res.json({ id, explanation, generatedAt: new Date().toISOString() });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -356,16 +337,24 @@ Attack data ကို ကြည့်ပြီး defense rules 3-5 ခု recom
 JSON ONLY ပြန်ပါ — ရှင်းလင်းချက် plain text မထည့်ပါနှင့်
 `.trim();
 
-    const raw = await askGroq({ system: SOC_SYSTEM, user: userPrompt, maxTokens: 2000 });
+    const raw = await askGroq({ system: SOC_SYSTEM, user: userPrompt, maxTokens: 1500 });
 
-    // Extract JSON from response (Groq sometimes wraps in markdown)
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      res.status(500).json({ error: "AI returned non-JSON response", raw });
+    // Extract JSON — handle plain JSON, ```json blocks, or ```  blocks
+    let jsonStr: string | null = null;
+    const codeBlock = raw.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+    if (codeBlock) {
+      jsonStr = codeBlock[1];
+    } else {
+      const direct = raw.match(/\{[\s\S]*\}/);
+      if (direct) jsonStr = direct[0];
+    }
+
+    if (!jsonStr) {
+      res.status(500).json({ error: "AI returned non-JSON response. Raw: " + raw.slice(0, 200) });
       return;
     }
 
-    const parsed = JSON.parse(jsonMatch[0]);
+    const parsed = JSON.parse(jsonStr);
     res.json({
       recommendations: parsed.recommendations ?? [],
       generatedAt: new Date().toISOString(),

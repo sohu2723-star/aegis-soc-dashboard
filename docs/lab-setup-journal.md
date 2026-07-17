@@ -3145,3 +3145,54 @@ pnpm install   # 440 packages installed
 1. Render API server ကို `SUPABASE_DB_URL`, `AEGIS_INGEST_KEY`, `AEGIS_ADMIN_KEY` secrets ထည့်ပြီး deploy လုပ်  
 2. AEGIS VM (10.30.30.10) မှာ `aegis_forwarder.local.conf` ဖြည့်ပြီး `python3 aegis_forwarder.py --mode hub` run  
 3. pfSense REST API package install + PFSENSE_API_KEY generate
+
+---
+
+### [2026-07-17] — Bug Fixes: AI Analysis, Defense Rules, System Status, Network Monitor
+
+**Status:** ✅ Done  
+**What:** Screenshot တွေမှာ တွေ့ခဲ့သော bugs 5 ခု fix လုပ်ခဲ့သည်
+
+**① AI Event Analysis — response ကြာ + truncate ဖြစ်နေ**
+**How:**
+- `artifacts/api-server/src/routes/ai.ts` — `analyze-event` prompt ကို 3-4 ကြောင်းသာ output ဖြစ်အောင် ချုပ်  
+- `maxTokens: 1500 → 400` (ရှည်တဲ့ response မရအောင်)  
+- `SOC_SYSTEM` prompt ကို ကြာ / section များနဲ့ ဖြည့်ရေးပဲ မဟုတ်ဘဲ plain paragraph output ဖြစ်အောင် ချုပ်  
+**Result:** AI က 3-4 ကြောင်းသာ ပြန်ပြော — modal မှာ text ပြတ်မသွား
+
+**② AI Rule Suggestions — JSON parse error**
+**How:**
+- `recommend-rules` endpoint ၏ JSON extraction ကို ပြင်  
+- Groq က ` ```json ``` ` code block ထဲ wrap တတ် → regex ကို `codeBlock[1]` extract ဦးစွာ ကြိုးစားပြီး fallback direct `{...}` match  
+**Result:** JSON parse error မဖြစ်တော့
+
+**③ Defense Rules — MITM rule ဖြုတ်**
+**How:**
+- `artifacts/api-server/src/lib/auto-defense.ts` — `"MITM / ARP Spoof → Incident"` ကို `OBSOLETE_RULE_NAMES` ထဲ ထည့်  
+- Cowrie honeypot, bank-mail ဟာ ဖြုတ်ပြီးသားဆိုတော့ MITM dedicated sensor မရှိ → rule မလိုတော့  
+- Active rules: SSH brute, DDoS, Web attack, Port scan, FTP brute, pfSense WAN blocks (6 rules) — lab ကိုက်ညီ  
+**Result:** Defense Rules page မှာ လက်ရှိ lab နဲ့ မသက်ဆိုင်တဲ့ rule မကျန်တော့
+
+**④ System Status — Suricata + Fail2ban per-host ပြဒဖို့ seed**
+**How:**
+- `artifacts/api-server/src/routes/system.ts` — `PER_HOST_SENSORS` array ထည့်  
+- bank-web (10.10.10.10): Suricata IDS, Fail2ban → "unknown" state seed  
+- customer-db (10.20.20.20): Suricata IDS, Fail2ban → "unknown" state seed  
+- Forwarder run ရင် → online update; run မနေရင် "unknown" ပြ  
+**Result:** System Status page မှာ forwarder မ run ခင်ကတည်းက sensor entries ပြ; SYSTEMS ONLINE 6/14 ဖြစ်ပြ
+
+**⑤ Network Monitor — MONITORED always "ACTIVE" ဖြစ်နေ**
+**How:**
+- `artifacts/aegis-dashboard/src/pages/network.tsx` — `isMonitored` flag check မဟုတ်ဘဲ `lastSeen` timestamp အပေါ် မူတည်  
+  - `lastSeen < 2 min` → `🟢 LIVE`  
+  - `2–15 min` → `⚠️ STALE (Xm ago)`  
+  - `> 15 min` → `🔴 OFFLINE`  
+**Result:** Host detail panel မှာ forwarder ရပ်သွားရင် real-time status ပြ
+
+**Lab sensor အကြံပြုချက် (user မေးထားသည်):**
+lab setup (bank-web: Suricata+Fail2ban+Apache+vsftpd, customer-db: Suricata+Fail2ban+PostgreSQL) အတွက် လုံလောက်သော sensors:
+- Suricata — network attack detection (port scan, DDoS, SQLi, XSS)  
+- Fail2ban — brute force auto-ban (SSH, FTP, Apache)  
+- ထပ်ထည့်ရင် ကောင်း: ModSecurity WAF (bank-web Apache မှာ web attack logging)
+
+**Next:** API server ကို Render မှာ redeploy လုပ်ပြီး changes live ဖြစ် အောင် push

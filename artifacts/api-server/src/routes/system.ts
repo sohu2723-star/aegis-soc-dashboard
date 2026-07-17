@@ -22,6 +22,39 @@ const GLOBAL_COMPONENTS = [
   },
 ];
 
+// Per-host sensors seeded as initial "unknown" state.
+// The aegis_forwarder (hub mode) will update these to online/offline via POST /system/status.
+const PER_HOST_SENSORS = [
+  {
+    component: "Suricata IDS",
+    layer: "sensor",
+    status: "unknown",
+    description: "Network intrusion detection — alerts on port scans, DDoS, web attacks, SSH brute force",
+    hostIp: "10.10.10.10",
+  },
+  {
+    component: "Fail2ban",
+    layer: "sensor",
+    status: "unknown",
+    description: "Brute-force IP banning — SSH, FTP, Apache auth failures",
+    hostIp: "10.10.10.10",
+  },
+  {
+    component: "Suricata IDS",
+    layer: "sensor",
+    status: "unknown",
+    description: "Network intrusion detection — alerts on port scans, DDoS, SQL injection attempts",
+    hostIp: "10.20.20.20",
+  },
+  {
+    component: "Fail2ban",
+    layer: "sensor",
+    status: "unknown",
+    description: "Brute-force IP banning — SSH and PostgreSQL auth failures",
+    hostIp: "10.20.20.20",
+  },
+];
+
 // Components that are obsolete and should be removed from the DB on startup
 const OBSOLETE_COMPONENTS = [
   "Snort IDS",
@@ -57,12 +90,22 @@ async function purgeStaleRows() {
 async function seedSystemStatus() {
   await purgeStaleRows();
 
-  // Seed global components if missing
   const remaining = await db.select().from(systemStatusTable);
+
+  // Seed global components if missing
   for (const c of GLOBAL_COMPONENTS) {
     const exists = remaining.some(s => s.component === c.component && !s.hostIp);
     if (!exists) {
       await db.insert(systemStatusTable).values(c);
+    }
+  }
+
+  // Seed per-host sensors as "unknown" so they appear before the forwarder registers them.
+  // Once the forwarder posts real status, these rows get updated to online/offline.
+  for (const s of PER_HOST_SENSORS) {
+    const exists = remaining.some(r => r.component === s.component && r.hostIp === s.hostIp);
+    if (!exists) {
+      await db.insert(systemStatusTable).values(s);
     }
   }
 }
