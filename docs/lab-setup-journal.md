@@ -3196,3 +3196,446 @@ lab setup (bank-web: Suricata+Fail2ban+Apache+vsftpd, customer-db: Suricata+Fail
 - ထပ်ထည့်ရင် ကောင်း: ModSecurity WAF (bank-web Apache မှာ web attack logging)
 
 **Next:** API server ကို Render မှာ redeploy လုပ်ပြီး changes live ဖြစ် အောင် push
+
+---
+
+## [2026-07-17] — Complete System State Documentation (Replit Session)
+
+**Status:** ✅ Done  
+**What:** Project ကို GitHub မှ Replit import ပြီးနောက် လက်ရှိ system state အကုန်ကို မှတ်တမ်းတင်သည်  
+**Purpose:** Panel/judges အတွက် + future agents အတွက် reference document
+
+---
+
+### ① Deployment Architecture (Current)
+
+```
+[Kali Linux — Attacker]
+  IP: 192.168.122.132/24  GW: 192.168.122.2
+         │
+    [Switch1 (GNS3 Ethernet Switch)]
+         │
+    [Router-1 — MikroTik CHR 7.15.3]
+      ether1: 192.168.122.2/24  ← Attacker/virbr0 side
+      ether2: DISABLED           ← NAT cloud (disabled 2026-07-16)
+      ether3: 10.0.23.1/30      ← pfSense WAN link (direct, R2 removed 2026-07-16)
+         │
+    [pfSense 2.7.2 CE]
+      WAN  (em0): 10.0.23.2/30   GW: 10.0.23.1
+      DMZ  (em1): 10.10.10.1/24  DHCP: 100-200
+      INT  (em2): 10.20.20.1/24  DHCP: 100-200
+      MGMT (em3): 10.30.30.1/24  DHCP: 100-200
+         │
+    ┌────┴──────────────┐────────────────────────┐
+ [DMZ 10.10.10.0/24]  [INT 10.20.20.0/24]   [MGMT 10.30.30.0/24]
+       │                      │                        │
+  [bank-web]            [customer-db]          [aegis-forwarder]
+  10.10.10.10           10.20.20.20             10.30.30.10
+  Apache2, DVWA         PostgreSQL               Hub script
+  vsftpd (FTP)          Suricata                 SSH → bank-web
+  Suricata              Fail2ban                 SSH → customer-db
+  Fail2ban                                       pfSense REST API
+```
+
+**Code hosting:** Replit (code editor only — Replit URL ကို source code ထဲ မသုံးရ)  
+**API server:** Render — `https://aegis-api-server-jp3b.onrender.com` (Singapore, free tier)  
+**Dashboard:** Vercel — static React build, `/api/*` → Render via vercel.json rewrites  
+**Database:** Supabase PostgreSQL — pooler `aws-1-ap-southeast-2.pooler.supabase.com:6543`
+
+---
+
+### ② VM Inventory (2026-07-17 Current State)
+
+| VM | OS | IP | Role | Status |
+|---|---|---|---|---|
+| Kali Linux | Kali | 192.168.122.132/24 | Red Team attacker | ✅ Active |
+| Router-1 | MikroTik CHR 7.15.3 | ether1:192.168.122.2, ether3:10.0.23.1 | Edge router | ✅ Configured |
+| pfSense | pfSense 2.7.2 CE | WAN:10.0.23.2, DMZ:10.10.10.1, INT:10.20.20.1, MGMT:10.30.30.1 | Firewall | ✅ Running |
+| bank-web | Ubuntu Desktop | 10.10.10.10/24 GW:10.10.10.1 | Web/FTP server | ✅ Static IP, services running |
+| customer-db | Ubuntu Desktop | 10.20.20.20/24 GW:10.20.20.1 | PostgreSQL DB | ⏳ IP set, services pending |
+| aegis-forwarder | Ubuntu Desktop | 10.30.30.10/24 GW:10.30.30.1 | Hub forwarder | ⏳ Script ready, not yet running hub mode |
+
+**Removed from topology (2026-07-16):** Router-2, bank-mail, teller-pc
+
+---
+
+### ③ Monorepo Structure
+
+```
+/
+├── artifacts/
+│   ├── aegis-dashboard/    ← React 19 + Vite + TailwindCSS v4 + shadcn/ui (port 5000)
+│   └── api-server/         ← Express 5 API (port 3000 dev / 3000 Render)
+├── lib/
+│   ├── db/                 ← Drizzle ORM schema + Supabase client
+│   ├── api-spec/           ← openapi.yaml (source of truth for API contract)
+│   ├── api-client-react/   ← Generated React Query hooks (Orval)
+│   └── api-zod/            ← Generated Zod schemas (Orval)
+├── scripts/
+│   └── src/
+│       └── aegis_forwarder.py   ← Python forwarder (1528 lines)
+├── render.yaml             ← Render deployment config
+├── vercel.json             ← Vercel deployment config
+└── pnpm-workspace.yaml     ← pnpm monorepo config
+```
+
+**Stack:** Node.js 24, TypeScript 5.9, pnpm 10  
+**API build:** esbuild → `dist/index.mjs` (ESM bundle)  
+**DB driver:** `postgres.js` + Drizzle ORM, SSL required, custom URL parser (lastIndexOf method for special chars in password)
+
+---
+
+### ④ Database Schema (Supabase PostgreSQL)
+
+| Table | Key Columns | Purpose |
+|---|---|---|
+| `security_events` | id, type, subtype, severity, sourceIp, targetHost, toolUsed, description, status, layer, createdAt | All ingest events |
+| `alerts` | id, message, severity, channel, acknowledged, eventId | High/critical alerts |
+| `incidents` | id, title, description, severity, status, sourceIp, attackType, affectedHost | Grouped attack incidents |
+| `defense_rules` | id, name, triggerAttackType, triggerSeverity, triggerThreshold, triggerWindowSecs, actionType, defenseType, actionParams, targetVm, priority, isActive | Auto-defense rules |
+| `defense_commands` | id, commandType, commandText, undoCommand, targetIp, targetVm, status, errorMsg, createdAt, executedAt | Command queue (forwarder polls) |
+| `blocked_ips` | id, ip, reason, blockedBy, targetHost, isActive, blockedAt, unblockedAt | IP block log |
+| `defense_actions` | id, type, action, targetIp, targetHost, reason, performedBy, status, createdAt | Defense audit log |
+| `network_hosts` | id, ip, mac, hostname, os, role, status, isMonitored, openPorts, lastSeen | Registered hosts |
+| `system_status` | id, component, layer, status, description, metrics, hostIp, lastCheck | Sensor health |
+| `app_settings` | key, value, updatedAt | Runtime settings (autoDefenseEnabled, telegramEnabled, reportInterval) |
+| `ssh_sessions` | id, sourceIp, username, status, authMethod, failures, bannedBy, createdAt, endedAt | SSH session log |
+| `ftp_sessions` | id, sourceIp, username, command, filePath, fileSize, status, createdAt | FTP session log |
+| `encrypted_traffic` | id, sourceIp, destIp, destPort, tlsVersion, cipherSuite, sni, certIssuer, isSuspicious, reason | TLS traffic log |
+| `http_attacks` | id, sourceIp, targetUrl, method, statusCode, attackType, payload, userAgent, blocked | HTTP attack log |
+| `reports` | id, title, summary, severity, status, generatedBy, createdAt | AI-generated reports |
+
+---
+
+### ⑤ API Server — Complete Endpoint List
+
+**Base URL (dev):** `http://localhost:3000/api`  
+**Base URL (prod):** `https://aegis-api-server-jp3b.onrender.com/api`
+
+#### Health
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/healthz` | None | Server health check |
+
+#### Dashboard
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/dashboard/summary` | None | KPI counts (events, alerts, incidents, blocked IPs) + attack volume trend |
+
+#### Security Events
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/events` | None | List events (filter: severity, type, sourceIp, targetHost, limit) |
+| GET | `/events/recent` | None | Latest 50 events |
+| GET | `/events/:id` | None | Single event detail |
+
+#### Ingest (X-AEGIS-Key header required)
+| Method | Path | Key Fields | Description |
+|---|---|---|---|
+| POST | `/ingest/event` | sourceIp, description, type, subtype, severity, targetHost, toolUsed, layer | Generic event |
+| POST | `/ingest/snort` | priority, msg, src, dst, proto | Snort alert_fast |
+| POST | `/ingest/suricata` | alert.signature, alert.severity, src_ip, dest_ip, proto | Suricata EVE JSON alert |
+| POST | `/ingest/suricata/tls` | src_ip, dest_ip, tls.version, tls.sni, tls.subject | Suricata TLS events |
+| POST | `/ingest/fail2ban` | ip, jail, failures, action | Fail2ban ban/unban |
+| POST | `/ingest/ssh` | src_ip, dest_ip, status, username, auth_method, failures, banned_by | auth.log SSH events |
+| POST | `/ingest/ftp` | src_ip, username, command, file_path, file_size, status | vsftpd/proftpd events |
+| POST | `/ingest/http` | src_ip, url, method, status_code, attack_type, payload, user_agent, blocked | ModSecurity/Nginx attacks |
+| POST | `/ingest/mail` | src_ip, from_addr, to_addr, subject, attack_type | SMTP/mail events |
+| POST | `/ingest/ddos` | src_ip, target, protocol, packet_rate, attack_type | DDoS/flood detection |
+| POST | `/ingest/dns` | src_ip, query, attack_type | DNS anomalies |
+| POST | `/ingest/cowrie` | src_ip, eventid, username, password, input | Cowrie honeypot |
+| POST | `/ingest/traffic` | inbound, outbound, blocked, timestamp | Traffic stats |
+| POST | `/network/hosts` | ip, mac, hostname, os, role, isMonitored, openPorts | Host heartbeat/registration |
+
+#### Incidents
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/incidents` | None | List incidents (filter: status) |
+| POST | `/incidents` | None | Create incident |
+| GET | `/incidents/:id` | None | Incident detail |
+| PATCH | `/incidents/:id` | None | Update status/description |
+
+#### Alerts
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/alerts` | None | List alerts |
+| PATCH | `/alerts/:id/acknowledge` | None | Acknowledge alert |
+
+#### Network
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/network/hosts` | None | List registered hosts |
+| DELETE | `/network/hosts/:id` | Admin | Remove host |
+| PATCH | `/network/hosts/:id/offline` | Admin | Force offline |
+| GET | `/network/hosts/:ip/events` | None | Events for specific host |
+| GET | `/network/traffic` | None | Traffic trend (12h) |
+
+#### System Status
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/system/status` | None | All component statuses (stale detection: >3 min = offline) |
+| POST | `/system/status` | None | Forwarder posts sensor health |
+
+#### Defense (X-AEGIS-Admin-Key required)
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/defense/status` | None | Fail2ban/Suricata active, total blocked, per-host sensors |
+| GET | `/defense/blocks` | None | Active blocked IPs |
+| POST | `/defense/blocks` | Admin | Manual block IP |
+| DELETE | `/defense/blocks/:id` | Admin | Unblock IP |
+| GET | `/defense/actions` | None | Defense audit log |
+| GET | `/defense/commands/pending` | Admin | Forwarder polls for commands |
+| POST | `/defense/commands/:id/done` | Admin | Forwarder marks command done |
+
+#### Defense Rules
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/defense-rules` | None | List all rules |
+| POST | `/defense-rules` | Admin | Create rule |
+| PATCH | `/defense-rules/:id` | Admin | Update rule |
+| DELETE | `/defense-rules/:id` | Admin | Delete rule |
+
+#### Firewall
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/ui/firewall/rules` | None | List firewall rules |
+| POST | `/ui/firewall/rules` | Admin | Add rule (iptables/pfSense) |
+| DELETE | `/ui/firewall/rules/:id` | Admin | Deactivate rule |
+| GET | `/ui/firewall/rules/export` | None | Export as bash script |
+
+#### Connection Logs
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/connections/ssh` | None | SSH session history |
+| GET | `/connections/ftp` | None | FTP session history |
+| GET | `/connections/tls` | None | TLS traffic log |
+| GET | `/connections/tls/suspicious` | None | Suspicious TLS only |
+| GET | `/connections/http-attacks` | None | HTTP attack log |
+
+#### AI Analysis (Groq llama-3.3-70b-versatile)
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/ai/status` | None | Check if Groq configured |
+| GET | `/ai/threat-analysis` | None | 24h threat briefing (Burmese) |
+| POST | `/ai/defend` | None | IP-specific defense recommendation (body: {ip}) |
+| GET | `/ai/analyze-event/:id` | None | Single event explanation (3-4 lines, concise) |
+| POST | `/ai/recommend-rules` | None | AI-suggested defense rules based on attack patterns (JSON) |
+
+#### Reports
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/reports` | None | List reports |
+| POST | `/reports/generate` | None | Generate AI report |
+
+#### Settings
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/settings` | None | Get all settings |
+| POST | `/settings/report-interval` | None | Set auto-report interval (minutes) |
+| POST | `/settings/telegram` | None | Toggle Telegram alerts |
+| POST | `/settings/test-telegram` | None | Test Telegram bot |
+| POST | `/settings/send-report-now` | None | Trigger immediate report |
+
+#### Stream (SSE)
+| Method | Path | Description |
+|---|---|---|
+| GET | `/stream` | Server-Sent Events — real-time push (security_event, alert, stats_update, defense_command, service_status_change) |
+
+---
+
+### ⑥ Auto-Defense Rules (Current Active — 2026-07-17)
+
+| # | Rule Name | Trigger | Threshold | Window | Action | Defense | Target VM | Priority |
+|---|---|---|---|---|---|---|---|---|
+| 1 | SSH Brute Force → Auto Block | ssh_brute / any | 5 | 60s | auto | block_ip | ubuntu | 10 |
+| 2 | DDoS → Null Route | ddos / any | 50 | 30s | auto | null_route | ubuntu | 8 |
+| 3 | Web Attack (High) → Auto Block | web_attack / high | 1 | 60s | auto | block_ip | ubuntu | 15 |
+| 4 | Port Scan → Auto Block | port_scan / any | 1 | 60s | auto | block_ip | ubuntu | 20 |
+| 5 | Critical Attack → pfSense Block | any / critical | 1 | 60s | auto | pfsense_block | pfsense | 50 |
+| 6 | Web Attack → pfSense Block | web_attack / high | 1 | 60s | auto | pfsense_block | pfsense | 45 |
+| 7 | FTP Brute Force → Block | ftp_brute / any | 3 | 60s | auto | block_ip | ubuntu | 12 |
+| 8 | FTP Brute → pfSense Block | ftp_brute / any | 5 | 120s | auto | pfsense_block | pfsense | 32 |
+
+**Auto-defense default:** OFF (dashboard မှ toggle မမိချင်း မအလုပ်လုပ်)
+
+**Obsolete rules (DB startup မှာ auto-delete):**
+- Honeypot Touch → Instant Block (Cowrie removed)
+- Mail Spam → Auto Block (bank-mail removed)
+- MITM / ARP Spoof → Incident (dedicated MITM sensor မရှိ)
+- Critical Attack → pfSense Block (suggest version → auto version re-seeded)
+- Web Attack → pfSense Block (suggest version → auto version re-seeded)
+
+---
+
+### ⑦ System Status Components (Seeded)
+
+**Global (hostIp = null):**
+| Component | Layer | Initial Status |
+|---|---|---|
+| pfSense Firewall | perimeter | unknown |
+| AEGIS API Server | brain | online |
+
+**Per-host sensors (seeded as "unknown", forwarder updates to online/offline):**
+| Component | Layer | Host IP | Host |
+|---|---|---|---|
+| Suricata IDS | sensor | 10.10.10.10 | bank-web |
+| Fail2ban | sensor | 10.10.10.10 | bank-web |
+| Suricata IDS | sensor | 10.20.20.20 | customer-db |
+| Fail2ban | sensor | 10.20.20.20 | customer-db |
+
+**Staleness rule:** hostIp ရှိပြီး lastCheck > 3 minutes → status = "offline" (live inference, DB မပြောင်း)
+
+---
+
+### ⑧ Dashboard Pages (React Frontend)
+
+| Page | Route | Key Features |
+|---|---|---|
+| Command Center | `/` | KPI cards (events/threats/alerts/systems), attack volume chart, events by type chart, recent events table |
+| Security Events | `/events` | Full event feed, severity filter, AI analyze button per event |
+| Incidents | `/incidents` | Case management, open/closed filter, incident detail |
+| Active Alerts | `/alerts` | Priority alerts, acknowledge action |
+| Connection Logs | `/connections` | SSH sessions (stale detect), FTP sessions, TLS traffic, HTTP attacks |
+| Network Monitor | `/network` | Host map, per-host events, LIVE/STALE/OFFLINE real-time status, delete host |
+| Defense Center | `/defense` | Auto-defense toggle, block/unblock IPs, per-host Suricata/Fail2ban status, AI rule suggestions, defense action log |
+| Defense Rules | `/defense-rules` | Active rules table, firewall rules, command execution history |
+| System Status | `/system` | All component health cards (online/offline/warning/unknown) |
+| Reports | `/reports` | AI Threat Briefing, generate report, search history |
+| Architecture | `/architecture` | GNS3 lab topology diagram |
+| Settings | `/settings` | Auto-report interval, Telegram toggle, test Telegram, send report now |
+| Setup Guide | `/setup` | Lab configuration instructions (Burmese) |
+
+**Device filter:** Top-right dropdown → "All Devices" or specific host → scopes all pages to that host's data  
+**Real-time:** SSE via `/api/stream` — events, alerts, stats auto-push to dashboard (no polling needed for new data)
+
+---
+
+### ⑨ aegis_forwarder.py — Modes & Sensors
+
+**File:** `scripts/src/aegis_forwarder.py` (1528 lines)  
+**Config:** `aegis_forwarder.local.conf` (gitignored, not committed)  
+**API target:** `AEGIS_URL=https://aegis-api-server-jp3b.onrender.com/api`
+
+#### Run Modes
+| Mode | Command | Covers |
+|---|---|---|
+| hub | `python3 aegis_forwarder.py --mode hub` | All VMs (AEGIS + bank-web + customer-db + pfSense) via SSH |
+| remote | `--mode remote` | AEGIS VM only (no SSH to other VMs) |
+| suricata | `--mode suricata` | Single sensor: Suricata only |
+| fail2ban | `--mode fail2ban` | Single sensor: Fail2ban only |
+| ssh | `--mode ssh` | Single sensor: auth.log only |
+| (others) | `--mode snort/ftp/http/cowrie/postgresql` | Single sensor each |
+
+#### Hub Mode Sensor Threads
+| Thread | Source File | POST Endpoint | Host |
+|---|---|---|---|
+| suricata | `/var/log/suricata/eve.json` (SSH tail) | `/ingest/suricata` | bank-web |
+| snort | `/var/log/snort/alert` (SSH tail) | `/ingest/snort` | bank-web |
+| fail2ban | `/var/log/fail2ban.log` (SSH tail) | `/ingest/fail2ban` | bank-web |
+| ssh | `/var/log/auth.log` (SSH tail) | `/ingest/ssh` | bank-web |
+| http | `/var/log/apache2/modsec_audit.log` (SSH tail) | `/ingest/http` | bank-web |
+| ftp | `/var/log/vsftpd.log` (SSH tail) | `/ingest/ftp` | bank-web |
+| suricata | `/var/log/suricata/eve.json` (SSH tail) | `/ingest/suricata` | customer-db |
+| fail2ban | `/var/log/fail2ban.log` (SSH tail) | `/ingest/fail2ban` | customer-db |
+| ssh | `/var/log/auth.log` (SSH tail) | `/ingest/ssh` | customer-db |
+| postgresql | `/var/log/postgresql/*.log` (SSH tail) | `/ingest/event` | customer-db |
+| heartbeat | — | `/network/hosts` | aegis-forwarder |
+| service_health | — | `/system/status` | all VMs |
+| defense_agent | DB poll: `/defense/commands/pending` | — | all VMs |
+
+#### Defense Routing (hub mode)
+- `targetVm=pfsense` → pfSense REST API (`http://10.30.30.1/api/v1`)
+- `targetVm=bank-web` → SSH into 10.10.10.10 → `sudo iptables ...`
+- `targetVm=customer-db` → SSH into 10.20.20.20 → `sudo iptables ...`
+- `targetVm=ubuntu` / default → local iptables on AEGIS VM
+
+---
+
+### ⑩ Deployment Config
+
+**render.yaml (API Server on Render):**
+```yaml
+type: web
+name: aegis-api-server
+env: node
+region: singapore
+plan: free
+rootDir: artifacts/api-server
+buildCommand: cd ../.. && pnpm install && pnpm --filter @workspace/api-server run build
+startCommand: node --enable-source-maps ./dist/index.mjs
+envVars:
+  PORT: 3000
+  NODE_ENV: production
+  AEGIS_INGEST_KEY: (sync: false — set in Render dashboard)
+  AEGIS_ADMIN_KEY:  (sync: false — set in Render dashboard)
+  SUPABASE_DB_URL:  (sync: false — set in Render dashboard)
+```
+
+**vercel.json (Dashboard on Vercel):**
+```json
+buildCommand: "pnpm --filter @workspace/aegis-dashboard run build"
+outputDirectory: "artifacts/aegis-dashboard/dist/public"
+rewrites: ["/api/:path*" → "https://aegis-api-server-jp3b.onrender.com/api/:path*"]
+```
+
+**Replit Dev (code editor only):**
+```
+Start application: pnpm --filter @workspace/aegis-dashboard run dev  → port 5000
+API Server:        PORT=3000 pnpm --filter @workspace/api-server run dev → port 3000
+```
+
+---
+
+### ⑪ Environment Variables & Secrets
+
+**Replit Secrets (dev):**
+| Secret | Purpose |
+|---|---|
+| SUPABASE_DB_URL | Supabase pooler URI (port 6543) |
+| AEGIS_INGEST_KEY | Sensor auth (X-AEGIS-Key header) |
+| AEGIS_ADMIN_KEY | Admin auth (X-AEGIS-Admin-Key header) |
+| GROQ_API_KEY | Groq API (llama-3.3-70b AI analysis) |
+| TELEGRAM_BOT_TOKEN | Telegram bot for alert push |
+| TELEGRAM_CHAT_ID | Telegram chat/channel ID |
+| SESSION_SECRET | Express session secret |
+
+**Render (prod) — set manually in Render dashboard:**
+SUPABASE_DB_URL, AEGIS_INGEST_KEY, AEGIS_ADMIN_KEY  
+*(GROQ_API_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID — optional but recommended)*
+
+---
+
+### ⑫ AI Features (Groq llama-3.3-70b-versatile)
+
+| Feature | Endpoint | Output |
+|---|---|---|
+| Event Analysis | GET `/ai/analyze-event/:id` | 3-4 ကြောင်း (ဘာဖြစ်သလဲ + severity + action) |
+| Threat Briefing | GET `/ai/threat-analysis` | 24h attack summary + recommendations (Burmese) |
+| IP Defense | POST `/ai/defend` | IP-specific defense steps + iptables commands |
+| Rule Suggestions | POST `/ai/recommend-rules` | JSON defense rules based on attack patterns |
+
+**Language:** မြန်မာ (Burmese) + English technical terms  
+**Report storage:** `reports` table ၏ `summary` column (fallback template ရှိ — Groq မရှိလဲ report generate ဖြစ်)  
+**Telegram alerts:** high/critical event တိုင်း → Telegram bot push (telegramEnabled setting မှ ထိန်းချုပ်)
+
+---
+
+### ⑬ Pending Items (2026-07-17 Current)
+
+| Item | Status | Next Step |
+|---|---|---|
+| Render redeploy (code changes live) | ⏳ Pending | Render dashboard → Manual Deploy trigger |
+| aegis-forwarder hub mode run | ⏳ Pending | `git pull && python3 aegis_forwarder.py --mode hub` |
+| SSH key setup (AEGIS VM → bank-web, customer-db) | ⏳ Pending | `ssh-copy-id sithu@10.10.10.10` + `ssh-copy-id sithu@10.20.20.20` |
+| pfSense REST API package + PFSENSE_API_KEY | ⏳ Pending | pfSense → System → Package Manager → API install |
+| customer-db: Suricata + Fail2ban install | ⏳ Pending | `sudo apt install suricata fail2ban` on 10.20.20.20 |
+| aegis-forwarder systemd service | ⏳ Pending | `systemctl enable aegis-forwarder` (auto-start on boot) |
+| Kali route persistent (reboot) | ⏳ Pending | nmcli connection ထဲ static route ထည့် |
+| bank-web: ModSecurity WAF (optional) | ⏳ Optional | Apache2 mod_security install |
+| Auto-defense live test | ⏳ Pending | Dashboard toggle ON → Kali attack → block event confirm |
+
+---
+
+**Commit:** `fix: AI concise responses, JSON parse, defense rules cleanup, system status sensor seed, network monitor live status`  
+**GitHub:** `https://github.com/sohu2723-star/aegis-soc-dashboard`  
+**Branch:** main
