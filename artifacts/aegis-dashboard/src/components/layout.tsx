@@ -14,6 +14,7 @@ import {
   Cable,
   BookCheck,
   Settings2,
+  Workflow,
 } from "lucide-react";
 import {
   Sidebar,
@@ -43,6 +44,7 @@ const networkItems = [
   { title: "Defense Center", url: "/defense", icon: Shield },
   { title: "Defense Rules", url: "/defense-rules", icon: BookCheck },
   { title: "System Status", url: "/system", icon: Server },
+  { title: "Attack Flow", url: "/attack-flow", icon: Workflow },
 ];
 
 const reportItems = [

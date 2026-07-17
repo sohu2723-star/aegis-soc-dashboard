@@ -21,6 +21,7 @@ import Architecture from "@/pages/architecture";
 import Connections from "@/pages/connections";
 import DefenseRules from "@/pages/defense-rules";
 import SettingsPage from "@/pages/settings";
+import AttackFlow from "@/pages/attack-flow";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -52,6 +53,7 @@ function Router() {
         <Route path="/connections" component={Connections} />
         <Route path="/defense-rules" component={DefenseRules} />
         <Route path="/settings" component={SettingsPage} />
+        <Route path="/attack-flow" component={AttackFlow} />
         <Route component={NotFound} />
       </Switch>
     </Layout>
