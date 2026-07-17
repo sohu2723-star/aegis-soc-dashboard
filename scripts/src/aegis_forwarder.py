@@ -1476,9 +1476,40 @@ Modes:
     hb = threading.Thread(target=heartbeat_loop, daemon=True, name="heartbeat")
     hb.start()
 
-    # Local service health — always run (covers AEGIS VM itself in hub mode too)
-    sh = threading.Thread(target=service_health_loop, daemon=True, name="service_health")
-    sh.start()
+    # Local service health:
+    #   NON-hub mode → run full SERVICE_MAP checks (suricata/fail2ban/etc on THIS VM)
+    #   Hub mode     → skip local checks; _remote_service_health_loop() covers bank VMs
+    #                  via SSH.  Running both causes UP/DOWN flapping: local suricata
+    #                  is NOT installed on AEGIS VM → posts OFFLINE, remote loop
+    #                  sees suricata ONLINE on bank-web → posts ONLINE, seconds apart.
+    if not _is_hub:
+        sh = threading.Thread(target=service_health_loop, daemon=True, name="service_health")
+        sh.start()
+        print("  ► service_health thread started (local sensors)")
+    else:
+        # In hub mode just heartbeat the Hub Forwarder component itself as ONLINE
+        def _hub_self_health():
+            own_ip = get_local_ip()
+            while True:
+                try:
+                    requests.post(
+                        f"{AEGIS_URL}/system/status",
+                        json={
+                            "component": "Hub Forwarder",
+                            "layer":     "sensor",
+                            "status":    "online",
+                            "hostIp":    own_ip,
+                            "metrics":   json.dumps({"pid": os.getpid(), "mode": "hub"}),
+                        },
+                        headers=HEADERS,
+                        timeout=5,
+                    )
+                except Exception:
+                    pass
+                time.sleep(30)
+        sh = threading.Thread(target=_hub_self_health, daemon=True, name="hub_self_health")
+        sh.start()
+        print("  ► hub_self_health thread started (Hub Forwarder heartbeat only)")
 
     def shutdown(sig=None, frame=None):
         """Send offline status immediately before exiting."""
