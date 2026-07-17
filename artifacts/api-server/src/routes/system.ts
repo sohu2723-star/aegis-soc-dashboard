@@ -63,6 +63,30 @@ const PER_HOST_SENSORS = [
     hostIp: "10.10.10.10",
   },
 
+  // ── aegis-forwarder (10.30.30.10): Hub script VM ────────────────────────────
+  // MGMT zone ဖြစ်ပေမယ့် SSH ဖွင့်ထားတာကြောင့် Kali မှ attack လာနိုင်
+  {
+    component: "Hub Forwarder",
+    layer: "sensor",
+    status: "unknown",
+    description: "aegis_forwarder.py hub process — collects logs from all VMs, posts to API",
+    hostIp: "10.30.30.10",
+  },
+  {
+    component: "SSH Monitor",
+    layer: "sensor",
+    status: "unknown",
+    description: "SSH auth.log watcher — MGMT zone မှာ SSH attack လာနိုင်၊ detect + block",
+    hostIp: "10.30.30.10",
+  },
+  {
+    component: "Fail2ban",
+    layer: "sensor",
+    status: "unknown",
+    description: "Brute-force IP banning — AEGIS VM ၏ SSH ကာကွယ်",
+    hostIp: "10.30.30.10",
+  },
+
   // ── customer-db (10.20.20.20): PostgreSQL/Suricata/Fail2ban ─────────────────
   {
     component: "Suricata IDS",
