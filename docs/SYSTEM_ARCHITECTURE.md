@@ -1,108 +1,96 @@
 # AEGIS-SecureBank — System Architecture
-> Last updated: 2026-07-09
-> Topology source: GNS3 project "AEGIS-SecureBank" (photo 2026-07-10 02:10)
-> IP source of truth: per-VM `scripts/src/aegis_forwarder.py` deployments (agent mode — no central hub, no SSH collection)
+> Last updated: 2026-07-17
+> Topology version: v3 — R2 removed, bank-mail removed, teller-pc removed, hub mode active
+> IP source of truth: `docs/ip-plan.md` and `docs/network-architecture.md`
 
 ---
 
-## 1. Lab Topology — GNS3 AEGIS-SecureBank
+## 1. Lab Topology — GNS3 AEGIS-SecureBank (v3 Current)
 
 ```
-                   ┌──────────────────────────────────────────────────────────────────────┐
-                   │                     GNS3 — AEGIS-SecureBank                          │
-                   │                                                                       │
-   [Kali/Attacker] ──(e0)──┐                                                             │
-  192.168.122.132           │                                                             │
-                   │  [Switch1] ──(e1)──→ [Router-1] ──(e2)──→ [Router-2] ──(e1)──┐     │
-  [Internet virbr0]──(b2)──┘               │  192.168.122.2      │  10.0.12.2      │     │
-                   │                       │  10.0.12.1           │  10.0.23.1      │     │
-                   │                  (e1)─→[NAT cloud]           └────────────────┘     │
-                   │                                                        │ 10.0.23.2   │
-                   │                                                   [pfSense]          │
-                   │                                              WAN:  10.0.23.2/30      │
-                   │                                              DMZ:  10.10.10.1/24     │
-                   │                                              INT:  10.20.20.1/24     │
-                   │                                              MGMT: 10.30.30.1/24     │
-                   │                                                   │        │         │
-                   │                                          (e1/DMZ) │        │ (e2/INT)│
-                   │                                                   │        │         │
-                   │                                          [DMZ-Switch]  [INT-Switch]  │
-                   │                                          │    │    │    │    │    │  │
-                   │                                       bweb bmail  ---  tpc  cdb afwd │
-                   │                                    .10  .20       .10  .20  .10     │
-                   └──────────────────────────────────────────────────────────────────────┘
-
-  bweb = bank-web     tpc  = teller-pc
-  bmail= bank-mail    cdb  = customer-db
-  afwd = aegis-forwarder (10.30.30.10 — on INT-Switch, pfSense MGMT routes to it)
+  [Attacker VM]                                                                    │
+  (any IP)                                                                         │
+       │                                                                            │
+  [Switch1] ──→ [Router-1 / MikroTik CHR]                                         │
+  [GNS3 NAT]     ether1: 192.168.122.2/24   ← attacker/Switch1 side               │
+                 ether2: DHCP               ← NAT internet egress (masquerade)     │
+                 ether3: 10.0.23.1/30       ← pfSense WAN (R2 removed — direct)   │
+                                │                                                   │
+                         [pfSense 2.7.2]                                            │
+                      WAN  (em0): 10.0.23.2/30                                     │
+                      DMZ  (em1): 10.10.10.1/24                                    │
+                      INT  (em2): 10.20.20.1/24                                    │
+                      MGMT (em3): 10.30.30.1/24                                    │
+                                │                                                   │
+             ┌──────────────────┼──────────────────┐                               │
+        [DMZ-Switch]       [INT-Switch]         [MGMT]                             │
+             │                  │                   │                               │
+        [bank-web]        [customer-db]    [aegis-forwarder]                        │
+        10.10.10.10        10.20.20.20      10.30.30.10                             │
+       Apache, vsftpd       PostgreSQL       Hub agent (--mode hub)                │
+       Suricata             Suricata         SSHes → bank-web + customer-db         │
+       Fail2ban             Fail2ban         POSTs events to Render API             │
 ```
 
-> **Topology note from image:** The GNS3 screenshot shows teller-pc physically on DMZ-Switch port,
-> but its IP (10.20.20.10) is in the Internal (10.20.20.0/24) segment routed by pfSense INT interface.
-> aegis-forwarder is on INT-Switch with IP 10.30.30.10 (MGMT subnet, pfSense vtnet3 routes it).
+**Removed nodes (v3):** Router-2, bank-mail (10.10.10.20), teller-pc (10.20.20.10)
 
-> **Forwarder model (current):** There is no central SSH hub. Each VM (bank-web, bank-mail,
-> teller-pc, customer-db, aegis-forwarder) runs its **own local copy** of `aegis_forwarder.py`,
-> tailing its own log files and POSTing directly to the API server. No SSH between VMs is
-> required for log collection. `aegis-forwarder` (10.30.30.10) still runs the nmap network
-> scanner, tcpdump traffic capture, and heartbeat for itself — it no longer SSHes into the
-> other VMs to collect their logs.
+> **Attacker note:** Attackers can come from **any IP address** — not just 192.168.122.x.
+> Any external, internal, or VPN IP should be treated as a potential threat source.
+
+> **Forwarder model (hub mode):** A single `aegis_forwarder.py --mode hub` runs on the AEGIS VM
+> (10.30.30.10). It SSHes into bank-web and customer-db every 15 seconds to tail their Suricata,
+> Fail2ban, SSH, and FTP logs, then POSTs all events directly to the API server.
+> Bank VMs do NOT run the forwarder script themselves — hub handles all collection.
 
 ---
 
-## 2. Network Segments & IP Plan
+## 2. Network Segments & IP Plan (v3 Current)
 
 | Segment | Subnet | pfSense Interface | Purpose |
 |---|---|---|---|
-| Attacker / Internet | 192.168.122.0/24 | — (virbr0 host) | KVM network — Kali attack origin |
-| R1 ↔ R2 link | 10.0.12.0/30 | — | MikroTik backbone |
-| R2 ↔ pfSense WAN | 10.0.23.0/30 | vtnet0 / e0 | Edge uplink |
-| DMZ | 10.10.10.0/24 | vtnet1 / e1 | Public-facing bank services |
-| Internal | 10.20.20.0/24 | vtnet2 / e2 | Internal bank systems |
-| Management | 10.30.30.0/24 | vtnet3 / e3 | AEGIS monitoring segment |
+| Attacker path (virbr0) | 192.168.122.0/24 | — | GNS3 NAT — attacker VM side (any IP valid) |
+| R1 ↔ pfSense WAN | 10.0.23.0/30 | vtnet0 / em0 | Edge uplink (direct, R2 removed) |
+| DMZ | 10.10.10.0/24 | vtnet1 / em1 | Public-facing bank services |
+| Internal | 10.20.20.0/24 | vtnet2 / em2 | Internal bank systems |
+| Management | 10.30.30.0/24 | vtnet3 / em3 | AEGIS monitoring segment |
 
-### Node IP Reference (canonical — matches per-VM aegis_forwarder.py deployments)
+### Node IP Reference (canonical)
 
 | Node | IP | Subnet | Role |
 |---|---|---|---|
-| Kali Linux (GNS3 VM) | 192.168.122.132 (DHCP) | virbr0 | Red team attacker |
-| Router-1 ether1 | 192.168.122.2/24 | virbr0 | LAN-side toward Switch1/Kali |
-| Router-1 ether2 | DHCP auto | NAT cloud | Internet egress (NAT masquerade) |
-| Router-1 ether3 | 10.0.12.1/30 | R1↔R2 | Uplink to Router-2 |
-| Router-2 ether1 | 10.0.12.2/30 | R1↔R2 | Downlink from Router-1 |
-| Router-2 ether2 | 10.0.23.1/30 | R2↔pfSense | Uplink to pfSense WAN |
-| pfSense WAN (vtnet0) | 10.0.23.2/30 | R2↔pfSense | Firewall edge |
-| pfSense DMZ (vtnet1) | 10.10.10.1/24 | DMZ | DMZ zone gateway |
-| pfSense INT (vtnet2) | 10.20.20.1/24 | Internal | Internal zone gateway |
-| pfSense MGMT (vtnet3) | 10.30.30.1/24 | Management | MGMT zone gateway |
-| bank-web | 10.10.10.10/24 | DMZ | Apache/nginx + ModSecurity WAF |
-| bank-mail | 10.10.10.20/24 | DMZ | Postfix mail server |
-| teller-pc | 10.20.20.10/24 | Internal | Teller workstation + Cowrie honeypot |
-| customer-db | 10.20.20.20/24 | Internal | PostgreSQL database |
-| aegis-forwarder | 10.30.30.10/24 | Management | Runs its own local agent + nmap/tcpdump scanner |
+| Attacker VM | any (192.168.122.x typical) | virbr0 | Red team — any IP possible |
+| Router-1 ether1 | 192.168.122.2/24 | virbr0 | Switch1/attacker side |
+| Router-1 ether2 | DHCP auto | NAT cloud | Internet egress (masquerade) |
+| Router-1 ether3 | 10.0.23.1/30 | R1↔pfSense | Direct to pfSense WAN (R2 removed) |
+| pfSense WAN (em0) | 10.0.23.2/30 | R1↔pfSense | Firewall WAN |
+| pfSense DMZ (em1) | 10.10.10.1/24 | DMZ | DMZ gateway |
+| pfSense INT (em2) | 10.20.20.1/24 | Internal | Internal gateway |
+| pfSense MGMT (em3) | 10.30.30.1/24 | Management | MGMT gateway |
+| bank-web | 10.10.10.10/24 | DMZ | Apache2, vsftpd, Suricata, Fail2ban |
+| customer-db | 10.20.20.20/24 | Internal | PostgreSQL, Suricata, Fail2ban |
+| aegis-forwarder | 10.30.30.10/24 | Management | Hub agent — SSHes into bank VMs |
+
+**Removed nodes:** Router-2, bank-mail (10.10.10.20), teller-pc (10.20.20.10)
 
 ---
 
-## 3. Component Roles
+## 3. Component Roles (v3 Current)
 
 ### Network Infrastructure
 | Component | Type | Config |
 |---|---|---|
-| Switch1 | GNS3 Ethernet switch | L2 — connects Kali + virbr0 cloud to R1 |
-| Router-1 | MikroTik CHR | ether1=virbr0 side, ether2=NAT DHCP, ether3=10.0.12.1 |
-| Router-2 | MikroTik CHR | ether1=10.0.12.2, ether2=10.0.23.1 |
-| pfSense | pfSense CE | Stateful FW — 4 zones: WAN/DMZ/INT/MGMT |
-| DMZ-Switch | GNS3 Ethernet switch | bank-web + bank-mail |
-| INT-Switch | GNS3 Ethernet switch | teller-pc + customer-db + aegis-forwarder |
+| Switch1 | GNS3 Ethernet switch | L2 — connects attacker VM + virbr0 cloud to R1 |
+| Router-1 (R1) | MikroTik CHR | ether1=virbr0 side, ether2=NAT DHCP, ether3=10.0.23.1 (pfSense direct) |
+| pfSense | pfSense CE 2.7.x | Stateful FW — 4 zones: WAN/DMZ/INT/MGMT |
+| DMZ-Switch | GNS3 Ethernet switch | bank-web only |
+| INT-Switch | GNS3 Ethernet switch | customer-db + aegis-forwarder |
 
 ### Security Tools per VM
-| VM | IP | Tools | Log Files |
+| VM | IP | Tools | Log Files (tailed by hub) |
 |---|---|---|---|
-| bank-web | 10.10.10.10 | Apache, ModSecurity WAF, Suricata | `/var/log/apache2/modsec_audit.log`, `/var/log/suricata/eve.json` |
-| bank-mail | 10.10.10.20 | Postfix, Fail2ban, Suricata | `/var/log/fail2ban.log`, `/var/log/suricata/eve.json` |
-| teller-pc | 10.20.20.10 | Cowrie honeypot, Fail2ban, Suricata, SSH | `/var/log/cowrie/cowrie.json`, `/var/log/auth.log`, `/var/log/fail2ban.log` |
-| customer-db | 10.20.20.20 | PostgreSQL, Fail2ban, SSH audit | `/var/log/auth.log` |
-| aegis-forwarder | 10.30.30.10 | aegis_forwarder.py (local mode), nmap, tcpdump | Runs its own local forwarder + network scanner/traffic capture — no SSH into other VMs |
+| bank-web | 10.10.10.10 | Apache2, vsftpd, ModSecurity WAF, Suricata, Fail2ban | `/var/log/suricata/eve.json`, `/var/log/fail2ban.log`, `/var/log/auth.log`, `/var/log/vsftpd.log` |
+| customer-db | 10.20.20.20 | PostgreSQL, Suricata, Fail2ban | `/var/log/suricata/eve.json`, `/var/log/fail2ban.log`, `/var/log/auth.log` |
+| aegis-forwarder | 10.30.30.10 | `aegis_forwarder.py --mode hub` | SSHes into bank-web + customer-db every 15s, tails their logs, POSTs to API |
 
 ### AEGIS Platform
 | Component | Host | URL |
@@ -113,57 +101,55 @@
 
 ---
 
-## 4. Full Data Flow — Attack → Dashboard
+## 4. Full Data Flow — Attack → Dashboard (Hub Mode, v3)
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│                     ATTACK PHASE (Red Team — Kali)                   │
+│              ATTACK PHASE (Red Team — any IP)                        │
 │                                                                       │
-│  Kali (192.168.122.132) → Switch1 → R1 → R2 → pfSense WAN → DMZ    │
+│  Attacker (any IP) → Switch1 → R1 → pfSense WAN → DMZ/INT          │
 │  ├── nmap -sV -p- 10.10.10.10           ← port scan → Suricata      │
-│  ├── hydra ssh://10.20.20.10            ← SSH brute → Fail2ban       │
+│  ├── hydra ssh://10.10.10.10            ← SSH brute → Fail2ban       │
 │  ├── sqlmap -u http://10.10.10.10       ← SQLi → ModSecurity WAF     │
 │  ├── hping3 --flood 10.10.10.10         ← DDoS → Suricata            │
-│  └── nc/telnet 10.20.20.10:2222         ← honeypot → Cowrie          │
+│  └── hydra postgres://10.20.20.20       ← DB brute → Fail2ban        │
 └──────────────────────────────────────────────────────────────────────┘
                           │
                           ▼
 ┌──────────────────────────────────────────────────────────────────────┐
-│                   DETECTION PHASE (Blue Team VMs)                    │
+│                   DETECTION PHASE (Bank VMs)                         │
 │                                                                       │
 │  bank-web (10.10.10.10)                                               │
 │  ├── Suricata     → /var/log/suricata/eve.json                       │
-│  └── ModSecurity  → /var/log/apache2/modsec_audit.log                │
+│  ├── Fail2ban     → /var/log/fail2ban.log                            │
+│  ├── SSH auth     → /var/log/auth.log                                │
+│  └── vsftpd       → /var/log/vsftpd.log                              │
 │                                                                       │
-│  bank-mail (10.10.10.20)                                              │
-│  └── Fail2ban     → /var/log/fail2ban.log                            │
-│                                                                       │
-│  teller-pc (10.20.20.10)                                             │
-│  ├── Cowrie       → /var/log/cowrie/cowrie.json                      │  ← NOTE: Cowrie path
-│  ├── Fail2ban     → /var/log/fail2ban.log                            │  actual path in script:
-│  └── SSH auth     → /var/log/auth.log                                │  /home/cowrie/cowrie/var/log/cowrie/cowrie.json
+│  customer-db (10.20.20.20)                                            │
+│  ├── Suricata     → /var/log/suricata/eve.json                       │
+│  ├── Fail2ban     → /var/log/fail2ban.log                            │
+│  └── SSH auth     → /var/log/auth.log                                │
 └──────────────────────────────────────────────────────────────────────┘
-                          │  each VM tails its OWN logs locally
+                          │  logs written locally on each bank VM
                           ▼
 ┌──────────────────────────────────────────────────────────────────────┐
-│           FORWARDING PHASE (per-VM agent — no central hub)           │
+│           FORWARDING PHASE (Hub — aegis_forwarder --mode hub)        │
 │                                                                       │
-│  aegis_forwarder.py runs locally on EACH VM (bank-web, bank-mail,    │
-│  teller-pc, customer-db, aegis-forwarder) — no SSH between VMs.      │
+│  aegis_forwarder.py runs on AEGIS VM (10.30.30.10) only.            │
+│  No forwarder script on bank VMs.                                     │
 │                                                                       │
-│  Per VM, `--mode` selects which local sensors to tail:               │
-│  ├── bank-web   : --mode all      (suricata, fail2ban, ssh, http)   │
-│  ├── bank-mail  : --mode all      (suricata, fail2ban, ssh)         │
-│  ├── teller-pc  : --mode all      (suricata, fail2ban, ssh, cowrie) │
-│  └── customer-db: --mode all      (suricata, fail2ban, ssh)         │
+│  Every 15 seconds, hub SSHes into each bank VM and tails new lines: │
+│  ├── bank-web   : suricata eve.json, fail2ban.log, auth.log, vsftpd │
+│  └── customer-db: suricata eve.json, fail2ban.log, auth.log          │
 │                                                                       │
-│  aegis-forwarder VM additionally runs, for itself only:              │
-│  ├── nmap_scanner_loop  — scan 10.10.10.0/24, 10.20.20.0/24, 10.30.30.0/24 │
-│  ├── tcpdump_loop       — capture on any iface, count packets        │
-│  ├── traffic_reporter   — POST /api/ingest/traffic every 60s         │
-│  └── heartbeat_loop     — POST /api/network/hosts every 15s          │
+│  Hub also monitors its own local services:                            │
+│  ├── service_health_loop — reports AEGIS VM's own service status     │
+│  ├── _remote_service_health_loop — SSH checks bank VM services       │
+│  ├── _pfsense_health_loop — HTTP ping pfSense every 30s              │
+│  ├── heartbeat_loop — POST /api/network/hosts every 15s              │
+│  └── defense_agent_loop — polls + executes defense commands every 5s │
 │                                                                       │
-│  Each VM's parsed events → POST directly to API Server               │
+│  All parsed events → POST to API Server                              │
 │  Header: X-AEGIS-Key: $AEGIS_KEY                                     │
 └──────────────────────────────────────────────────────────────────────┘
                           │ HTTPS (Render)
@@ -205,9 +191,9 @@
           │ poll every 5s
           ▼
 ┌──────────────────────────────────────────────────────────────────────┐
-│                 DEFENSE AGENT (runs on bank-web / teller-pc)         │
+│                 DEFENSE AGENT (hub handles this — no separate script) │
 │                                                                       │
-│  defense_agent.py --vm ubuntu                                        │
+│  aegis_forwarder.py --mode hub (defense_agent_loop thread)           │
 │  ├── GET /api/defense/commands/pending  (auth: X-AEGIS-Admin-Key)   │
 │  ├── block_ip   → sudo iptables -A INPUT -s <IP> -j DROP            │
 │  ├── null_route → sudo ip route add blackhole <IP>                  │
@@ -292,13 +278,9 @@ aegis-soc-dashboard/
 │   ├── api-client-react/             ← Generated React Query hooks
 │   └── api-zod/                      ← Generated Zod schemas
 └── scripts/src/
-    ├── aegis_forwarder.py            ← Agent mode: runs locally on EVERY VM, reads local logs
-    ├── pfsense_forwarder.py          ← UDP syslog receiver for pfSense filterlog
-    ├── defense_agent.py              ← Polls command queue, executes iptables
-    └── aegis-fail2ban-action.conf    ← Fail2ban action → direct API curl call
-
-> `aegis_forwarder_hub.py` (central SSH-based collector) has been removed — every VM now
-> runs its own local `aegis_forwarder.py` instance instead.
+    └── aegis_forwarder.py            ← Hub agent (--mode hub): runs on AEGIS VM only,
+                                         SSHes into bank VMs to tail logs, executes defense
+                                         commands, monitors pfSense health via HTTP ping
 ```
 
 ---

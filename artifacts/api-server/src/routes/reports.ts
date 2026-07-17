@@ -73,9 +73,9 @@ Max 500 words. Burmese language mixed with English technical terms.
 `.trim();
 
       summary = await askGroq({
-        system: `You are AEGIS-AI SOC analyst. Write professional security reports.
-Lab: Ubuntu defender 10.10.10.10, pfSense 192.168.122.1, Kali attacker 192.168.122.x.
-Use Burmese language mixed with English technical terms. No markdown # headers.`,
+        system: `သင်သည် AEGIS-AI SOC analyst ဖြစ်သည်။ Professional security report ကို မြန်မာဘာသာ (Burmese) ဖြင့် ရေးပါ — technical terms သာ English သုံးပါ။ Markdown # headers မသုံးပါနှင့်။
+Lab: bank-web 10.10.10.10 (DMZ), customer-db 10.20.20.20 (Internal), AEGIS VM 10.30.30.10 (MGMT), pfSense 10.30.30.1 (Firewall).
+အရေးကြီး: Attacker သည် မည်သည့် IP မဆို ဖြစ်နိုင်သည် — IP range ကို မယူဆပါနှင့်။ Report ပြည့်ပြည့်စုံစုံ ဖြစ်ပါစေ — sentence ကြားမှာ မဖြတ်ပါနှင့်။`,
         user: aiPrompt,
         maxTokens: 800,
       });

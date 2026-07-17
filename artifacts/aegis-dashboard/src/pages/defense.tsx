@@ -360,13 +360,13 @@ export default function Defense() {
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Input
-                placeholder="IP Address (e.g. 192.168.122.132)"
+                placeholder="IP Address (e.g. 10.10.10.99 or 203.0.113.5)"
                 value={blockIp}
                 onChange={e => setBlockIp(e.target.value)}
                 className="bg-background border-border font-mono text-sm"
               />
               <Input
-                placeholder="Reason (e.g. Port scan from Kali)"
+                placeholder="Reason (e.g. Port scan detected, SSH breach)"
                 value={blockReason}
                 onChange={e => setBlockReason(e.target.value)}
                 className="bg-background border-border text-sm"
@@ -433,7 +433,7 @@ export default function Defense() {
         <CardContent className="pt-4 space-y-3">
           <div className="flex gap-2">
             <Input
-              placeholder="Attacker IP (e.g. 192.168.122.132)"
+              placeholder="Attacker IP (e.g. 10.10.10.99 or any IP)"
               value={aiIp}
               onChange={e => setAiIp(e.target.value)}
               className="bg-background border-border font-mono text-sm flex-1"

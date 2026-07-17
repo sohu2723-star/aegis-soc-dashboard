@@ -1,25 +1,36 @@
 # AEGIS Security Operations Center Dashboard
 
-A full-stack real-time cybersecurity SOC (Security Operations Center) dashboard built for a 5-person internship team. Monitors Red Team (Kali Linux) attacks against the GNS3 AEGIS-SecureBank lab and Blue Team (Suricata/Fail2ban/Cowrie, one agent per bank VM) defenses live.
+Full-stack real-time SOC (Security Operations Center) dashboard for the GNS3 AEGIS-SecureBank lab. Monitors live attacks and defenses — dashboard is monitoring-only; all real attack and defense happens on the GNS3 virtual machines.
 
 ---
 
-## Features
+## Lab Topology (Current)
 
-### Security Monitoring
-- **Command Center** — Live dashboard with attack volume charts, event counts, critical threat indicators
-- **Security Events** — Real-time event feed from all sensors (Snort, Suricata, Fail2ban, Cowrie)
-- **Incidents** — Incident management with severity tracking and status updates
-- **Active Alerts** — Alert triage panel with acknowledge/resolve actions
-- **System Status** — Health monitoring for all defense components
+```
+[Attacker]           Switch1     Router-1 (MikroTik CHR)
+(any IP)  ───────────────────── ether1: 192.168.122.2/24
+                                 ether2: DHCP (NAT internet)
+                                 ether3: 10.0.23.1/30 ──────┐
+                                                             │
+                                                      [pfSense 2.7.2]
+                                                   WAN:  10.0.23.2/30
+                                                   DMZ:  10.10.10.1/24
+                                                   INT:  10.20.20.1/24
+                                                   MGMT: 10.30.30.1/24
+                                                             │
+                                        ┌────────────────────┼──────────────┐
+                                   [DMZ Zone]          [INT Zone]      [MGMT Zone]
+                                        │                   │                │
+                                  [bank-web]          [customer-db]   [aegis-forwarder]
+                                 10.10.10.10          10.20.20.20      10.30.30.10
+                                Apache, vsftpd         PostgreSQL       Hub agent
+                                Suricata               Suricata         (SSH → VMs)
+                                Fail2ban               Fail2ban
+```
 
-### Network & Defense
-- **Network Monitor** — Live topology map of the GNS3 AEGIS-SecureBank lab (Kali attacker, pfSense, bank-web, bank-mail, teller-pc, customer-db, aegis-forwarder), connected hosts table, 12h traffic chart
-- **Defense Center** — Auto defense status (Fail2ban, Suricata IDS) + Admin manual IP block/unblock with full action log
+> ⚠️ **Attackers can come from any IP address** — no fixed IP range is assumed. Lab test VMs typically use the 192.168.122.0/24 virbr0 network, but any external or internal IP is valid.
 
-### Intelligence
-- **Reports** — Security report generation and history
-- **Setup Guide** — Step-by-step instructions for connecting real VMs to the dashboard
+**Removed from topology:** R2 (MikroTik), bank-mail server, teller-pc workstation.
 
 ---
 
@@ -36,31 +47,51 @@ A full-stack real-time cybersecurity SOC (Security Operations Center) dashboard 
 │                   API Server                            │
 │            Express 5 + TypeScript                       │
 │  Routes: events, incidents, alerts, system, network,    │
-│          defense, ingest, stream, reports               │
+│          defense, ingest, stream, reports, ai           │
 └───────────────────┬─────────────────────────────────────┘
                     │ Drizzle ORM
 ┌───────────────────▼─────────────────────────────────────┐
-│              PostgreSQL Database                        │
+│              PostgreSQL (Supabase)                      │
 │  Tables: security_events, incidents, alerts,            │
 │          system_status, reports, network_hosts,         │
-│          blocked_ips, defense_actions                   │
+│          blocked_ips, defense_actions, defense_rules    │
 └─────────────────────────────────────────────────────────┘
                     ▲
-                    │ POST /api/ingest/*  (X-AEGIS-Key auth)
+                    │ POST /api/ingest/*  (X-AEGIS-Key)
 ┌───────────────────┴─────────────────────────────────────┐
-│   aegis_forwarder.py  (its OWN copy on EVERY bank VM)    │
-│  bank-web, bank-mail, teller-pc, customer-db,            │
-│  aegis-forwarder — each watches its own local logs:      │
-│  Suricata eve.json, Fail2ban.log, Cowrie cowrie.json     │
-│  (no central hub, no SSH between VMs)                    │
+│   aegis_forwarder.py  (hub mode — runs on AEGIS VM)     │
+│   10.30.30.10 — SSHes into bank-web and customer-db     │
+│   to tail their Suricata / Fail2ban / SSH / FTP logs,   │
+│   then POSTs events to the API server.                  │
+│   Also monitors pfSense health via HTTP ping.           │
 └─────────────────────────────────────────────────────────┘
                     ▲
-                    │ Attacks (routed via GNS3 routers + pfSense)
+                    │ Attacks (via R1 → pfSense → DMZ/INT)
 ┌───────────────────┴─────────────────────────────────────┐
-│        Red Team — Kali Linux VM                         │
-│  Tools: nmap, sqlmap, nikto, gobuster, hydra, metasploit│
+│        Attacker VM (any IP)                             │
+│  Tools: nmap, sqlmap, nikto, hydra, hping3, metasploit  │
 └─────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## Features
+
+### Security Monitoring
+- **Command Center** — Live dashboard with attack volume charts, event counts, critical threat indicators
+- **Security Events** — Real-time event feed from all sensors (Suricata, Fail2ban, SSH monitor)
+- **Incidents** — Incident management with severity tracking and status updates
+- **Active Alerts** — Alert triage panel with acknowledge/resolve actions, Telegram notifications
+- **System Status** — Health monitoring for all defense components (per-VM service status)
+
+### Network & Defense
+- **Network Monitor** — Live topology map (pfSense, bank-web, customer-db, aegis-forwarder), connected hosts table with real last-seen timestamps
+- **Defense Center** — Auto defense status (Fail2ban, Suricata) per device + Admin manual IP block/unblock + pfSense WAN block via REST API
+
+### Intelligence
+- **AI Analysis** — Groq llama-3.3-70b threat analysis, per-IP defense recommendations, event explanations (Burmese + English)
+- **Reports** — Auto-scheduled SOC reports (Burmese language), Telegram delivery
+- **Setup Guide** — Step-by-step hub-mode setup instructions
 
 ---
 
@@ -70,11 +101,13 @@ A full-stack real-time cybersecurity SOC (Security Operations Center) dashboard 
 |---|---|
 | Frontend | React 18, Vite, TypeScript, TailwindCSS v4, shadcn/ui |
 | Backend | Express 5, Node.js 24, TypeScript |
-| Database | PostgreSQL + Drizzle ORM |
+| Database | PostgreSQL + Drizzle ORM (Supabase pooler) |
+| AI | Groq API — llama-3.3-70b-versatile |
+| Alerts | Telegram Bot API |
 | Validation | Zod, drizzle-zod |
-| API Codegen | Orval (OpenAPI → React Query hooks) |
 | Real-time | Server-Sent Events (SSE) |
 | Monorepo | pnpm workspaces |
+| Hosting | Render (API) + Vercel (Dashboard) + Supabase (DB) |
 
 ---
 
@@ -87,40 +120,37 @@ aegis-soc-dashboard/
 │   │   └── src/
 │   │       ├── pages/          # dashboard, events, incidents, alerts,
 │   │       │                   # system, network, defense, reports, setup
-│   │       ├── components/     # layout, ui components
-│   │       └── hooks/          # use-sse, use-simulation
-│   ├── api-server/             # Express API server
-│   │   └── src/
-│   │       ├── routes/         # events, incidents, alerts, system,
-│   │       │                   # network, defense, ingest, stream, reports
-│   │       └── lib/            # broadcaster, simulator
-│   └── mockup-sandbox/         # Component preview (dev only)
+│   │       └── components/     # layout, ui components
+│   └── api-server/             # Express API server
+│       └── src/
+│           ├── routes/         # events, incidents, alerts, system,
+│           │                   # network, defense, ingest, stream, reports, ai
+│           └── lib/            # broadcaster, auto-defense, groq-client,
+│                               # telegram, scheduler, attack-tracker
 ├── lib/
 │   ├── db/                     # Drizzle ORM schema + migrations
-│   │   └── src/schema/         # security_events, incidents, alerts,
-│   │                           # system_status, reports, network_hosts,
-│   │                           # defense_actions
 │   ├── api-spec/               # OpenAPI specification
 │   ├── api-client-react/       # Generated React Query hooks
 │   └── api-zod/                # Generated Zod schemas
 ├── scripts/
 │   └── src/
-│       └── aegis_forwarder.py  # per-VM sensor forwarder (runs locally on every VM)
+│       └── aegis_forwarder.py  # Hub-mode agent (runs on AEGIS VM 10.30.30.10)
 └── docs/
-    ├── GNS3_SETUP.md           # GNS3 lab setup guide
-    ├── SYSTEM_ARCHITECTURE.md  # Real lab topology & data flow
-    ├── API.md                  # API reference
-    └── ARCHITECTURE.md         # Architecture decisions
+    ├── AEGIS_VM_SETUP.md       # AEGIS VM hub setup guide
+    ├── network-architecture.md # Full network topology & IP plan
+    ├── SYSTEM_ARCHITECTURE.md  # System data flow & code structure
+    ├── API.md                  # API endpoint reference
+    └── PROJECT_LOG.md          # Project development log
 ```
 
 ---
 
-## Quick Start
+## Quick Start (Development)
 
 ### Prerequisites
 - Node.js 24+
 - pnpm 9+
-- PostgreSQL database
+- PostgreSQL database (or Supabase)
 
 ### Installation
 
@@ -133,80 +163,79 @@ pnpm install
 ### Environment Variables
 
 ```bash
-# Required
+# Required — API Server
 DATABASE_URL=postgresql://user:password@localhost:5432/aegis
 SESSION_SECRET=your-session-secret
+AEGIS_INGEST_KEY=your-ingest-key
+AEGIS_ADMIN_KEY=your-admin-key
 
-# Ingest API key (change in production!)
-AEGIS_INGEST_KEY=aegis-demo-key-change-me
+# Optional
+GROQ_API_KEY=your-groq-key          # AI analysis
+TELEGRAM_BOT_TOKEN=your-bot-token   # Alert notifications
+TELEGRAM_CHAT_ID=your-chat-id
 ```
 
-### Run Development
+### Run
 
 ```bash
-# API Server (port 8080)
-pnpm --filter @workspace/api-server run dev
+# API Server (port 3000)
+PORT=3000 pnpm --filter @workspace/api-server run dev
 
-# Dashboard (port auto-assigned)
+# Dashboard
 pnpm --filter @workspace/aegis-dashboard run dev
 ```
 
-### Database
-
-```bash
-# Push schema to database
-pnpm --filter @workspace/db run push
-
-# Regenerate API hooks from OpenAPI spec
-pnpm --filter @workspace/api-spec run codegen
-```
-
 ---
 
-## Connecting Real VMs
+## Connecting the AEGIS VM
 
-See [docs/GNS3_SETUP.md](docs/GNS3_SETUP.md) for complete step-by-step instructions.
+See [docs/AEGIS_VM_SETUP.md](docs/AEGIS_VM_SETUP.md) for complete step-by-step setup.
 
 **Quick summary:**
-1. Each bank VM (bank-web, bank-mail, teller-pc, customer-db, aegis-forwarder) — install Suricata, Fail2ban, Cowrie as applicable
-2. Run `aegis_forwarder.py` locally on every VM with your AEGIS URL and API key — no central hub or SSH required
-3. Kali VM — start attacking, watch dashboard update live
+1. AEGIS VM (10.30.30.10) runs `aegis_forwarder.py --mode hub`
+2. Hub SSHes into bank-web (10.10.10.10) and customer-db (10.20.20.20)
+3. Tails their Suricata, Fail2ban, SSH, FTP logs remotely
+4. POSTs all events to Render API — dashboard updates live
 
 ---
 
-## Ingest API Endpoints
+## Ingest API
 
 All endpoints require `X-AEGIS-Key` header.
 
 | Endpoint | Source | Description |
 |---|---|---|
 | `POST /api/ingest/event` | Any | Generic security event |
-| `POST /api/ingest/snort` | Snort IDS | Snort alert format |
 | `POST /api/ingest/suricata` | Suricata | EVE JSON format |
 | `POST /api/ingest/fail2ban` | Fail2ban | Ban/unban events |
-| `POST /api/ingest/cowrie` | Cowrie | Honeypot session events |
+| `POST /api/ingest/ssh` | auth.log | SSH login events |
+| `POST /api/ingest/ftp` | vsftpd.log | FTP session events |
+| `POST /api/ingest/http` | ModSecurity | Web attack events |
+| `POST /api/network/hosts` | Forwarder | Heartbeat / host registration |
 
 ---
 
 ## Defense System
 
-### Auto Defense (Fail2ban + Suricata)
-- SSH brute-force → Fail2ban auto-bans IP (1 hour)
-- Port scan / exploit → Suricata drops packets + alerts
-- Honeypot login → Cowrie logs attacker credentials
+### Auto Defense
+- SSH brute-force → iptables DROP on bank-web
+- Port scan / web attack → iptables DROP + pfSense WAN block
+- Critical event → pfSense REST API block rule (persistent, applied immediately)
+- All high+ alerts → Telegram notification (immediate push)
 
 ### Manual Defense (Dashboard)
-- Defense Center → enter IP + reason → Block IP
+- Defense Center → enter any IP + reason → Block
+- pfSense WAN block via REST API (if PFSENSE_API_KEY configured)
 - Unblock at any time from Active Blocks list
-- Full audit log of all block/unblock actions
+- Full audit log of all block/unblock/pfSense actions
 
 ---
 
 ## Team
 
-Internship project — 5-person team
-- Red Team: Kali Linux attack simulation
-- Blue Team: bank-VM defense (Suricata/Fail2ban/Cowrie), monitoring, incident response
+Internship project — cybersecurity lab  
+- Red Team: Attack simulation (nmap, sqlmap, hydra, hping3, metasploit)
+- Blue Team: Defense (Suricata/Fail2ban), monitoring, incident response, AI analysis
 
 ---
 

@@ -1,55 +1,58 @@
-# AEGIS-SecureBank IP Address Plan
+# AEGIS-SecureBank IP Address Plan (Current Topology)
+
+> **Last Updated:** 2026-07-17  
+> **Topology Version:** v3 (R2 ဖြုတ်ပြီ, bank-mail ဖြုတ်ပြီ, teller-pc ဖြုတ်ပြီ)
+
+---
 
 ## Network Segments
 
 | Segment | Subnet | Purpose |
 |---|---|---|
-| Attacker/Internet | 192.168.122.0/24 | KVM virbr0 — Kali attack path |
-| R1↔R2 Link | 10.0.12.0/30 | Router interconnect |
-| R2↔pfSense Link | 10.10.0.0/30 | WAN link to firewall |
-| DMZ (bank-web, bank-mail) | 10.10.10.0/24 | Public-facing bank services |
-| Internal (teller, db) | 10.10.20.0/24 | Internal bank systems |
-| MGMT (AEGIS) | 10.10.30.0/24 | Monitoring/AEGIS segment |
+| Attacker Path (virbr0) | 192.168.122.0/24 | GNS3 NAT cloud — test attacker VMs |
+| R1 ↔ pfSense WAN | 10.0.23.0/30 | Direct link (R2 ဖြုတ်ပြီ) |
+| DMZ | 10.10.10.0/24 | Public-facing services (bank-web) |
+| Internal | 10.20.20.0/24 | Internal systems (customer-db) |
+| MGMT | 10.30.30.0/24 | Monitoring segment (AEGIS VM) |
+
+> ⚠️ **Note:** Attacker VMs တွင် 192.168.122.x IP ရှိနိုင်သလို မည်သည့် IP မဆို ရနိုင်သည်။ IP range ကို trust မလုပ်ပါနှင့်။
 
 ---
 
 ## Node IP Assignments
 
-### Routers (MikroTik CHR)
+### Router (MikroTik CHR — R1 only, R2 removed)
 
-| Node | Interface | IP | Connected To |
-|---|---|---|---|
-| R1 | ether1 (e0) | 192.168.122.2/24 | Cloud1 / virbr0 (Kali side) |
-| R1 | ether2 (e1) | DHCP (auto) | NAT node |
-| R1 | ether3 (e2) | 10.0.12.1/30 | R2 ether1 |
-| R2 | ether1 (e0) | 10.0.12.2/30 | R1 ether3 |
-| R2 | ether2 (e1) | 10.10.0.1/30 | pfSense WAN |
-
-### pfSense (linux2024)
-
-| Interface | IP | Purpose |
+| Interface | IP | Connected To |
 |---|---|---|
-| vtnet0 / eth0 | 10.10.0.2/30 | WAN (upstream: R2 10.10.0.1) |
-| vtnet1 / eth1 | 10.10.10.1/24 | LAN-DMZ (bank-web, bank-mail) |
-| vtnet2 / eth2 | 10.10.20.1/24 | LAN-INT (teller-pc, customer-db) |
-| vtnet3 / eth3 | 10.10.30.1/24 | MGMT (aegis-forwarder) |
+| ether1 | 192.168.122.2/24 | Switch1 (attacker/GNS3 NAT cloud side) |
+| ether2 | DHCP (~192.168.122.x) | NAT node (internet egress, masquerade) |
+| ether3 | 10.0.23.1/30 | pfSense WAN (direct — R2 ဖြုတ်ပြီ) |
 
-### Bank VMs (Ubuntu)
+### pfSense 2.7.2 (Firewall / Gateway)
 
-| VM | IP | Gateway | Subnet |
+| Interface | FreeBSD | IP | Role |
 |---|---|---|---|
-| bank-web | 10.10.10.10/24 | 10.10.10.1 | DMZ |
-| bank-mail | 10.10.10.20/24 | 10.10.10.1 | DMZ |
-| teller-pc | 10.10.20.10/24 | 10.10.20.1 | Internal |
-| customer-db | 10.10.20.20/24 | 10.10.20.1 | Internal |
-| aegis-forwarder | 10.10.30.10/24 | 10.10.30.1 | MGMT |
+| e0 / em0 | vtnet0 | 10.0.23.2/30 | WAN — upstream via R1 ether3 |
+| e1 / em1 | vtnet1 | 10.10.10.1/24 | DMZ — gateway for bank-web |
+| e2 / em2 | vtnet2 | 10.20.20.1/24 | Internal — gateway for customer-db |
+| e3 / em3 | vtnet3 | 10.30.30.1/24 | MGMT — gateway for AEGIS VM |
 
-### Attacker
+### Bank VMs (Ubuntu 24.04)
 
-| VM | IP | Network |
+| VM | IP | Gateway | Zone | Services |
+|---|---|---|---|---|
+| bank-web | 10.10.10.10/24 | 10.10.10.1 | DMZ | Apache2, vsftpd, Suricata, Fail2ban |
+| customer-db | 10.20.20.20/24 | 10.20.20.1 | Internal | PostgreSQL, Suricata, Fail2ban |
+| aegis-forwarder | 10.30.30.10/24 | 10.30.30.1 | MGMT | Hub agent (SSH → bank-web, customer-db) |
+
+### Removed Nodes (historical reference)
+
+| Node | Was | Reason |
 |---|---|---|
-| Real Kali (virt-manager) | 192.168.122.184 | virbr0 |
-| GNS3 Attacker VM | 192.168.122.132 (DHCP) | virbr0 via Cloud |
+| Router-2 (R2) | MikroTik CHR, 10.0.12.2/10.0.23.1 | ဖြုတ်ပြီ — R1 တိုက်ရိုက် pfSense နဲ့ ချိတ် |
+| bank-mail | 10.10.10.20 DMZ | ဖြုတ်ပြီ — internet access မရ၍ |
+| teller-pc | 10.20.20.10 Internal | ဖြုတ်ပြီ — internet access မရ၍ |
 
 ---
 
@@ -58,7 +61,31 @@
 | Node | Default Gateway |
 |---|---|
 | R1 | 192.168.122.1 (virbr0 host) |
-| R2 | 10.0.12.1 (R1) |
-| pfSense WAN | 10.10.0.1 (R2) |
-| Bank VMs | pfSense LAN IP for their subnet |
-| Kali | 192.168.122.1 (virbr0 host) |
+| pfSense WAN | 10.0.23.1 (R1 ether3) |
+| bank-web | 10.10.10.1 (pfSense DMZ) |
+| customer-db | 10.20.20.1 (pfSense INT) |
+| aegis-forwarder | 10.30.30.1 (pfSense MGMT) |
+
+---
+
+## Routing
+
+### R1 Static Route
+```routeros
+/ip route add dst-address=10.0.0.0/8 gateway=10.0.23.2
+/ip firewall nat add chain=srcnat out-interface=ether2 action=masquerade
+```
+
+### pfSense Routes (auto from connected interfaces)
+- 10.0.23.0/30 → WAN (em0)
+- 10.10.10.0/24 → DMZ (em1)
+- 10.20.20.0/24 → INT (em2)
+- 10.30.30.0/24 → MGMT (em3)
+- 0.0.0.0/0 → 10.0.23.1 (R1)
+
+### Attacker Route (add each session — any attacker VM)
+```bash
+# If attacker is on virbr0 side and needs to reach bank VMs:
+sudo ip route add 10.0.0.0/8 via 192.168.122.2
+# Note: Lost on reboot — re-add each time
+```
