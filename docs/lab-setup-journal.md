@@ -3639,3 +3639,84 @@ SUPABASE_DB_URL, AEGIS_INGEST_KEY, AEGIS_ADMIN_KEY
 **Commit:** `fix: AI concise responses, JSON parse, defense rules cleanup, system status sensor seed, network monitor live status`  
 **GitHub:** `https://github.com/sohu2723-star/aegis-soc-dashboard`  
 **Branch:** main
+
+---
+
+### [2026-07-17] — System Status: 10.30.30.10 Sensors + Purge Bug Fix
+
+**Status:** ✅ Done  
+**Trigger:** Screenshot မှာ 10.30.30.10 (aegis-forwarder) အောက်မှာ "Morgan HTTP Logger" + "PostgreSQL Monitor" (OFFLINE) ပေါ်နေတာ မြင်ရ — ဒါတွေ wrong host မှာ ရောက်နေတဲ့ stale entries ဖြစ်တယ်
+
+---
+
+#### ① Bug: Fail2ban/Suricata per-host entries ချက်ချင်း delete ဖြစ်နေ
+
+**Root cause:**  
+`OBSOLETE_COMPONENTS` array ထဲမှာ `"Fail2ban"` ပါနေတယ်  
+`purgeStaleRows()` က component name တူတိုင်း delete လုပ်တယ် — hostIp ကြည့်မနေဘဲ  
+→ seed လုပ်ပြီးသား per-host `Fail2ban` entries တွေ startup တိုင်း ချက်ချင်း ပျောက်နေတယ်  
+→ Dashboard မှာ Fail2ban မပေါ်တာ ဒါကြောင့်ဖြစ်တယ်
+
+**Fix:**  
+`purgeStaleRows()` logic ကို 3 ပိုင်း ခွဲပြင်:
+
+| Delete Condition | Old | New |
+|---|---|---|
+| ALWAYS_DELETE (wrong sensors) | မရှိ | `Morgan HTTP Logger`, `PostgreSQL Monitor` → unconditionally delete |
+| GLOBAL_OBSOLETE (hostIp=null) | OBSOLETE_COMPONENTS (hostIp မကြည့်) | hostIp IS NULL ဖြစ်တဲ့ rows သာ delete |
+| Seeded entries protection | မရှိ | PER_HOST_SENSORS pairs → never delete (protected set) |
+| Orphaned per-host rows | hostIp not in network_hosts | ကိုယ်တိုင် seed ထားတဲ့ rows ကလွဲ → delete |
+
+---
+
+#### ② 10.30.30.10 (aegis-forwarder) — ဘာကြောင့် sensors ထည့်ရသလဲ
+
+**VM role:** Ubuntu Desktop — hub forwarder script (aegis_forwarder.py) run တဲ့ host  
+**Network:** MGMT zone (10.30.30.0/24) — pfSense em3 interface
+
+**Attack vector:**
+```
+Kali (192.168.122.132)
+  → R1 (10.0.23.1)
+  → pfSense WAN (10.0.23.2)
+  → pfSense MGMT zone (10.30.30.0/24)
+  → 10.30.30.10 port 22 (SSH)
+```
+
+Hub script က bank-web/customer-db ကို SSH ဝင်ဖို့ **port 22 ဖွင့်ထားရတယ်**  
+pfSense MGMT rule မှာ WAN→MGMT Allow ပွင့်ထားရင် Kali ကနေ တိုက်ရိုက် SSH brute force ဝင်လာနိုင်တယ်  
+MGMT zone ဖြစ်ပေမယ့် isolate ဆိုတာ မရှိ — routing ပွင့်ရင် reachable ဖြစ်မယ်
+
+**ဒါကြောင့် sensors 3 ခု ထည့်:**
+
+| Sensor | ဘာကြောင့် |
+|---|---|
+| Hub Forwarder | forwarder process ရပ်သွားရင် monitoring blind spot ဖြစ်မယ် — process health ကြည့်ဖို့ |
+| SSH Monitor | MGMT zone ကနေ SSH brute force attack detect ဖို့ |
+| Fail2ban | SSH brute force auto-ban — forwarder VM ကိုယ်တိုင် self-protect |
+
+---
+
+#### ③ Per-host sensor matrix (Final — 2026-07-17)
+
+| Sensor | bank-web `10.10.10.10` | customer-db `10.20.20.20` | aegis-forwarder `10.30.30.10` |
+|---|:---:|:---:|:---:|
+| Suricata IDS | ✅ | ✅ | ❌ (Suricata install မရှိ) |
+| Fail2ban | ✅ | ✅ | ✅ SSH ကာကွယ် |
+| SSH Monitor | ✅ | ✅ | ✅ |
+| FTP Monitor (vsftpd) | ✅ | ❌ | ❌ |
+| Apache Monitor | ✅ | ❌ | ❌ |
+| PostgreSQL Monitor | ❌ | ✅ | ❌ |
+| Hub Forwarder | ❌ | ❌ | ✅ process health |
+
+**Global (hostIp=null):**
+- pfSense Firewall (perimeter)
+- AEGIS API Server (brain)
+
+**Forwarder behavior:** hub mode run ရင် POST `/system/status` → rows တွေ online/offline update ဖြစ်မယ်  
+Forwarder မ run ခင် → "unknown" ပြ (seed ထားတာ)  
+Stale: lastCheck > 3 min → dashboard မှာ offline ပြ (DB မပြောင်း — live inference)
+
+**Commits:**  
+- `fix: system status — correct per-host sensor seeds, fix purge logic, remove wrong sensors`  
+- `feat: add aegis-forwarder (10.30.30.10) sensors — Hub Forwarder, SSH Monitor, Fail2ban`
