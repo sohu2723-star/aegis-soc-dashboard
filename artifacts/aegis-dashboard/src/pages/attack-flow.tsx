@@ -6,75 +6,85 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const VW = 960;
 const VH = 520;
 
-// ── Node definitions (matches real lab topology) ──────────────────────────────
+// ── Node definitions — real lab topology (R2 removed) ────────────────────────
+// Path: Attacker → R1 (ether1:192.168.122.2) → pfSense WAN (10.0.23.2)
+//       → DMZ: bank-web (10.10.10.10)
+//       → INT: customer-db (10.20.20.20)
+//       → MGMT: aegis-forwarder (10.30.30.10) → AEGIS Dashboard
 const NODES = {
-  kali: {
-    x: 80,  y: 260,
+  attacker: {
+    x: 75,  y: 260,
     label: "Attacker", sub: "Any Source IP",
-    ip: "* any IP",
+    ip: "* / any",
     color: "#ef4444", glow: "rgba(239,68,68,0.4)",
     icon: "👤",
   },
-  internet: {
-    x: 270, y: 110,
+  r1: {
+    x: 245, y: 260,
     label: "R1 Router", sub: "MikroTik CHR",
     ip: "192.168.122.2",
     color: "#818cf8", glow: "rgba(129,140,248,0.3)",
-    icon: "🔀",
+    icon: "⬡",
   },
   pfsense: {
-    x: 460, y: 260,
+    x: 440, y: 260,
     label: "pfSense", sub: "Suricata IDS",
     ip: "10.0.23.2",
-    color: "#f59e0b", glow: "rgba(245,158,11,0.4)",
+    color: "#f59e0b", glow: "rgba(245,158,11,0.45)",
     icon: "🛡",
   },
   bankweb: {
-    x: 680, y: 130,
+    x: 660, y: 120,
     label: "bank-web", sub: "Apache · Fail2ban",
-    ip: "10.10.10.10",
+    ip: "10.10.10.10 (DMZ)",
     color: "#22c55e", glow: "rgba(34,197,94,0.3)",
     icon: "🖥",
   },
+  forwarder: {
+    x: 660, y: 260,
+    label: "aegis-forwarder", sub: "Hub · SSH agent",
+    ip: "10.30.30.10 (MGMT)",
+    color: "#06b6d4", glow: "rgba(6,182,212,0.3)",
+    icon: "⬡",
+  },
   customerdb: {
-    x: 680, y: 390,
+    x: 660, y: 400,
     label: "customer-db", sub: "PostgreSQL",
-    ip: "10.20.20.20",
+    ip: "10.20.20.20 (INT)",
     color: "#22c55e", glow: "rgba(34,197,94,0.3)",
     icon: "🗄",
   },
   aegis: {
     x: 870, y: 260,
-    label: "AEGIS", sub: "Dashboard",
-    ip: "10.30.30.10",
-    color: "#06b6d4", glow: "rgba(6,182,212,0.3)",
+    label: "AEGIS", sub: "SOC Dashboard",
+    ip: "Render · Vercel",
+    color: "#06b6d4", glow: "rgba(6,182,212,0.25)",
     icon: "📊",
   },
 } as const;
 
 type NodeKey = keyof typeof NODES;
 
-// ── Edges ─────────────────────────────────────────────────────────────────────
+// ── Edges — exact lab connections only ────────────────────────────────────────
 const EDGES: [NodeKey, NodeKey][] = [
-  ["kali", "internet"],
-  ["kali", "pfsense"],
-  ["internet", "pfsense"],
-  ["pfsense", "bankweb"],
-  ["pfsense", "customerdb"],
-  ["bankweb", "aegis"],
-  ["customerdb", "aegis"],
+  ["attacker", "r1"],        // Attacker → R1 ether1 (192.168.122.x)
+  ["r1",       "pfsense"],   // R1 ether3 (10.0.23.1) → pfSense WAN (10.0.23.2)
+  ["pfsense",  "bankweb"],   // pfSense DMZ → bank-web
+  ["pfsense",  "forwarder"], // pfSense MGMT → aegis-forwarder
+  ["pfsense",  "customerdb"],// pfSense INT → customer-db
+  ["forwarder","aegis"],     // aegis-forwarder → AEGIS Dashboard (via Render API)
 ];
 
 // ── Attack path routing ────────────────────────────────────────────────────────
 function getAttackPath(targetHost: string | null | undefined): NodeKey[] {
   const t = (targetHost ?? "").toLowerCase();
-  if (t.includes("bank") || t.includes("web") || t === "10.10.10.10" || t.includes("apache") || t.includes("ftp")) {
-    return ["kali", "internet", "pfsense", "bankweb"];
+  if (t.includes("bank") || t.includes("web") || t === "10.10.10.10" || t.includes("apache") || t.includes("ftp") || t.includes("dvwa")) {
+    return ["attacker", "r1", "pfsense", "bankweb"];
   }
-  if (t.includes("db") || t.includes("customer") || t === "10.20.20.20" || t.includes("postgres")) {
-    return ["kali", "internet", "pfsense", "customerdb"];
+  if (t.includes("db") || t.includes("customer") || t === "10.20.20.20" || t.includes("postgres") || t.includes("sql")) {
+    return ["attacker", "r1", "pfsense", "customerdb"];
   }
-  return ["kali", "internet", "pfsense"];
+  return ["attacker", "r1", "pfsense"];
 }
 
 // ── Severity → colour ─────────────────────────────────────────────────────────
@@ -187,8 +197,8 @@ export default function AttackFlowPage() {
           setStats(s => ({ ...s, attacks: s.attacks + 1 }));
 
           // Pulse attacker
-          setPulseNodes(prev => new Set([...prev, "kali"]));
-          setTimeout(() => setPulseNodes(prev => { const n = new Set(prev); n.delete("kali"); return n; }), 900);
+          setPulseNodes(prev => new Set([...prev, "attacker"]));
+          setTimeout(() => setPulseNodes(prev => { const n = new Set(prev); n.delete("attacker"); return n; }), 900);
 
           setLog(prev => [{
             id: pkt.id, ts: now(),
@@ -275,7 +285,7 @@ export default function AttackFlowPage() {
           </span>
           <div className="flex-1" />
           <span className="text-[10px] font-mono text-muted-foreground/50 uppercase tracking-widest">
-            AEGIS · Live Attack Flow · Lab Preview
+            AEGIS · Live Threat Map
           </span>
         </div>
 
@@ -315,7 +325,7 @@ export default function AttackFlowPage() {
 
             {/* Zone labels */}
             <text x={16} y={22} fontSize="8" fill="rgba(239,68,68,0.35)" fontFamily="monospace" fontWeight="bold" letterSpacing="2">
-              ATTACKER (ANY IP)
+              ORIGIN
             </text>
             <text x={400} y={22} fontSize="8" fill="rgba(245,158,11,0.35)" fontFamily="monospace" fontWeight="bold" letterSpacing="2">
               PERIMETER DEFENSE
@@ -467,8 +477,8 @@ export default function AttackFlowPage() {
         {log.length === 0 ? (
           <div className="flex-1 flex items-center justify-center">
             <p className="text-[11px] font-mono text-muted-foreground text-center px-4">
-              Waiting for events from lab VMs…<br />
-              <span className="opacity-50">Start an attack or run aegis_forwarder.py</span>
+              Live monitoring active.<br />
+              <span className="opacity-50">Events will appear as they arrive.</span>
             </p>
           </div>
         ) : (
