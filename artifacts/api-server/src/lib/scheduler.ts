@@ -65,9 +65,9 @@ async function runAutoReport(): Promise<void> {
         const sevBreakdown  = Object.entries(bySeverity).map(([s,n])=>`${s}:${n}`).join(", ");
 
         summary = await askGroq({
-          system: `သင်သည် AEGIS-AI SOC analyst ဖြစ်သည်။ မြန်မာဘာသာ (Burmese) ဖြင့် professional security report ရေးပါ။ Technical terms သာ English သုံးပါ။ မည်သည့် IP မဆို attacker ဖြစ်နိုင်သည် — range ကို မယူဆပါနှင့်။ Report ပြည့်ပြည့်စုံစုံ ဖြစ်ပါစေ — sentence ကြားမှာ မဖြတ်ပါနှင့်။`,
-          user: `AEGIS SOC AUTO-REPORT — နောက်ဆုံး ၂၄ နာရီ\n\nEvent: ${recentEvents.length} ခု | Incident: ${incidentsCount} ခု\nSeverity: ${sevBreakdown || "မရှိ"}\nAttack types: ${attackTypes || "မရှိ"}\nTop attacker IPs: ${topAttackers || "မရှိ"}\n\nမြန်မာဘာသာဖြင့် SOC report ပြည့်ပြည့်စုံစုံ ရေးပါ:\n\nနေ့ရက် အကျဉ်းချုပ်:\n(ဘယ် IP တွေ ဘာ attack တွေ မည်မျှ ကြိမ် လုပ်ခဲ့သလဲ)\n\nအပြင်းထန်ဆုံး ခြိမ်းခြောက်မှုများ:\n(top 5 IPs — attack type, target, ကြိမ်ရေ)\n\nDefense ဆောင်ရွက်ချက်:\n(ဘာ block လုပ်ပြီး၊ ဘာ pending ကျန်)\n\nနောက်ရက်တွေ ကြိုတင် သတိပြု ရမည့် အချက်များ:\n(အနည်းဆုံး ၃ ချက် — တိကျသော action ပါဝင်)`,
-          maxTokens: 2000,
+          system: `သင်သည် AEGIS-AI SOC analyst ဖြစ်သည်။ မြန်မာဘာသာ (Burmese) ဖြင့် professional security report ရေးပါ။ Technical terms နှင့် IP address သာ English သုံးပါ။ မည်သည့် IP မဆို attacker ဖြစ်နိုင်သည် — range ကို မယူဆပါနှင့်။ STRICT RULES: (1) IP address နှင့် number အားလုံး English digits သာ — မြန်မာဂဏန်း လုံးဝ မသုံးရ။ (2) Response ကို sentence အလယ်မှာ မဖြတ်ရ — sections အားလုံး ပြည့်ပြည့်စုံစုံ ပြောပြီးမှ ဆုံးရမည်။`,
+          user: `AEGIS SOC AUTO-REPORT — နောက်ဆုံး ၂၄ နာရီ\n\nEvent: ${recentEvents.length} ခု | Incident: ${incidentsCount} ခု\nSeverity: ${sevBreakdown || "မရှိ"}\nAttack types: ${attackTypes || "မရှိ"}\nTop attacker IPs: ${topAttackers || "မရှိ"}\n\nမြန်မာဘာသာဖြင့် SOC report ပြည့်ပြည့်စုံစုံ ရေးပါ — section တိုင်း ပြည့်ပြည့်စုံစုံ ဖြည့်ပြပါ:\n\nနေ့ရက် အကျဉ်းချုပ်:\n(ဘယ် IP တွေ ဘာ attack တွေ မည်မျှ ကြိမ် လုပ်ခဲ့သလဲ — အပြည့်အစုံ)\n\nအပြင်းထန်ဆုံး ခြိမ်းခြောက်မှုများ:\n(top 5 IPs — attack type, target, ကြိမ်ရေ — တစ်ခုချင်းစီ)\n\nDefense ဆောင်ရွက်ချက်:\n(ဘာ block လုပ်ပြီး၊ ဘာ pending ကျန် — အပြည့်အစုံ)\n\nနောက်ရက်တွေ ကြိုတင် သတိပြု ရမည့် အချက်များ:\n(အနည်းဆုံး ၄ ချက် — တစ်ချက်ချင်းစီ တိကျသော command ပါဝင်)`,
+          maxTokens: 4000,
         });
         aiGenerated = true;
       } catch (err: any) {

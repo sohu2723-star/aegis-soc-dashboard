@@ -22,12 +22,13 @@ Lab topology:
 - pfSense (10.30.30.1): WAN firewall
 - Attacker: မည်သည့် IP မဆို — 192.168.122.x မဟုတ်ဘဲ မည်သည့် IP မဆို threat ဖြစ်နိုင်သည်
 
-Response rules:
+Response rules (STRICT — မပျက်ကွက်ရ):
 1. မြန်မာဘာသာ ဖြင့်ရေး — IP, port, command, tool names သာ English
-2. Numbers/IPs — English digits သာ (123, မဟုတ် ၁၂၃)
+2. CRITICAL: IP address နှင့် number အားလုံး — English digits သာ သုံးရမည် (192.168.1.1, 22, 443) — မြန်မာဂဏန်း (၁၂၃) လုံးဝ မသုံးရ
 3. Markdown headers (#, ##) မသုံးပါ — plain text paragraph သာ
-4. တိုတိုနဲ့ ထိထိမိမိ — မလိုအပ်တဲ့ sections မထည့်ပါ
-5. ချက်ချင်း actionable ဖြစ်ပါစေ — concrete command/step ပါဝင်ပါစေ`;
+4. ချက်ချင်း actionable ဖြစ်ပါစေ — concrete command/step ပါဝင်ပါစေ
+5. CRITICAL: response ကို sentence အလယ်မှာ မဖြတ်ရ — စကားစုတိုင်း၊ section တိုင်း ပြည့်ပြည့်စုံစုံ ပြောပြီးမှ ဆုံးရမည်
+6. ပေးထားသော sections အားလုံး ဖြည့်ပြပါ — section တစ်ခုမျှ ကျော်မသွားရ`;
 
 // ─── Status ───────────────────────────────────────────────────────────────────
 
@@ -120,7 +121,7 @@ Defense အခြေအနေ:
 (အနည်းဆုံး ၅ ချက် — တစ်ချက်ချင်းစီ တိကျသော command သို့မဟုတ် action ပါဝင်ပါစေ)
 `.trim();
 
-    const analysis = await askGroq({ system: SOC_SYSTEM, user: userPrompt, maxTokens: 2000 });
+    const analysis = await askGroq({ system: SOC_SYSTEM, user: userPrompt, maxTokens: 4000 });
 
     res.json({
       analysis,
@@ -202,7 +203,7 @@ Severity levels: ${severities}
 ဒီ IP က မည်သည့် IP မဆို ဖြစ်နိုင်သည် (internal network, external, VPN) — assumption မမှားပါနှင့်
 `.trim();
 
-    const recommendation = await askGroq({ system: SOC_SYSTEM, user: userPrompt, maxTokens: 1500 });
+    const recommendation = await askGroq({ system: SOC_SYSTEM, user: userPrompt, maxTokens: 3000 });
 
     res.json({ ip, recommendation, eventCount: events.length, attackTypes: byType, generatedAt: new Date().toISOString() });
   } catch (err: any) {
@@ -239,7 +240,7 @@ Tool: ${event.toolUsed ?? "unknown"} | ${event.description ?? ""}
 မြန်မာဘာသာဖြင့် 3-4 ကြောင်းသာ ဖြင့် ရေးပါ:
 (1) ဘာဖြစ်နေသလဲ (2) ဘာကြောင့် ဒီ severity (3) ချက်ချင်း လုပ်ရမည့် command 1 ခု — တိုတိုနဲ့ ထိထိမိမိ`.trim();
 
-    const explanation = await askGroq({ system: SOC_SYSTEM, user: userPrompt, maxTokens: 400 });
+    const explanation = await askGroq({ system: SOC_SYSTEM, user: userPrompt, maxTokens: 800 });
     res.json({ id, explanation, generatedAt: new Date().toISOString() });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -337,7 +338,7 @@ Attack data ကို ကြည့်ပြီး defense rules 3-5 ခု recom
 JSON ONLY ပြန်ပါ — ရှင်းလင်းချက် plain text မထည့်ပါနှင့်
 `.trim();
 
-    const raw = await askGroq({ system: SOC_SYSTEM, user: userPrompt, maxTokens: 1500 });
+    const raw = await askGroq({ system: SOC_SYSTEM, user: userPrompt, maxTokens: 2000 });
 
     // Extract JSON — handle plain JSON, ```json blocks, or ```  blocks
     let jsonStr: string | null = null;

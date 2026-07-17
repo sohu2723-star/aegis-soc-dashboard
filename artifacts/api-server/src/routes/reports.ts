@@ -67,17 +67,27 @@ Severity: ${sevBreakdown || "no data"}
 Attack types: ${attackTypes || "no data"}
 Top attackers: ${topAttackers || "no data"}
 
-Write a ${body.type} SOC report summary with these sections:
-THREAT SUMMARY | TOP THREATS | DEFENSE STATUS | RECOMMENDATIONS
-Max 500 words. Burmese language mixed with English technical terms.
+မြန်မာဘာသာဖြင့် SOC report ပြည့်ပြည့်စုံစုံ ရေးပါ — section တိုင်း ပြည့်ပြည့်စုံစုံ ဖြည့်ပြပါ:
+
+ခြိမ်းခြောက်မှု အကျဉ်းချုပ် (Threat Summary):
+(ဘယ် IP တွေ ဘာ attack တွေ မည်မျှ ကြိမ် လုပ်ခဲ့သလဲ — အပြည့်အစုံ)
+
+အပြင်းထန်ဆုံး ခြိမ်းခြောက်မှုများ (Top Threats):
+(top attacker IP တစ်ခုချင်းစီ — attack type, severity, target, ကြိမ်ရေ)
+
+Defense အခြေအနေ (Defense Status):
+(ဘာ block လုပ်ပြီးပြီ၊ pending ကျန်နေသေးတာ)
+
+ထောက်ပံ့ချက်များ (Recommendations):
+(အနည်းဆုံး ၅ ချက် — တစ်ချက်ချင်းစီ တိကျသော command ပါဝင်)
 `.trim();
 
       summary = await askGroq({
-        system: `သင်သည် AEGIS-AI SOC analyst ဖြစ်သည်။ Professional security report ကို မြန်မာဘာသာ (Burmese) ဖြင့် ရေးပါ — technical terms သာ English သုံးပါ။ Markdown # headers မသုံးပါနှင့်။
+        system: `သင်သည် AEGIS-AI SOC analyst ဖြစ်သည်။ Professional security report ကို မြန်မာဘာသာ (Burmese) ဖြင့် ရေးပါ — technical terms နှင့် IP address သာ English သုံးပါ။ Markdown # headers မသုံးပါနှင့်။
 Lab: bank-web 10.10.10.10 (DMZ), customer-db 10.20.20.20 (Internal), AEGIS VM 10.30.30.10 (MGMT), pfSense 10.30.30.1 (Firewall).
-အရေးကြီး: Attacker သည် မည်သည့် IP မဆို ဖြစ်နိုင်သည် — IP range ကို မယူဆပါနှင့်။ Report ပြည့်ပြည့်စုံစုံ ဖြစ်ပါစေ — sentence ကြားမှာ မဖြတ်ပါနှင့်။`,
+STRICT RULES: (1) IP address နှင့် number အားလုံး English digits သာ — မြန်မာဂဏန်း လုံးဝ မသုံးရ။ (2) Response ကို sentence အလယ်မှာ မဖြတ်ရ — sections အားလုံး ပြည့်ပြည့်စုံစုံ ပြောပြီးမှ ဆုံးရမည်။ (3) Attacker သည် မည်သည့် IP မဆို ဖြစ်နိုင်သည် — IP range ကို မယူဆပါနှင့်။`,
         user: aiPrompt,
-        maxTokens: 800,
+        maxTokens: 2500,
       });
       aiGenerated = true;
     } catch (err: any) {
