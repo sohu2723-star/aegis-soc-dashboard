@@ -28,8 +28,8 @@ export async function askGroq(opts: {
         { role: "system", content: opts.system },
         { role: "user",   content: opts.user },
       ],
-      max_tokens:  opts.maxTokens ?? 900,
-      temperature: 0.2,
+      max_tokens:  opts.maxTokens ?? 2000,
+      temperature: 0.3,
     }),
   });
 

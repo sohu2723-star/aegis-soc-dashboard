@@ -108,7 +108,7 @@ DEFENSE_HEADERS = {
 }
 
 # pfSense REST API (only used when VM_NAME == "pfsense")
-PFSENSE_API_URL = _cfg("PFSENSE_API_URL", "http://127.0.0.1/api/v1")
+PFSENSE_API_URL = _cfg("PFSENSE_API_URL", f"http://{PFSENSE_IP}/api/v1")
 PFSENSE_API_KEY = _cfg("PFSENSE_API_KEY", "")
 DEFENSE_POLL_SECS = int(_cfg("DEFENSE_POLL_SECS", "5"))
 
@@ -207,49 +207,117 @@ def _exec_defense_shell(command: str, cmd_id: int):
         _report_defense_result(cmd_id, False, str(e))
 
 
+def _pfsense_headers():
+    """Return auth headers for pfSense REST API.
+    pfSense-API (community package) accepts:
+      Authorization: <client-token>  (v1 style — api_key directly, no Bearer prefix)
+    Try without Bearer first; if caller set PFSENSE_API_KEY with bearer prefix that's fine too.
+    """
+    return {
+        "Authorization": PFSENSE_API_KEY,   # pfSense API v1: raw key, no 'Bearer' prefix
+        "Content-Type":  "application/json",
+    }
+
+
+def _pfsense_descr(ip: str, reason: str = "") -> str:
+    return f"AEGIS-block {ip}" + (f" {reason}" if reason else "")
+
+
 def _exec_defense_pfsense(payload_json: str, cmd_id: int):
     try:
         payload = json.loads(payload_json)
-        action = payload.get("action")
+        action  = payload.get("action")
+        ip      = payload.get("ip", "")
+        reason  = payload.get("reason", "")
+        headers = _pfsense_headers()
+
+        if not PFSENSE_API_KEY:
+            msg = "PFSENSE_API_KEY not set in config — skipping pfSense action"
+            print(f"[defense] ✗ {msg}")
+            _report_defense_result(cmd_id, False, msg)
+            return
 
         if action == "block_ip":
-            rule = {
+            descr = _pfsense_descr(ip, reason)
+            rule  = {
                 "type": "block", "interface": "wan", "ipprotocol": "inet",
-                "protocol": "any", "src": payload["ip"], "dst": "any",
-                "descr": f"AEGIS auto-block: {payload.get('reason', '')}",
+                "protocol": "any",
+                "src": ip, "srcmask": "32",
+                "dst": "any",
+                "descr": descr,
+                "top": True,   # insert at top of ruleset
+                "apply": True, # apply immediately
             }
             r = requests.post(f"{PFSENSE_API_URL}/firewall/rule", json=rule,
-                               headers={"Authorization": f"Bearer {PFSENSE_API_KEY}"},
-                               verify=False, timeout=10)
+                               headers=headers, verify=False, timeout=15)
             if r.status_code in (200, 201):
-                print(f"[defense] ✓ pfSense blocked {payload['ip']}")
+                print(f"[defense] ✓ pfSense blocked {ip}")
                 _report_defense_result(cmd_id, True)
             else:
-                print(f"[defense] ✗ pfSense error {r.status_code}: {r.text[:80]}")
-                _report_defense_result(cmd_id, False, r.text[:200])
+                err = r.text[:300]
+                print(f"[defense] ✗ pfSense block error {r.status_code}: {err}")
+                _report_defense_result(cmd_id, False, err)
 
         elif action == "unblock_ip":
-            print(f"[defense] pfSense unblock {payload['ip']} — implement rule lookup by description")
-            _report_defense_result(cmd_id, True)
+            # Find all AEGIS-created rules for this IP by description, then delete them
+            r = requests.get(f"{PFSENSE_API_URL}/firewall/rule",
+                              headers=headers, verify=False, timeout=10)
+            if r.status_code != 200:
+                _report_defense_result(cmd_id, False, f"GET rules failed: {r.status_code}")
+                return
+
+            rules = r.json().get("data", [])
+            prefix = f"AEGIS-block {ip}"
+            trackers = [
+                rule.get("tracker") for rule in rules
+                if rule.get("descr", "").startswith(prefix) and rule.get("tracker")
+            ]
+
+            if not trackers:
+                print(f"[defense] pfSense unblock {ip}: no AEGIS rule found (already clean)")
+                _report_defense_result(cmd_id, True)
+                return
+
+            errors = []
+            for tracker in trackers:
+                d = requests.delete(f"{PFSENSE_API_URL}/firewall/rule",
+                                     json={"tracker": tracker, "apply": True},
+                                     headers=headers, verify=False, timeout=10)
+                if d.status_code in (200, 204):
+                    print(f"[defense] ✓ pfSense unblocked {ip} (tracker {tracker})")
+                else:
+                    errors.append(f"tracker {tracker}: {d.status_code}")
+
+            if errors:
+                _report_defense_result(cmd_id, False, "; ".join(errors))
+            else:
+                _report_defense_result(cmd_id, True)
 
         elif action == "block_port":
-            rule = {
+            port  = str(payload.get("port", ""))
+            proto = payload.get("protocol", "tcp")
+            rule  = {
                 "type": "block", "interface": "wan", "ipprotocol": "inet",
-                "protocol": payload.get("protocol", "tcp"), "src": payload["ip"], "dst": "any",
-                "dstport": str(payload.get("port", "")),
-                "descr": f"AEGIS port-block: {payload.get('reason', '')}",
+                "protocol": proto,
+                "src": ip, "srcmask": "32",
+                "dst": "any", "dstport": port,
+                "descr": _pfsense_descr(ip, f"port-{port}"),
+                "top": True, "apply": True,
             }
             r = requests.post(f"{PFSENSE_API_URL}/firewall/rule", json=rule,
-                               headers={"Authorization": f"Bearer {PFSENSE_API_KEY}"},
-                               verify=False, timeout=10)
+                               headers=headers, verify=False, timeout=15)
             if r.status_code in (200, 201):
-                print(f"[defense] ✓ pfSense blocked {payload['ip']}:{payload.get('port')}")
+                print(f"[defense] ✓ pfSense port-blocked {ip}:{port}/{proto}")
                 _report_defense_result(cmd_id, True)
             else:
-                _report_defense_result(cmd_id, False, r.text[:200])
+                err = r.text[:300]
+                print(f"[defense] ✗ pfSense port-block error {r.status_code}: {err}")
+                _report_defense_result(cmd_id, False, err)
+
         else:
             print(f"[defense] Unknown pfSense action: {action}")
             _report_defense_result(cmd_id, False, f"Unknown action: {action}")
+
     except Exception as e:
         print(f"[defense] ✗ pfSense error: {e}")
         _report_defense_result(cmd_id, False, str(e))

@@ -13,17 +13,22 @@ import { askGroq, groqAvailable } from "../lib/groq-client";
 
 const router = Router();
 
-const SOC_SYSTEM = `You are AEGIS-AI, the AI analyst embedded in the AEGIS Tactical SOC Dashboard.
-Lab network context:
-- Ubuntu Defender: 10.10.10.10 (runs Fail2ban, Suricata, Cowrie honeypot)
-- pfSense Firewall: 192.168.122.1 (WAN gateway)
-- Bank-Web Server: 10.10.10.30
-- Customer DB: 10.20.20.20
-- Kali Linux attackers: typically 192.168.122.x range
+const SOC_SYSTEM = `သင်သည် AEGIS-AI ဖြစ်ပြီး AEGIS Tactical SOC Dashboard တွင် built-in AI analyst ဖြစ်သည်။
 
-Write like a professional SOC analyst. Be specific: name IPs, attack types, counts.
-Be concise and actionable. No markdown # headers — use plain section labels in CAPS.
-All response must be in Burmese (Myanmar language) mixed with English technical terms where needed.`;
+Lab network ဆက်သွယ်မှု:
+- bank-web (10.10.10.10): Fail2ban, Suricata, Apache2, vsftpd, Cowrie honeypot
+- customer-db (10.20.20.20): PostgreSQL, Suricata, Fail2ban
+- AEGIS VM (10.30.30.10): Hub forwarder, monitoring center
+- pfSense Firewall (10.30.30.1): WAN gateway, firewall
+- Attacker: မည်သည့် IP မဆို attacker ဖြစ်နိုင်သည် — 192.168.122.x range သာမဟုတ်ဘဲ မည်သည့် external IP, internal IP မဆို threat ဖြစ်နိုင်သည်။ IP ကို trust မလုပ်ရ။
+
+Response rules (အသေချာလိုက်နာပါ):
+1. မြန်မာဘာသာ (Burmese) ဖြင့် ရေးပါ — technical terms (IP, port, protocol, tool names) သာ English သုံးပါ
+2. Section labels ကို CAPS ဖြင့် ရေးပါ (e.g., "ခြိမ်းခြောက်မှု အကျဉ်းချုပ်:", "ထောက်ပံ့ချက်:")
+3. IP address, attack type, failure count, severity တိကျစွာ ဖော်ပြပါ
+4. မြန်မာဘာသာ ပြည့်ပြည့်စုံစုံ ရေးပါ — sentence ကြားမှာ မဖြတ်ပါနှင့်
+5. Markdown # headers မသုံးပါနှင့် — plain text သာ
+6. Professional SOC analyst ကဲ့သို့ actionable ဖြစ်ပါစေ`;
 
 // ─── Status ───────────────────────────────────────────────────────────────────
 
@@ -90,25 +95,33 @@ router.get("/ai/threat-analysis", async (_req, res) => {
       .map(a => `${a.action} on ${a.targetIp} (${a.status})`).join("; ");
 
     const userPrompt = `
-SECURITY DATA — LAST 24 HOURS
+လုံခြုံရေး ဒေတာ — နောက်ဆုံး ၂၄ နာရီ
 
-Total events: ${recentEvents.length}
-Severity breakdown: ${severityBreakdown || "none"}
-Attack types: ${attackTypes || "none"}
-Top attackers: ${topAttackers || "none"}
-Top targeted hosts: ${topTargets || "none"}
-Open incidents: ${openIncidents.length}
-Unacknowledged alerts: ${unackedAlerts[0]?.count ?? 0}
-Recent defense actions: ${defenseActSummary || "none"}
+စုစုပေါင်း event: ${recentEvents.length}
+Severity ခွဲခြမ်း: ${severityBreakdown || "none"}
+Attack အမျိုးအစား: ${attackTypes || "none"}
+Top attacker IPs: ${topAttackers || "none"}
+တိုက်ခိုက်ခံ host များ: ${topTargets || "none"}
+ဖွင့်ထားသော incident: ${openIncidents.length}
+Acknowledge မလုပ်ရသေးသော alert: ${unackedAlerts[0]?.count ?? 0}
+ကျုံ့ defense actions: ${defenseActSummary || "none"}
 
-Write a SOC threat briefing. Be concise — total under 220 words:
-1. THREAT SUMMARY (2 sentences only)
-2. TOP THREATS (top 3 threats, 1 line each with IP and type)
-3. DEFENSE STATUS (2 sentences only)
-4. RECOMMENDATIONS (exactly 3 numbered items, 1 sentence each)
+မြန်မာဘာသာဖြင့် SOC threat briefing ပြည့်ပြည့်စုံစုံ ရေးပါ။ Section တစ်ခုချင်းစီကို အပြည့်ဖော်ပြပါ:
+
+ခြိမ်းခြောက်မှု အကျဉ်းချုပ်:
+(ဘာတွေ ဖြစ်နေသလဲ၊ ဘယ် IP တွေ ဘာ attack တွေ လုပ်နေသလဲ — ရှင်းလင်းပြည့်စုံစွာ)
+
+အပြင်းထန်ဆုံး ခြိမ်းခြောက်မှုများ:
+(top attacker IP တစ်ခုချင်းစီ — attack type, severity, target host, ဘယ်လောက် ကြိမ် ဖြစ်သလဲ)
+
+Defense အခြေအနေ:
+(ဘာ block လုပ်ပြီးပြီ၊ Fail2ban/Suricata/pfSense status၊ ဘာ pending ကျန်နေသေးသလဲ)
+
+ထောက်ပံ့ချက် (Recommendations):
+(အနည်းဆုံး ၅ ချက် — တစ်ချက်ချင်းစီ တိကျသော command သို့မဟုတ် action ပါဝင်ပါစေ)
 `.trim();
 
-    const analysis = await askGroq({ system: SOC_SYSTEM, user: userPrompt, maxTokens: 700 });
+    const analysis = await askGroq({ system: SOC_SYSTEM, user: userPrompt, maxTokens: 2000 });
 
     res.json({
       analysis,
@@ -165,22 +178,32 @@ router.post("/ai/defend", async (req, res) => {
 
     const userPrompt = `
 ATTACKER IP: ${ip}
-Total events from this IP: ${events.length}
-Attack types: ${attackSummary}
-Targeted hosts: ${[...targets].join(", ")}
-Severity levels seen: ${severities}
-Existing defense actions: ${defenseHistory_str}
-First seen: ${events[events.length-1]?.createdAt?.toISOString?.() ?? "unknown"}
-Last seen: ${events[0]?.createdAt?.toISOString?.() ?? "unknown"}
+ဒီ IP မှ စုစုပေါင်း event: ${events.length}
+Attack အမျိုးအစား: ${attackSummary}
+တိုက်ခိုက်ခံ host များ: ${[...targets].join(", ")}
+Severity levels: ${severities}
+ယခင် defense actions: ${defenseHistory_str}
+ပထမဆုံး တွေ့ချိန်: ${events[events.length-1]?.createdAt?.toISOString?.() ?? "unknown"}
+နောက်ဆုံး တွေ့ချိန်: ${events[0]?.createdAt?.toISOString?.() ?? "unknown"}
 
-Write a defense recommendation. Be concise — total response under 200 words:
-1. THREAT PROFILE (2 sentences only)
-2. RISK LEVEL (Critical/High/Medium — 1 sentence only)
-3. RECOMMENDED ACTIONS (exactly 3 numbered steps, each 1 sentence with command if needed)
-4. MONITOR (2 bullet points only)
+မြန်မာဘာသာဖြင့် ဒီ IP အတွက် defense recommendation ပြည့်ပြည့်စုံစုံ ရေးပါ:
+
+ခြိမ်းခြောက်မှု ကိုယ်ပိုင်ပုံရိပ် (Threat Profile):
+(ဒီ attacker ဘာ attack pattern ဆောင်ထားသလဲ၊ ဘာ tool သုံးနေသလဲ ဖော်ပြပါ)
+
+အန္တရာယ် အဆင့် (Risk Level):
+(Critical / High / Medium — ဘာကြောင့် ဒီ level ဆိုတာ ရှင်းပြပါ)
+
+ချက်ချင်း လုပ်ဆောင်ရမည့် အဆင့်များ (Immediate Actions):
+(အနည်းဆုံး ၅ ချက် — iptables command, pfSense rule, fail2ban config တိကျစွာ ပါဝင်ပါစေ)
+
+ဆက်လက် စောင့်ကြည့်ရမည့် အချက်များ (Monitor):
+(ဘာ log တွေ၊ ဘာ port တွေ၊ ဘာ alert တွေ ဆက်ကြည့်မလဲ)
+
+ဒီ IP က မည်သည့် IP မဆို ဖြစ်နိုင်သည် (internal network, external, VPN) — assumption မမှားပါနှင့်
 `.trim();
 
-    const recommendation = await askGroq({ system: SOC_SYSTEM, user: userPrompt, maxTokens: 500 });
+    const recommendation = await askGroq({ system: SOC_SYSTEM, user: userPrompt, maxTokens: 1500 });
 
     res.json({ ip, recommendation, eventCount: events.length, attackTypes: byType, generatedAt: new Date().toISOString() });
   } catch (err: any) {
@@ -210,22 +233,31 @@ router.get("/ai/analyze-event/:id", async (req, res) => {
       .where(eq(securityEventsTable.sourceIp, event.sourceIp));
 
     const userPrompt = `
-EVENT DETAILS:
+EVENT အသေးစိတ်:
 ID: ${event.id}
 Type: ${event.type} / ${event.subtype}
 Severity: ${event.severity}
-Source IP: ${event.sourceIp}
+Source IP: ${event.sourceIp}  ← မည်သည့် IP မဆို attacker ဖြစ်နိုင်သည်
 Target: ${event.targetHost}
 Tool: ${event.toolUsed ?? "unknown"}
 Description: ${event.description ?? "none"}
 Status: ${event.status}
 Time: ${event.createdAt.toISOString()}
-Total events from this IP: ${Number(ipHistory[0]?.count ?? 0)}
+ဒီ IP မှ စုစုပေါင်း event: ${Number(ipHistory[0]?.count ?? 0)}
 
-ဒီ event ကို ရှင်းပြပေးပါ — ဘာဖြစ်နေသလဲ၊ ဘယ်လောက် ဆိုးသလဲ၊ ဘာ action လုပ်သင့်သလဲ (3 sentences max)
+မြန်မာဘာသာဖြင့် ဒီ security event ကို ပြည့်ပြည့်စုံစုံ ရှင်းပြပါ:
+
+ဘာဖြစ်နေသလဲ:
+(event ကို technical ရှင်းပြချက်)
+
+အန္တရာယ် အဆင့်:
+(ဘာကြောင့် ဒီလောက် ဆိုးသလဲ)
+
+ချက်ချင်း လုပ်ဆောင်ရမည်:
+(သက်ဆိုင်ရာ command သို့မဟုတ် action ပါဝင်ပါစေ)
 `.trim();
 
-    const explanation = await askGroq({ system: SOC_SYSTEM, user: userPrompt, maxTokens: 300 });
+    const explanation = await askGroq({ system: SOC_SYSTEM, user: userPrompt, maxTokens: 800 });
     res.json({ id, explanation, generatedAt: new Date().toISOString() });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

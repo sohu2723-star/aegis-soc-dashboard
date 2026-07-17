@@ -65,9 +65,9 @@ async function runAutoReport(): Promise<void> {
         const sevBreakdown  = Object.entries(bySeverity).map(([s,n])=>`${s}:${n}`).join(", ");
 
         summary = await askGroq({
-          system: `You are AEGIS-AI SOC analyst. Write professional security reports in Burmese mixed with English technical terms.`,
-          user: `SCHEDULED AUTO-REPORT — last 24h\nEvents: ${recentEvents.length} | Incidents: ${incidentsCount}\nSeverity: ${sevBreakdown || "none"}\nAttack types: ${attackTypes || "none"}\nTop attackers: ${topAttackers || "none"}\n\nWrite concise SOC summary under 150 words total:\nTHREAT SUMMARY (2 sentences)\nTOP THREATS (top 3, 1 line each)\nDEFENSE STATUS (1 sentence)\nRECOMMENDATIONS (3 items, 1 line each)`,
-          maxTokens: 450,
+          system: `သင်သည် AEGIS-AI SOC analyst ဖြစ်သည်။ မြန်မာဘာသာ (Burmese) ဖြင့် professional security report ရေးပါ။ Technical terms သာ English သုံးပါ။ မည်သည့် IP မဆို attacker ဖြစ်နိုင်သည် — range ကို မယူဆပါနှင့်။ Report ပြည့်ပြည့်စုံစုံ ဖြစ်ပါစေ — sentence ကြားမှာ မဖြတ်ပါနှင့်။`,
+          user: `AEGIS SOC AUTO-REPORT — နောက်ဆုံး ၂၄ နာရီ\n\nEvent: ${recentEvents.length} ခု | Incident: ${incidentsCount} ခု\nSeverity: ${sevBreakdown || "မရှိ"}\nAttack types: ${attackTypes || "မရှိ"}\nTop attacker IPs: ${topAttackers || "မရှိ"}\n\nမြန်မာဘာသာဖြင့် SOC report ပြည့်ပြည့်စုံစုံ ရေးပါ:\n\nနေ့ရက် အကျဉ်းချုပ်:\n(ဘယ် IP တွေ ဘာ attack တွေ မည်မျှ ကြိမ် လုပ်ခဲ့သလဲ)\n\nအပြင်းထန်ဆုံး ခြိမ်းခြောက်မှုများ:\n(top 5 IPs — attack type, target, ကြိမ်ရေ)\n\nDefense ဆောင်ရွက်ချက်:\n(ဘာ block လုပ်ပြီး၊ ဘာ pending ကျန်)\n\nနောက်ရက်တွေ ကြိုတင် သတိပြု ရမည့် အချက်များ:\n(အနည်းဆုံး ၃ ချက် — တိကျသော action ပါဝင်)`,
+          maxTokens: 2000,
         });
         aiGenerated = true;
       } catch (err: any) {

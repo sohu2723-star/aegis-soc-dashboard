@@ -16,6 +16,8 @@ import {
 } from "@workspace/db";
 import { broadcaster } from "../lib/broadcaster";
 import { evaluateEvent } from "../lib/auto-defense";
+import { sendTelegramMessage, telegramAvailable } from "../lib/telegram";
+import { getSetting } from "../lib/app-settings";
 import { isDefenderIp } from "../lib/ip-classifier";
 import { eq, and } from "drizzle-orm";
 import { recordTrafficStats } from "./network";
@@ -69,10 +71,23 @@ async function insertEvent(values: typeof securityEventsTable.$inferInsert) {
 async function mkAlert(eventId: number, severity: "critical"|"high", message: string) {
   const [row] = await db.insert(alertsTable).values({
     message: message.slice(0, 255), severity,
-    channel: severity === "critical" ? "telegram" : "dashboard",
+    channel: "telegram",           // all high+ go to telegram channel
     acknowledged: false, eventId,
   }).returning();
   broadcaster.broadcast("alert", { id: row.id, severity });
+
+  // Send Telegram immediately for all high+ alerts — do not wait; fail silently
+  if (telegramAvailable()) {
+    getSetting("telegramEnabled").then(enabled => {
+      if (enabled === "false") return;
+      const emoji  = severity === "critical" ? "🚨" : "⚠️";
+      const label  = severity === "critical" ? "CRITICAL ALERT" : "HIGH ALERT";
+      const text   =
+        `${emoji} <b>AEGIS — ${label}</b>\n` +
+        `${message.slice(0, 300)}`;
+      sendTelegramMessage(text).catch(() => {/* silent */});
+    }).catch(() => {/* silent */});
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
