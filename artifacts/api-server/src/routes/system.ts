@@ -212,13 +212,18 @@ router.get("/system/status", async (_req, res) => {
   // If a VM forwarder goes silent (crash/reboot/shutdown), its sensor rows stay
   // "online" in the DB forever.  Treat any VM-reported row whose lastCheck is
   // older than 3 minutes as offline so the dashboard reflects reality.
-  const STALE_MS = 3 * 60 * 1000; // 3 minutes
+  // Global rows (no hostIp) get a longer 2-minute grace period — they are
+  // updated by startSelfHeartbeat() every 30s, so stale means server is down.
+  const STALE_VM_MS     = 3 * 60 * 1000;  // 3 min  — VM sensors
+  const STALE_GLOBAL_MS = 2 * 60 * 1000;  // 2 min  — global rows (AEGIS API Server etc.)
   const now = Date.now();
   res.json(statuses.map(s => {
-    const stale =
-      !!s.hostIp &&
-      s.status === "online" &&
-      now - s.lastCheck.getTime() > STALE_MS;
+    const ageMs = now - s.lastCheck.getTime();
+    const stale = s.status === "online" && (
+      s.hostIp
+        ? ageMs > STALE_VM_MS
+        : ageMs > STALE_GLOBAL_MS
+    );
     return {
       ...s,
       status:    stale ? "offline" : s.status,
@@ -287,3 +292,28 @@ router.post("/system/status", async (req, res) => {
 });
 
 export default router;
+
+// ─── Self-heartbeat ───────────────────────────────────────────────────────────
+// Updates the "AEGIS API Server" global row every 30 s so the stale-timeout
+// check above marks it offline if the server is actually down.
+let _heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+
+async function _updateSelfStatus() {
+  try {
+    await db
+      .update(systemStatusTable)
+      .set({ status: "online", lastCheck: new Date() })
+      .where(
+        eq(systemStatusTable.component, "AEGIS API Server"),
+      );
+  } catch {
+    // DB not ready yet — next tick will retry
+  }
+}
+
+export function startSelfHeartbeat(): void {
+  if (_heartbeatTimer) return; // already running
+  // Run immediately then every 30 s
+  void _updateSelfStatus();
+  _heartbeatTimer = setInterval(_updateSelfStatus, 30_000);
+}

@@ -1,6 +1,7 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { startScheduler } from "./lib/scheduler";
+import { startSelfHeartbeat } from "./routes/system";
 
 const rawPort = process.env["PORT"];
 
@@ -24,4 +25,5 @@ app.listen(port, (err) => {
 
   logger.info({ port }, "Server listening");
   startScheduler().catch(e => logger.error({ err: e.message }, "Scheduler start failed"));
+  startSelfHeartbeat();
 });

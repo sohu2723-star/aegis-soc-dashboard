@@ -51,8 +51,12 @@ router.get("/dashboard/summary", async (req, res) => {
     // 5. Blocked events
     db.select({ count: count() }).from(securityEventsTable).where(blockedWhere),
 
-    // 6. System status (light — just online count)
-    db.select({ status: systemStatusTable.status }).from(systemStatusTable),
+    // 6. System status — fetch status + lastCheck + hostIp to apply stale timeout
+    db.select({
+      status:    systemStatusTable.status,
+      lastCheck: systemStatusTable.lastCheck,
+      hostIp:    systemStatusTable.hostIp,
+    }).from(systemStatusTable),
 
     // 7. Attack type breakdown — GROUP BY at DB level (replaces 500-row fetch)
     baseWhere
@@ -93,8 +97,20 @@ router.get("/dashboard/summary", async (req, res) => {
   ]);
   // ────────────────────────────────────────────────────────────────────────────
 
-  const systemsOnline = allStatuses.filter(s => s.status === "online").length;
-  const systemsTotal  = allStatuses.length;
+  // Apply same 3-minute stale check as GET /system/status — if forwarder goes
+  // silent, rows stay "online" in DB forever; treat them as offline here too.
+  const STALE_MS = 3 * 60 * 1000;
+  const now = Date.now();
+  const resolvedStatuses = allStatuses.map(s => ({
+    ...s,
+    status:
+      s.hostIp && s.status === "online" && s.lastCheck &&
+      now - new Date(s.lastCheck).getTime() > STALE_MS
+        ? "offline"
+        : s.status,
+  }));
+  const systemsOnline = resolvedStatuses.filter(s => s.status === "online").length;
+  const systemsTotal  = resolvedStatuses.length;
 
   const attacksByType = attacksByTypeRows.map(r => ({
     type:  r.type,
