@@ -13,6 +13,8 @@ PORT = "5000"
 BASE_PATH = "/"
 API_PORT = "3000"
 NODE_ENV = "development"
+ADMIN_EMAIL = "copy2723@gmail.com"
+GOOGLE_CLIENT_ID = "524254578493-9ce8ttte7c63hjo61rn9seo2m6jpfbjb.apps.googleusercontent.com"
 
 [workflows]
 runButton = "Project"

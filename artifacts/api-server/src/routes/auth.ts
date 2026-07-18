@@ -11,8 +11,8 @@ import { signToken, verifyToken } from "../lib/jwt-auth";
 
 const router = Router();
 
-const GOOGLE_CLIENT_ID = "524254578493-9ce8ttte7c63hjo61rn9seo2m6jpfbjb.apps.googleusercontent.com";
-const ALLOWED_EMAIL    = "copy2723@gmail.com";
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID ?? "524254578493-9ce8ttte7c63hjo61rn9seo2m6jpfbjb.apps.googleusercontent.com";
+const ALLOWED_EMAIL    = process.env.ADMIN_EMAIL ?? "copy2723@gmail.com";
 
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 
