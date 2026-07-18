@@ -55,11 +55,18 @@ const NODES = {
     icon: "🗄",
   },
   aegis: {
-    x: 870, y: 260,
+    x: 820, y: 260,
     label: "AEGIS", sub: "SOC Dashboard",
     ip: "Render · Vercel",
     color: "#06b6d4", glow: "rgba(6,182,212,0.25)",
     icon: "📊",
+  },
+  telegram: {
+    x: 930, y: 420,
+    label: "Telegram", sub: "Alert Channel",
+    ip: "api.telegram.org",
+    color: "#29b6f6", glow: "rgba(41,182,246,0.4)",
+    icon: "📱",
   },
 } as const;
 
@@ -73,6 +80,11 @@ const EDGES: [NodeKey, NodeKey][] = [
   ["pfsense",  "forwarder"], // pfSense MGMT → aegis-forwarder
   ["pfsense",  "customerdb"],// pfSense INT → customer-db
   ["forwarder","aegis"],     // aegis-forwarder → AEGIS Dashboard (via Render API)
+];
+
+// ── Notification edges — AEGIS → Telegram (alert channel, styled differently) ─
+const NOTIFY_EDGES: [NodeKey, NodeKey][] = [
+  ["aegis", "telegram"],
 ];
 
 // ── Attack path routing ────────────────────────────────────────────────────────
@@ -108,6 +120,7 @@ interface Packet {
   severity: string;
   evType: string;
   targetHost: string;
+  isTg?: boolean;     // true = AEGIS→Telegram notification packet
 }
 
 interface LogEntry {
@@ -246,14 +259,14 @@ export default function AttackFlowPage() {
         } catch { /* skip */ }
       });
 
-      // ── Telegram alert notification ────────────────────────────────────
+      // ── Telegram alert notification (real SSE "alert" event) ──────────
       es.addEventListener("alert", (e) => {
         try {
           const ev = JSON.parse(e.data);
           const sev = ev.severity ?? "high";
           const toastId = `tg-${Date.now()}`;
 
-          // 1. Mark in live feed log
+          // 1. Mark latest high/critical entry in live feed
           setLog(prev => {
             const idx = prev.findIndex(l => !l.telegram && (l.severity === "critical" || l.severity === "high"));
             if (idx !== -1) {
@@ -265,20 +278,33 @@ export default function AttackFlowPage() {
               id: toastId, ts: now(),
               evType: "telegram_alert",
               severity: sev,
-              srcIp: "—", target: "—",
+              srcIp: "AEGIS", target: "Telegram",
               desc: "Alert dispatched via Telegram",
               defense: false, telegram: true,
             }, ...prev].slice(0, 60);
           });
 
-          // 2. Show floating toast on SVG topology canvas (auto-dismiss 4s)
-          setTgToasts(prev => [
-            { id: toastId, sev, ts: now() },
-            ...prev.slice(0, 4),
-          ]);
-          setTimeout(() => {
-            setTgToasts(prev => prev.filter(t => t.id !== toastId));
-          }, 4000);
+          // 2. Spawn animated packet: AEGIS → Telegram node
+          const tgPkt: Packet = {
+            id: toastId,
+            path: ["aegis", "telegram"],
+            seg: 0, t: 0,
+            speed: 0.0008,           // faster — short hop
+            blocked: false, blockedAt: 0,
+            severity: sev,
+            evType: "telegram",
+            targetHost: "telegram",
+            isTg: true,
+          };
+          setPackets(prev => [...prev.slice(-40), tgPkt]);
+
+          // 3. Pulse Telegram node for 1.2 s
+          setPulseNodes(prev => new Set([...prev, "telegram"]));
+          setTimeout(() => setPulseNodes(prev => { const n = new Set(prev); n.delete("telegram"); return n; }), 1200);
+
+          // 4. Floating toast (auto-dismiss 4 s)
+          setTgToasts(prev => [{ id: toastId, sev, ts: now() }, ...prev.slice(0, 3)]);
+          setTimeout(() => setTgToasts(prev => prev.filter(t => t.id !== toastId)), 4000);
 
         } catch { /* skip */ }
       });
@@ -394,10 +420,34 @@ export default function AttackFlowPage() {
               );
             })}
 
+            {/* ── Notification edges (AEGIS → Telegram) — blue solid ─────── */}
+            {NOTIFY_EDGES.map(([a, b]) => {
+              const na = NODES[a], nb = NODES[b];
+              return (
+                <g key={`ne-${a}-${b}`}>
+                  <line
+                    x1={na.x} y1={na.y} x2={nb.x} y2={nb.y}
+                    stroke="rgba(41,182,246,0.18)"
+                    strokeWidth="1.5"
+                    strokeDasharray="4 4"
+                  />
+                  {/* mid-label */}
+                  <text
+                    x={(na.x + nb.x) / 2 + 6}
+                    y={(na.y + nb.y) / 2 - 6}
+                    fontSize="7" fill="rgba(41,182,246,0.45)"
+                    fontFamily="monospace" textAnchor="middle"
+                  >
+                    NOTIFY
+                  </text>
+                </g>
+              );
+            })}
+
             {/* ── Packets ───────────────────────────────────────────────── */}
             {packets.map(p => {
               const { x, y } = pos(p);
-              const col = p.blocked ? "#ef4444" : (SEV_COLOR[p.severity] ?? "#f59e0b");
+              const col = p.isTg ? "#29b6f6" : p.blocked ? "#ef4444" : (SEV_COLOR[p.severity] ?? "#f59e0b");
               const r   = p.blocked ? 9 : 5;
               return (
                 <g key={p.id} filter="url(#pkt-glow)">
@@ -698,6 +748,21 @@ function NodeIcon({ nodeKey, x, y, color }: { nodeKey: NodeKey; x: number; y: nu
           <line x1={8}  y1={16} x2={6}  y2={22} />
           <line x1={16} y1={16} x2={18} y2={22} />
           <line x1={4}  y1={22} x2={20} y2={22} />
+        </g>
+      );
+
+    // ✈ Paper plane — Telegram alert channel
+    case "telegram":
+      return (
+        <g transform={`translate(${x},${y - 2})`} fill="none" stroke={c} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          {/* Plane body */}
+          <path d="M-13,0 L13,-6 L5,12 L-1,5 Z" />
+          {/* Wing fold line */}
+          <line x1={-1} y1={5} x2={5} y2={-2} />
+          {/* Signal dots */}
+          <circle cx={10}  cy={-11} r={1.5} fill={c} opacity={0.7} />
+          <circle cx={13}  cy={-11} r={1.5} fill={c} opacity={0.5} />
+          <circle cx={16}  cy={-11} r={1.5} fill={c} opacity={0.3} />
         </g>
       );
 
