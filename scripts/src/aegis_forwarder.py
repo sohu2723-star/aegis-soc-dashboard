@@ -78,10 +78,12 @@ REMOTE_HOSTS = [h for h in [
         "sensors": ["suricata", "snort", "fail2ban", "ssh", "http", "ftp"],
         # services to health-check via SSH systemctl on this VM
         "health_services": [
-            ("suricata",  "Suricata IDS/IPS",        "sensor"),
-            ("fail2ban",  "Fail2ban",                 "sensor"),
-            ("apache2",   "HTTP Service (Apache2)",   "sensor"),
-            ("vsftpd",    "FTP Service (vsftpd)",     "sensor"),
+            ("snort",     "Snort IDS",       "sensor"),
+            ("suricata",  "Suricata IDS",    "sensor"),
+            ("fail2ban",  "Fail2ban",        "sensor"),
+            ("ssh",       "SSH Monitor",     "sensor"),
+            ("apache2",   "Apache Monitor",  "sensor"),
+            ("vsftpd",    "FTP Monitor",     "sensor"),
         ],
     } if BANKWEB_IP else None,
     {
@@ -89,8 +91,9 @@ REMOTE_HOSTS = [h for h in [
         "ip":   CUSTOMERDB_IP,
         "sensors": ["suricata", "fail2ban", "ssh", "postgresql"],
         "health_services": [
-            ("suricata",    "Suricata IDS/IPS",   "sensor"),
+            ("suricata",    "Suricata IDS",        "sensor"),
             ("fail2ban",    "Fail2ban",            "sensor"),
+            ("ssh",         "SSH Monitor",         "sensor"),
             ("postgresql",  "PostgreSQL Monitor",  "sensor"),
         ],
     } if CUSTOMERDB_IP else None,
@@ -576,10 +579,9 @@ def get_service_status(service: str) -> str:
 # check_type "systemctl" → systemctl is-active <check_key>
 # check_type "port"      → check if TCP port <check_key> is listening (ss -tlnp)
 SERVICE_MAP = [
-    ("suricata",    "Suricata IDS/IPS",    "sensor", "systemctl"),
-    ("fail2ban",    "Fail2ban",            "sensor", "systemctl"),
-    ("postgresql",  "PostgreSQL Monitor",  "sensor", "systemctl"),
-    (":80",         "Morgan HTTP Logger",  "sensor", "port"),
+    ("suricata",  "Suricata IDS",        "sensor", "systemctl"),
+    ("fail2ban",  "Fail2ban",            "sensor", "systemctl"),
+    ("ssh",       "SSH Monitor",         "sensor", "systemctl"),
 ]
 
 
@@ -1493,11 +1495,16 @@ Modes:
         sh.start()
         print("  ► service_health thread started (local sensors)")
     else:
-        # In hub mode just heartbeat the Hub Forwarder component itself as ONLINE
+        # In hub mode: report Hub Forwarder + local SSH/Fail2ban for aegis VM itself
         def _hub_self_health():
             own_ip = get_local_ip()
+            local_checks = [
+                ("ssh",      "SSH Monitor", "sensor"),
+                ("fail2ban", "Fail2ban",    "sensor"),
+            ]
             while True:
                 try:
+                    # Hub Forwarder heartbeat
                     requests.post(
                         f"{AEGIS_URL}/system/status",
                         json={
@@ -1510,6 +1517,26 @@ Modes:
                         headers=HEADERS,
                         timeout=5,
                     )
+                    # Local service checks (ssh, fail2ban) for aegis VM
+                    for svc, component, layer in local_checks:
+                        try:
+                            result = subprocess.run(
+                                ["systemctl", "is-active", svc],
+                                capture_output=True, text=True, timeout=5,
+                            )
+                            status = "online" if result.stdout.strip() == "active" else "offline"
+                        except Exception:
+                            status = "unknown"
+                        try:
+                            requests.post(
+                                f"{AEGIS_URL}/system/status",
+                                json={"component": component, "layer": layer,
+                                      "status": status, "hostIp": own_ip},
+                                headers=HEADERS,
+                                timeout=5,
+                            )
+                        except Exception:
+                            pass
                 except Exception:
                     pass
                 time.sleep(30)

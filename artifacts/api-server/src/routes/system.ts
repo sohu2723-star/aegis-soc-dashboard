@@ -26,7 +26,14 @@ const GLOBAL_COMPONENTS = [
 // The aegis_forwarder (hub mode) will update these to online/offline via POST /system/status.
 // Match component names exactly with what the forwarder POSTs to /system/status.
 const PER_HOST_SENSORS = [
-  // ── bank-web (10.10.10.10): Apache/vsftpd/Suricata/Fail2ban ─────────────────
+  // ── bank-web (10.10.10.10): Apache/vsftpd/Suricata/Snort/Fail2ban ───────────
+  {
+    component: "Snort IDS",
+    layer: "sensor",
+    status: "unknown",
+    description: "Snort network intrusion detection — signature-based attack detection",
+    hostIp: "10.10.10.10",
+  },
   {
     component: "Suricata IDS",
     layer: "sensor",
