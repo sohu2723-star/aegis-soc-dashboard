@@ -81,11 +81,16 @@ async function mkAlert(eventId: number, severity: "critical"|"high", message: st
   if (telegramAvailable()) {
     getSetting("telegramEnabled").then(enabled => {
       if (enabled === "false") return;
-      const emoji  = severity === "critical" ? "🚨" : "⚠️";
-      const label  = severity === "critical" ? "CRITICAL ALERT" : "HIGH ALERT";
-      const text   =
+      // Myanmar Standard Time (UTC+6:30) timestamp
+      const MST_OFFSET_MS = (6 * 60 + 30) * 60 * 1000;
+      const mst = new Date(Date.now() + MST_OFFSET_MS);
+      const ts  = `${mst.getUTCFullYear()}-${String(mst.getUTCMonth()+1).padStart(2,"0")}-${String(mst.getUTCDate()).padStart(2,"0")} ${String(mst.getUTCHours()).padStart(2,"0")}:${String(mst.getUTCMinutes()).padStart(2,"0")}:${String(mst.getUTCSeconds()).padStart(2,"0")} (MST)`;
+      const emoji = severity === "critical" ? "🚨" : "⚠️";
+      const label = severity === "critical" ? "CRITICAL ALERT" : "HIGH ALERT";
+      const text  =
         `${emoji} <b>AEGIS — ${label}</b>\n` +
-        `${message.slice(0, 300)}`;
+        `🕐 ${ts}\n` +
+        `${message.slice(0, 280)}`;
       sendTelegramMessage(text).catch(() => {/* silent */});
     }).catch(() => {/* silent */});
   }
