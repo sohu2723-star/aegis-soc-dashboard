@@ -113,8 +113,8 @@ function buildCommand(rule: DefenseRule, sourceIp: string, _eventId: number) {
     case "pfsense_block":
       return {
         commandType: "pfsense_api",
-        // Structured JSON — defense_agent.py running on pfSense (or with network
-        // access to it) parses this and calls the pfSense REST API to add the
+        // Structured JSON — aegis_forwarder.py parses this and SSHes into pfSense
+        // to run "easyrule block WAN <ip>" (no REST API package needed).
         // firewall rule. Only executed for actionType="auto" rules.
         commandText: JSON.stringify({
           action: "block_ip",
