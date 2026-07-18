@@ -35,6 +35,12 @@ AEGIS_ADMIN_KEY=
 # SSH user on bank-web and customer-db
 REMOTE_SSH_USER=sithu
 
+# ── Bank VM IPs — set the actual IPs of your VMs here (no hardcoding in code) ─
+# The forwarder will SSH into these IPs to tail logs.
+# Leave blank or remove a line to skip that VM.
+BANKWEB_IP=
+CUSTOMERDB_IP=
+
 # pfSense management IP (reachable from AEGIS VM via OPT2 10.30.30.0/24)
 PFSENSE_IP=10.30.30.1
 

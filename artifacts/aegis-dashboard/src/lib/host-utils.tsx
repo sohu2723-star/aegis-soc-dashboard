@@ -12,18 +12,11 @@
 
 import { useDeviceContext, type NetworkHost } from "@/lib/device-context";
 
-// ─── Static fallback — known lab IPs ─────────────────────────────────────────
-// These are used before network_hosts data loads, or for IPs not registered yet.
-const STATIC_LABELS: Record<string, { label: string; role: "defender" | "attacker" | "infra" }> = {
-  "10.10.10.10":      { label: "bank-web",        role: "defender" },
-  "10.20.20.20":      { label: "customer-db",     role: "defender" },
-  "10.30.30.10":      { label: "aegis-forwarder", role: "defender" },
-  "10.0.23.2":        { label: "pfSense",         role: "infra"    },
-  "10.0.23.1":        { label: "R1 (MikroTik)",   role: "infra"    },
-  "192.168.122.2":    { label: "R1-ether1",       role: "infra"    },
-  "192.168.122.1":    { label: "GNS3-NAT",        role: "infra"    },
-  "192.168.122.132":  { label: "Kali (attacker)", role: "attacker" },
-};
+// ─── Static fallback — intentionally empty ───────────────────────────────────
+// IPs are fully dynamic: defender VMs register via forwarder heartbeat,
+// attacker IPs come from live log events. No hardcoded IP→label mappings.
+// The live network_hosts DB (priority 1 below) is the only source of truth.
+const STATIC_LABELS: Record<string, { label: string; role: "defender" | "attacker" | "infra" }> = {};
 
 // ─── Generic labels stored by ingest routes when no real IP known ─────────────
 const GENERIC_LABELS: Record<string, { label: string; role: "defender" | "attacker" | "infra" }> = {

@@ -63,12 +63,18 @@ REMOTE_SSH_USER = _cfg("REMOTE_SSH_USER", "sithu")
 # pfSense management IP (reachable from aegis-forwarder via OPT2 segment)
 PFSENSE_IP      = _cfg("PFSENSE_IP", "10.30.30.1")
 
+# ─── REMOTE HOST IPs — set in aegis_forwarder.local.conf, no hardcoding ───────
+# If not set in conf/env, falls back to empty string → hub mode skips that VM.
+BANKWEB_IP     = _cfg("BANKWEB_IP",     "")
+CUSTOMERDB_IP  = _cfg("CUSTOMERDB_IP",  "")
+
 # Per-host sensor list — controls which log tailer threads are spawned per VM.
 # Sensors: suricata, snort, fail2ban, ssh, http, ftp, cowrie, postgresql
-REMOTE_HOSTS = [
+# Only include hosts whose IP is configured (non-empty).
+REMOTE_HOSTS = [h for h in [
     {
         "name": "bank-web",
-        "ip":   "10.10.10.10",
+        "ip":   BANKWEB_IP,
         "sensors": ["suricata", "snort", "fail2ban", "ssh", "http", "ftp"],
         # services to health-check via SSH systemctl on this VM
         "health_services": [
@@ -77,18 +83,18 @@ REMOTE_HOSTS = [
             ("apache2",   "HTTP Service (Apache2)",   "sensor"),
             ("vsftpd",    "FTP Service (vsftpd)",     "sensor"),
         ],
-    },
+    } if BANKWEB_IP else None,
     {
         "name": "customer-db",
-        "ip":   "10.20.20.20",
+        "ip":   CUSTOMERDB_IP,
         "sensors": ["suricata", "fail2ban", "ssh", "postgresql"],
         "health_services": [
             ("suricata",    "Suricata IDS/IPS",   "sensor"),
             ("fail2ban",    "Fail2ban",            "sensor"),
             ("postgresql",  "PostgreSQL Monitor",  "sensor"),
         ],
-    },
-]
+    } if CUSTOMERDB_IP else None,
+] if h is not None]
 
 # Hub mode: the defense agent polls for commands addressed to ALL these VMs
 # and routes execution accordingly (local iptables / pfSense API / SSH iptables)
@@ -754,11 +760,11 @@ def watch_ssh():
 
     # IPs that belong to our own lab infrastructure — never flag as attackers
     OWN_IP = get_local_ip()
-    DEFENDER_IPS = {
-        "10.10.10.10",   # bank-web
-        "10.20.20.20",   # customer-db
-        OWN_IP,          # this VM itself
-    }
+    DEFENDER_IPS = {ip for ip in [
+        BANKWEB_IP,    # bank-web (from conf)
+        CUSTOMERDB_IP, # customer-db (from conf)
+        OWN_IP,        # this VM itself
+    ] if ip}
 
     for line in tail_file(SSH_LOG):
         m_fail = SSH_FAIL_RE.search(line)
