@@ -303,7 +303,7 @@ export default function Defense() {
 
   async function applyRule(rec: RuleRec) {
     try {
-      const r = await fetch(`${BASE}/api/ui/defense-rules`, {
+      const r = await fetch(`${BASE}/api/ui/defense/rules`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
