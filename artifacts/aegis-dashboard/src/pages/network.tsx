@@ -40,7 +40,7 @@ function useNetworkHosts() {
       if (!r.ok) throw new Error("Failed to fetch hosts");
       return r.json();
     },
-    refetchInterval: 15000,
+    refetchInterval: 8000,
   });
 }
 
@@ -52,7 +52,7 @@ function useNetworkTraffic() {
       if (!r.ok) throw new Error("Failed to fetch traffic");
       return r.json();
     },
-    refetchInterval: 30000,
+    refetchInterval: 15000,
   });
 }
 
@@ -65,7 +65,7 @@ function useHostEvents(ip: string | null) {
       return r.json();
     },
     enabled: !!ip,
-    refetchInterval: 10000,
+    refetchInterval: 8000,
   });
 }
 

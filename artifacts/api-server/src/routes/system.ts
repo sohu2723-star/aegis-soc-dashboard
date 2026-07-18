@@ -315,5 +315,42 @@ export function startSelfHeartbeat(): void {
   if (_heartbeatTimer) return; // already running
   // Run immediately then every 30 s
   void _updateSelfStatus();
-  _heartbeatTimer = setInterval(_updateSelfStatus, 30_000);
+  _heartbeatTimer = setInterval(async () => {
+    await _updateSelfStatus();
+    await _broadcastStaleChanges();
+  }, 30_000);
+}
+
+// ─── Stale-sensor SSE broadcaster ────────────────────────────────────────────
+// Runs every 30 s alongside the heartbeat. If a sensor's lastCheck crossed
+// the stale threshold since the last check, broadcast service_status_change
+// so the frontend sees it go OFFLINE instantly — no waiting for next poll.
+const STALE_VM_MS     = 3 * 60 * 1000;
+const STALE_GLOBAL_MS = 2 * 60 * 1000;
+const _lastKnownStatus = new Map<number, string>();
+
+async function _broadcastStaleChanges() {
+  try {
+    const rows = await db.select().from(systemStatusTable);
+    const now  = Date.now();
+    for (const s of rows) {
+      const ageMs  = now - s.lastCheck.getTime();
+      const limit  = s.hostIp ? STALE_VM_MS : STALE_GLOBAL_MS;
+      const actual = s.status === "online" && ageMs > limit ? "offline" : s.status;
+      const prev   = _lastKnownStatus.get(s.id);
+      if (prev !== undefined && prev !== actual) {
+        broadcaster.broadcast("service_status_change", {
+          component: s.component,
+          status:    actual,
+          prevStatus: prev,
+          layer:     s.layer,
+          hostIp:    s.hostIp ?? null,
+          lastCheck: s.lastCheck.toISOString(),
+        });
+      }
+      _lastKnownStatus.set(s.id, actual);
+    }
+  } catch {
+    // DB not ready — skip
+  }
 }

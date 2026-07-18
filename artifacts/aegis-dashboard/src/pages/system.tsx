@@ -7,7 +7,7 @@ import { useDeviceContext } from "@/lib/device-context";
 
 export default function SystemStatus() {
   const { selectedIp, selectedDevice } = useDeviceContext();
-  const { data: allSystems, isLoading } = useGetSystemStatus({ query: { queryKey: getGetSystemStatusQueryKey(), refetchInterval: 15000 } });
+  const { data: allSystems, isLoading } = useGetSystemStatus({ query: { queryKey: getGetSystemStatusQueryKey(), refetchInterval: 5000 } });
 
   // Scope to selected device or show all
   const systems = selectedIp
