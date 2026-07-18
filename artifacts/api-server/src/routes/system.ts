@@ -133,8 +133,11 @@ const GLOBAL_OBSOLETE_COMPONENTS = [
 // Components that are ALWAYS wrong regardless of hostIp (old broken forwarder versions).
 // These never belonged to any host and are safe to delete unconditionally.
 const ALWAYS_DELETE_COMPONENTS = [
-  "Morgan HTTP Logger",   // old forwarder wrongly registered under aegis-forwarder
-  "PostgreSQL Monitor",   // old forwarder wrongly registered under 10.30.30.10; now seeded correctly for customer-db only
+  "Morgan HTTP Logger",        // old forwarder wrongly registered under aegis-forwarder
+  "PostgreSQL Monitor",        // old forwarder wrongly registered under 10.30.30.10; now seeded correctly for customer-db only
+  "Suricata IDS/IPS",         // renamed → "Suricata IDS" (per-host)
+  "HTTP Service (Apache2)",   // renamed → "Apache Monitor"
+  "FTP Service (vsftpd)",     // renamed → "FTP Monitor"
 ];
 
 async function purgeStaleRows() {
