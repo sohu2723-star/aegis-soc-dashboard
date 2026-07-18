@@ -3,9 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
-import { Terminal, FolderOpen, Lock, Globe } from "lucide-react";
+import { Terminal, FolderOpen, Globe, Database } from "lucide-react";
 import { format } from "date-fns";
 import { HostLabel } from "@/lib/host-utils";
 import { useDeviceContext } from "@/lib/device-context";
@@ -24,11 +22,6 @@ interface FtpSession {
   command: string | null; filePath: string | null; fileSize: number | null;
   status: string; createdAt: string;
 }
-interface TlsRecord {
-  id: number; sourceIp: string; destIp: string; destPort: number | null;
-  tlsVersion: string | null; cipherSuite: string | null; sni: string | null;
-  certIssuer: string | null; isSuspicious: boolean; reason: string | null; createdAt: string;
-}
 interface HttpAttack {
   id: number; sourceIp: string; targetUrl: string; method: string;
   statusCode: number | null; attackType: string | null; payload: string | null;
@@ -39,8 +32,6 @@ interface HttpAttack {
 
 function useSsh()         { return useQuery<SshSession[]>({ queryKey: ["conn-ssh"],  queryFn: () => fetch(`${BASE}/api/connections/ssh?limit=100`).then(r => r.json()),  refetchInterval: 15000 }); }
 function useFtp()         { return useQuery<FtpSession[]>({ queryKey: ["conn-ftp"],  queryFn: () => fetch(`${BASE}/api/connections/ftp?limit=100`).then(r => r.json()),  refetchInterval: 15000 }); }
-function useTls()         { return useQuery<TlsRecord[]>({ queryKey: ["conn-tls"],   queryFn: () => fetch(`${BASE}/api/connections/tls?limit=100`).then(r => r.json()),  refetchInterval: 15000 }); }
-function useTlsSusp()     { return useQuery<TlsRecord[]>({ queryKey: ["conn-tls-s"], queryFn: () => fetch(`${BASE}/api/connections/tls/suspicious`).then(r => r.json()), refetchInterval: 15000 }); }
 function useHttpAttacks() { return useQuery<HttpAttack[]>({ queryKey: ["conn-http"], queryFn: () => fetch(`${BASE}/api/connections/http-attacks?limit=100`).then(r => r.json()), refetchInterval: 15000 }); }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -70,12 +61,12 @@ function Ip({ v }: { v: string }) {
   return <span className="font-mono text-xs text-cyan-400">{v}</span>;
 }
 
-type TabId = "ssh" | "ftp" | "tls" | "http";
+type TabId = "ssh" | "ftp" | "http" | "db";
 const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: "ssh",  label: "SSH Sessions",  icon: <Terminal className="w-3.5 h-3.5" /> },
   { id: "ftp",  label: "FTP Sessions",  icon: <FolderOpen className="w-3.5 h-3.5" /> },
-  { id: "tls",  label: "TLS Traffic",   icon: <Lock className="w-3.5 h-3.5" /> },
   { id: "http", label: "HTTP Attacks",  icon: <Globe className="w-3.5 h-3.5" /> },
+  { id: "db",   label: "DB Attacks",    icon: <Database className="w-3.5 h-3.5" /> },
 ];
 
 // ─── Tab content ───────────────────────────────────────────────────────────────
@@ -193,76 +184,6 @@ function FtpTab({ selectedIp }: { selectedIp: string | null }) {
   );
 }
 
-function TlsTab({ selectedIp }: { selectedIp: string | null }) {
-  const [suspOnly, setSuspOnly] = useState(false);
-  const { data: all = [], isLoading: loadAll }   = useTls();
-  const { data: susp = [], isLoading: loadSusp } = useTlsSusp();
-
-  const base = suspOnly ? susp : all;
-  // For TLS, filter on sourceIp OR destIp (attacker → defender direction)
-  const data = selectedIp ? base.filter(r => r.sourceIp === selectedIp || r.destIp === selectedIp) : base;
-  const isLoading = suspOnly ? loadSusp : loadAll;
-
-  const suspCount = selectedIp ? susp.filter(r => r.sourceIp === selectedIp || r.destIp === selectedIp).length : susp.length;
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-2 px-4 pt-3">
-        <Switch id="susp-only" checked={suspOnly} onCheckedChange={setSuspOnly} />
-        <Label htmlFor="susp-only" className="text-xs text-muted-foreground cursor-pointer">
-          Suspicious only {suspCount > 0 && <span className="ml-1 text-red-400 font-bold">({suspCount})</span>}
-        </Label>
-      </div>
-      <Table>
-        <TableHeader className="bg-muted/50 sticky top-0">
-          <TableRow className="border-border">
-            <TableHead>Time</TableHead>
-            <TableHead>Source IP</TableHead>
-            <TableHead>Dest IP</TableHead>
-            <TableHead>Port</TableHead>
-            <TableHead>TLS Version</TableHead>
-            <TableHead>SNI</TableHead>
-            <TableHead>Cert Issuer</TableHead>
-            <TableHead>Status</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {isLoading ? (
-            <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Loading TLS records…</TableCell></TableRow>
-          ) : data.length === 0 ? (
-            <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-              {suspOnly ? "No suspicious TLS traffic detected." : selectedIp ? `No TLS records for ${selectedIp}.` : "No TLS records yet."}
-            </TableCell></TableRow>
-          ) : data.map(r => (
-            <TableRow key={r.id} className={`border-border hover:bg-muted/10 ${r.isSuspicious ? "bg-orange-950/20" : ""}`}>
-              <TableCell><Ts v={r.createdAt} /></TableCell>
-              <TableCell><Ip v={r.sourceIp} /></TableCell>
-              <TableCell><HostLabel ip={r.destIp} /></TableCell>
-              <TableCell className="font-mono text-xs text-muted-foreground">{r.destPort ?? "—"}</TableCell>
-              <TableCell>
-                <Badge variant="outline" className={`text-[10px] font-mono ${
-                  r.tlsVersion === "SSLv3" || r.tlsVersion === "TLSv1"
-                    ? "border-red-500 text-red-400"
-                    : "border-green-500/50 text-green-400"
-                }`}>
-                  {r.tlsVersion ?? "unknown"}
-                </Badge>
-              </TableCell>
-              <TableCell className="font-mono text-xs text-muted-foreground max-w-[140px] truncate">{r.sni ?? "—"}</TableCell>
-              <TableCell className="text-xs text-muted-foreground max-w-[120px] truncate">{r.certIssuer ?? "self-signed"}</TableCell>
-              <TableCell>
-                {r.isSuspicious
-                  ? <Badge variant="outline" className="text-[10px] border-red-500 text-red-400">⚠ {r.reason ?? "suspicious"}</Badge>
-                  : <Badge variant="outline" className="text-[10px] border-green-500/50 text-green-400">OK</Badge>}
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
-  );
-}
-
 function HttpTab({ selectedIp }: { selectedIp: string | null }) {
   const { data: raw = [], isLoading } = useHttpAttacks();
   const data = selectedIp ? raw.filter(a => a.sourceIp === selectedIp) : raw;
@@ -311,6 +232,83 @@ function HttpTab({ selectedIp }: { selectedIp: string | null }) {
               {a.blocked
                 ? <Badge variant="outline" className="text-[10px] border-green-500 text-green-400">BLOCKED</Badge>
                 : <Badge variant="outline" className="text-[10px] border-orange-500 text-orange-400">DETECTED</Badge>}
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+}
+
+// DB attack types relevant to this lab (customer-db PostgreSQL on 10.20.20.20)
+interface DbAttack {
+  id: number; sourceIp: string; targetIp: string; port: number | null;
+  attackType: string | null; query: string | null; username: string | null;
+  blocked: boolean; severity: string | null; createdAt: string;
+}
+
+function useDbAttacks() {
+  return useQuery<DbAttack[]>({
+    queryKey: ["conn-db"],
+    queryFn: () => fetch(`${BASE}/api/connections/db-attacks?limit=100`).then(r => r.json()).catch(() => []),
+    refetchInterval: 15000,
+  });
+}
+
+// DB attack type colour map — relevant to PostgreSQL / bank system
+const dbSevMap: Record<string, string> = {
+  "SQLi":          "border-red-500 text-red-400",
+  "Auth Brute":    "border-orange-500 text-orange-400",
+  "Enum":          "border-yellow-500 text-yellow-400",
+  "Data Dump":     "border-red-500 text-red-400",
+  "Privilege Esc": "border-red-500 text-red-400",
+  "Port Scan":     "border-yellow-500 text-yellow-400",
+};
+
+function DbTab({ selectedIp }: { selectedIp: string | null }) {
+  const { data: raw = [], isLoading } = useDbAttacks();
+  const data = selectedIp ? raw.filter(a => a.sourceIp === selectedIp || a.targetIp === selectedIp) : raw;
+
+  return (
+    <Table>
+      <TableHeader className="bg-muted/50 sticky top-0">
+        <TableRow className="border-border">
+          <TableHead>Time</TableHead>
+          <TableHead>Source IP</TableHead>
+          <TableHead>Target</TableHead>
+          <TableHead>Port</TableHead>
+          <TableHead>Attack Type</TableHead>
+          <TableHead>Username</TableHead>
+          <TableHead>Query / Payload</TableHead>
+          <TableHead>Status</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {isLoading ? (
+          <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Loading DB attacks…</TableCell></TableRow>
+        ) : data.length === 0 ? (
+          <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+            {selectedIp ? `No DB attacks from/to ${selectedIp}.` : "No DB attacks recorded yet."}
+          </TableCell></TableRow>
+        ) : data.map(a => (
+          <TableRow key={a.id} className={`border-border hover:bg-muted/10 ${a.blocked ? "bg-green-950/10" : "bg-red-950/10"}`}>
+            <TableCell><Ts v={a.createdAt} /></TableCell>
+            <TableCell><Ip v={a.sourceIp} /></TableCell>
+            <TableCell><HostLabel ip={a.targetIp} /></TableCell>
+            <TableCell className="font-mono text-xs text-muted-foreground">{a.port ?? 5432}</TableCell>
+            <TableCell>
+              {a.attackType
+                ? <Badge variant="outline" className={`text-[10px] ${dbSevMap[a.attackType] ?? "border-yellow-500 text-yellow-400"}`}>{a.attackType}</Badge>
+                : <span className="text-xs text-muted-foreground">—</span>}
+            </TableCell>
+            <TableCell className="font-mono text-xs text-muted-foreground">{a.username ?? "—"}</TableCell>
+            <TableCell className="font-mono text-xs text-muted-foreground max-w-[200px] truncate" title={a.query ?? ""}>
+              {a.query ?? "—"}
+            </TableCell>
+            <TableCell>
+              {a.blocked
+                ? <Badge variant="outline" className="text-[10px] border-green-500 text-green-400">BLOCKED</Badge>
+                : <Badge variant="outline" className="text-[10px] border-red-500 text-red-400">DETECTED</Badge>}
             </TableCell>
           </TableRow>
         ))}
@@ -368,8 +366,8 @@ export default function Connections() {
         <div className="overflow-auto h-full">
           {tab === "ssh"  && <SshTab  selectedIp={selectedIp} />}
           {tab === "ftp"  && <FtpTab  selectedIp={selectedIp} />}
-          {tab === "tls"  && <TlsTab  selectedIp={selectedIp} />}
           {tab === "http" && <HttpTab selectedIp={selectedIp} />}
+          {tab === "db"   && <DbTab   selectedIp={selectedIp} />}
         </div>
       </Card>
     </div>
