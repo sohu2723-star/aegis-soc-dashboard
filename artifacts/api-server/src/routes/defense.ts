@@ -54,9 +54,9 @@ router.post("/defense/block", async (req, res) => {
   // defense_agent.py / aegis_forwarder.py claims these via GET /defense/commands/pending.
   try {
     const safeIp = sanitizeIp(body.data.ip);
-    // Ubuntu VM: iptables
+    // All VMs: iptables — targetVm="all" broadcasts to Aegis + bank-web + customer-db via SSH
     await db.insert(defenseCommandsTable).values({
-      targetVm:    "ubuntu",
+      targetVm:    "all",
       commandType: "iptables",
       commandText: `iptables -I INPUT -s ${safeIp} -j DROP`,
       undoCommand: `iptables -D INPUT -s ${safeIp} -j DROP`,
@@ -98,9 +98,9 @@ router.delete("/defense/block/:ip", async (req, res) => {
 
   try {
     const safeIp = sanitizeIp(ip);
-    // Ubuntu VM: remove iptables rule
+    // All VMs: remove iptables rule
     await db.insert(defenseCommandsTable).values({
-      targetVm:    "ubuntu",
+      targetVm:    "all",
       commandType: "iptables",
       commandText: `iptables -D INPUT -s ${safeIp} -j DROP`,
       targetIp:    safeIp,
