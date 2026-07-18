@@ -517,4 +517,115 @@ Major expansion across schema, backend routes, forwarder scripts, and frontend p
 
 ---
 
-*Last updated: 2026-07-10 (Session 6)*
+## Session 7 — Cowrie Honeypot Integration & System Status Fix (2026-07-19)
+
+### ဆွေးနွေးခဲ့တာတွေ
+
+**Cowrie Honeypot ဘယ် VM မှာ ထည့်သင့်သလဲ**
+- Aegis VM (10.30.30.10) မှာ မထည့်ဘဲ bank-web + customer-db မှာသာ ထည့်ရမယ်ဟု ဆုံးဖြတ်ချက်ချခဲ့
+- Aegis VM က monitoring/forwarding hub ဖြစ်တာကြောင့် Red Team target မဟုတ်ဘူး၊ compromise ဖြစ်ရင် forwarder ပါ ရပ်သွားမယ်
+
+**Port scan ဘယ် sensor ကဖမ်းသလဲ**
+- Suricata IDS က network traffic signature နဲ့ ဖမ်းတယ်
+- Fail2ban / SSH Monitor / Cowrie တွေက service-level ဘဲ၊ port scan မဖမ်းဘူး
+- Auto-block ကျပြီးရင် attacker scan result မရတော့ဘူး (iptables DROP → timeout)
+
+**Unblock လုပ်နည်း**
+- Dashboard → Defense Center → Manual Block / Unblock → Unblock ခလုတ် (ရှိပြီးသား)
+- API → iptables rule ဖျက် + DB `isActive=false` set
+- pfSense block ဆိုရင် → `pfctl -t aegis_blocklist -T delete <IP>`
+
+**iptables-persistent**
+- Check: `dpkg -l iptables-persistent`
+- Install: `sudo apt install iptables-persistent -y` → install ကတည်းက Save? Yes နှိပ်
+- Lab မှာ မထည့်တာ သက်တောင့်သက်သာ ပိုရှိတယ် (reboot တိုင်း clean slate → attack/defense test ပြန်လုပ်လို့ ကောင်းတယ်)
+- Production-grade persistent ဖြစ်ချင်ရင်သာ ထည့်ပါ
+
+---
+
+### Code Changes
+
+#### 1. Cowrie Defense Rules ထည့် (`auto-defense.ts`)
+- `OBSOLETE_RULE_NAMES` ထဲမှ `"Honeypot Touch → Instant Block"` ဖြုတ်ခဲ့
+- Rules ၂ ခု ထပ်ထည့်ခဲ့:
+
+```
+Cowrie Honeypot Touch → Instant Block (bank-web)
+  triggerAttackType: "honeypot"  threshold: 1/60s
+  actionType: "auto"  defenseType: "block_ip"  targetVm: "bank-web"  priority: 5
+
+Cowrie Honeypot Touch → Instant Block (customer-db)
+  triggerAttackType: "honeypot"  threshold: 1/60s
+  actionType: "auto"  defenseType: "block_ip"  targetVm: "customer-db"  priority: 5
+```
+
+Priority 5 = အမြင့်ဆုံး (honeypot ကို touch တာနဲ့ ချက်ချင်း block၊ zero false positive)
+
+---
+
+#### 2. System Status Page — Cowrie ထည့် (`routes/system.ts`)
+`PER_HOST_SENSORS` ထဲ Cowrie Honeypot ၂ ခု ထည့်ခဲ့:
+
+| hostIp | component | layer |
+|---|---|---|
+| 10.10.10.10 | Cowrie Honeypot | sensor |
+| 10.20.20.20 | Cowrie Honeypot | sensor |
+
+Total component count: 14 → **16** (Cowrie 2 ခု ထပ်)
+
+Cowrie VM မှာ install + run ထားရင် **online** ပြမယ်၊ မရှိရင် **offline** ပြမယ်
+
+---
+
+#### 3. Forwarder Script — Cowrie Health Check ထည့် (`aegis_forwarder.py`)
+bank-web + customer-db ရဲ့ `health_services` list ထဲ ထည့်ခဲ့:
+
+```python
+("cowrie", "Cowrie Honeypot", "sensor")
+```
+
+Forwarder က SSH ကနေ remote VM မှာ `systemctl is-active cowrie` စစ်ပြီး `/api/system/status` ကို report လုပ်မယ်
+
+---
+
+#### 4. Dashboard Stale Check Bug Fix (`routes/dashboard.ts`)
+**ပြဿနာ:** System Status "1 online" vs Command Center "2/14" — မကိုက်ဘူး
+
+**Root cause:** `dashboard.ts` မှာ global component (no hostIp) တွေကို stale check မလုပ်ဘူး → AEGIS API Server stale ဖြစ်နေတာ "online" ထင်ပြီး count ထည့်မိတယ်
+
+**Fix:** `system.ts` နဲ့ ညီတဲ့ logic ထည့်ခဲ့:
+```
+VM sensors (hostIp ရှိ)   → 3 min stale → offline
+Global rows (hostIp မရှိ) → 2 min stale → offline
+```
+
+ယခုဆိုရင် နှစ်ဘက်တူညီတဲ့ count ပြမယ်
+
+---
+
+### VM မှာ လုပ်ရမည်
+
+**Script update (Aegis VM မှာ):**
+```bash
+wget -O /opt/aegis/scripts/src/aegis_forwarder.py \
+  https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/scripts/src/aegis_forwarder.py
+sudo systemctl restart aegis-forwarder
+```
+
+**Cowrie install (bank-web + customer-db မှာ):**
+```bash
+sudo apt install cowrie -y
+sudo systemctl enable cowrie --now
+# Port 2222 မှာ listen လုပ်တာ သေချာစစ်ပါ
+ss -tlnp | grep 2222
+```
+
+**iptables-persistent check:**
+```bash
+dpkg -l iptables-persistent
+# ii ပြရင် install ပြီး၊ မပြရင် မ install ရသေးဘူး
+```
+
+---
+
+*Last updated: 2026-07-19 (Session 7)*
