@@ -10,7 +10,6 @@ import {
   TerminalSquare,
   Network,
   Shield,
-  GitBranch,
   Cable,
   BookCheck,
   Settings2,
@@ -52,7 +51,6 @@ const networkItems = [
 ];
 
 const reportItems = [
-  { title: "Architecture", url: "/architecture", icon: GitBranch },
   { title: "Reports", url: "/reports", icon: FileText },
   { title: "Settings", url: "/settings", icon: Settings2 },
 ];

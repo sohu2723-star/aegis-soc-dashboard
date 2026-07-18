@@ -20,7 +20,6 @@ import SystemStatus from "@/pages/system";
 import Reports from "@/pages/reports";
 import Network from "@/pages/network";
 import Defense from "@/pages/defense";
-import Architecture from "@/pages/architecture";
 import Connections from "@/pages/connections";
 import DefenseRules from "@/pages/defense-rules";
 import SettingsPage from "@/pages/settings";
@@ -30,9 +29,10 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       refetchOnWindowFocus: true,
-      staleTime: 5000,
-      retry: 1,
-      retryDelay: 3000,
+      staleTime: 0,          // always background-refetch for freshest data
+      gcTime: 60_000,        // keep cache 1 min before garbage collecting
+      retry: 2,
+      retryDelay: 2000,
     },
   },
 });
@@ -52,7 +52,6 @@ function ProtectedRouter() {
           <Route path="/system" component={SystemStatus} />
           <Route path="/network" component={Network} />
           <Route path="/defense" component={Defense} />
-          <Route path="/architecture" component={Architecture} />
           <Route path="/reports" component={Reports} />
           <Route path="/connections" component={Connections} />
           <Route path="/defense-rules" component={DefenseRules} />

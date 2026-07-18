@@ -6,3 +6,5 @@
 - [Host label display](host-label-display.md) — HostLabel component in lib/host-utils.tsx; static map + live network_hosts; color by role (defender=green, attacker=red, infra=purple).
 - [UI for Orphaned APIs](ui-orphaned-apis.md) — connections/defense-rules pages built; ui-rules.ts proxy pattern for admin-key-protected endpoints; dashboard openIncidents+blockedIPs cards added.
 - [Groq AI features](groq-ai-features.md) — Groq llama-3.3-70b; groq-client.ts wrapper; routes/ai.ts has 4 endpoints; reports AI-summary in `summary` text col (fallback template); Burmese+English mixed output.
+- [Auth system](auth-system.md) — JWT+Google SSO; ADMIN_EMAIL env var (not hardcoded); error messages generic (no email leak); SESSION_SECRET must be set on Render; Google Console needs Vercel URL in authorized origins.
+- [Threat Map topology](threat-map-topology.md) — Telegram node added at x:930,y:420; NOTIFY_EDGES aegis→telegram; alert SSE spawns blue isTg packet; keep-alive pings /api/healthz every 4 min; Architecture page removed.
