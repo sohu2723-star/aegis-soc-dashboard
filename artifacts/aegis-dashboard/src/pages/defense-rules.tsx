@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@/contexts/auth-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -82,6 +83,7 @@ function RulesTab() {
   const { data: hotIps = [] } = useHotIps();
   const qc = useQueryClient();
   const { toast } = useToast();
+  const { getToken } = useAuth();
   const [createOpen, setCreateOpen] = useState(false);
 
   // Create form state
@@ -96,11 +98,17 @@ function RulesTab() {
   const [targetVm, setTargetVm]                 = useState("bank-web");
   const [priority, setPriority]                 = useState(100);
 
+  const authHeaders = () => {
+    const tok = getToken();
+    return tok ? { "Content-Type": "application/json", "Authorization": `Bearer ${tok}` }
+               : { "Content-Type": "application/json" };
+  };
+
   const toggleMutation = useMutation({
     mutationFn: ({ id, isActive }: { id: number; isActive: boolean }) =>
       fetch(`${BASE}/api/ui/defense/rules/${id}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders(),
         body: JSON.stringify({ isActive }),
       }).then(r => r.json()),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["ui-rules"] }),
@@ -109,7 +117,10 @@ function RulesTab() {
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) =>
-      fetch(`${BASE}/api/ui/defense/rules/${id}`, { method: "DELETE" }).then(r => r.json()),
+      fetch(`${BASE}/api/ui/defense/rules/${id}`, {
+        method: "DELETE",
+        headers: authHeaders(),
+      }).then(r => r.json()),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ui-rules"] });
       toast({ title: "Rule Deleted" });
@@ -121,7 +132,7 @@ function RulesTab() {
     mutationFn: (data: object) =>
       fetch(`${BASE}/api/ui/defense/rules`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders(),
         body: JSON.stringify(data),
       }).then(async r => { if (!r.ok) throw new Error(await r.text()); return r.json(); }),
     onSuccess: () => {
@@ -349,6 +360,7 @@ function FirewallTab() {
   const { data: rules = [], isLoading } = useFwRules();
   const qc = useQueryClient();
   const { toast } = useToast();
+  const { getToken } = useAuth();
   const [createOpen, setCreateOpen] = useState(false);
 
   // Form state
@@ -361,9 +373,18 @@ function FirewallTab() {
   const [destPort, setDstPort]  = useState("");
   const [iface, setIface]       = useState("");
 
+  const fwAuthHeaders = () => {
+    const tok = getToken();
+    return tok ? { "Content-Type": "application/json", "Authorization": `Bearer ${tok}` }
+               : { "Content-Type": "application/json" };
+  };
+
   const deleteMutation = useMutation({
     mutationFn: (id: number) =>
-      fetch(`${BASE}/api/ui/firewall/rules/${id}`, { method: "DELETE" }).then(r => r.json()),
+      fetch(`${BASE}/api/ui/firewall/rules/${id}`, {
+        method: "DELETE",
+        headers: fwAuthHeaders(),
+      }).then(r => r.json()),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ui-fw"] });
       toast({ title: "Rule Removed" });
@@ -375,7 +396,7 @@ function FirewallTab() {
     mutationFn: (data: object) =>
       fetch(`${BASE}/api/ui/firewall/rules`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: fwAuthHeaders(),
         body: JSON.stringify(data),
       }).then(async r => { if (!r.ok) throw new Error(await r.text()); return r.json(); }),
     onSuccess: () => {

@@ -10,6 +10,7 @@ import { HostLabel } from "@/lib/host-utils";
 import { useToast } from "@/hooks/use-toast";
 import { useDeviceContext } from "@/lib/device-context";
 import { Switch } from "@/components/ui/switch";
+import { useAuth } from "@/contexts/auth-context";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -175,6 +176,14 @@ export default function Defense() {
   const { toast } = useToast();
   const qc = useQueryClient();
   const { selectedDevice } = useDeviceContext();
+  const { getToken } = useAuth();
+
+  const defAuthHeaders = (extra: Record<string,string> = {}) => {
+    const tok = getToken();
+    return tok
+      ? { "Content-Type": "application/json", "Authorization": `Bearer ${tok}`, ...extra }
+      : { "Content-Type": "application/json", ...extra };
+  };
   // Devices are matched against blocked_ips/defense_actions.targetHost by IP —
   // most ingest routes populate targetHost from the real destination IP
   // (dest_ip/target_ip), which is the same identity network_hosts.ip uses.
@@ -218,7 +227,7 @@ export default function Defense() {
     mutationFn: async ({ ip, reason }: { ip: string; reason: string }) => {
       const r = await fetch(`${BASE}/api/defense/block`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: defAuthHeaders(),
         body: JSON.stringify({ ip, reason, targetHost: deviceFilter ?? undefined }),
       });
       if (!r.ok) {
@@ -242,7 +251,10 @@ export default function Defense() {
 
   const unblockMutation = useMutation({
     mutationFn: async (ip: string) => {
-      const r = await fetch(`${BASE}/api/defense/block/${encodeURIComponent(ip)}`, { method: "DELETE" });
+      const r = await fetch(`${BASE}/api/defense/block/${encodeURIComponent(ip)}`, {
+        method: "DELETE",
+        headers: defAuthHeaders(),
+      });
       if (!r.ok) throw new Error("Unblock failed");
       return r.json();
     },
@@ -261,7 +273,7 @@ export default function Defense() {
     mutationFn: async (enabled: boolean) => {
       const r = await fetch(`${BASE}/api/defense/settings`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: defAuthHeaders(),
         body: JSON.stringify({ autoDefenseEnabled: enabled }),
       });
       if (!r.ok) {
@@ -305,7 +317,7 @@ export default function Defense() {
     try {
       const r = await fetch(`${BASE}/api/ui/defense/rules`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: defAuthHeaders(),
         body: JSON.stringify({
           name: rec.name, description: rec.description,
           triggerAttackType: rec.triggerAttackType, triggerSeverity: rec.triggerSeverity,

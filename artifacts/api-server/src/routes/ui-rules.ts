@@ -9,16 +9,28 @@ import { db, defenseRulesTable, defenseCommandsTable, firewallRulesTable, defens
 import { eq, desc } from "drizzle-orm";
 import { z } from "zod";
 import { getHotIps } from "../lib/attack-tracker";
+import { verifyToken } from "../lib/jwt-auth";
 
 const router = Router();
 
 const ADMIN_KEY = process.env.AEGIS_ADMIN_KEY ?? "";
 
-/** Allow if no admin key configured, or header matches */
+/**
+ * Allow write if ANY of these is true:
+ *  1. No admin key configured (dev/lab mode)
+ *  2. X-AEGIS-Admin-Key header matches the secret
+ *  3. Valid JWT Bearer session (user logged in via Google or admin-key login)
+ */
 function maybeAdmin(req: any, res: any, next: any) {
   if (!ADMIN_KEY) return next();
   const key = req.headers["x-aegis-admin-key"];
   if (key === ADMIN_KEY) return next();
+  // Accept a valid JWT session as admin proof
+  const auth = req.headers["authorization"] ?? "";
+  if (auth.startsWith("Bearer ")) {
+    const payload = verifyToken(auth.slice(7));
+    if (payload?.role === "admin") return next();
+  }
   res.status(403).json({ error: "X-AEGIS-Admin-Key required for write operations" });
 }
 
