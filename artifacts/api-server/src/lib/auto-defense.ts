@@ -438,23 +438,6 @@ export async function seedDefaultRules() {
       actionType: "auto", defenseType: "pfsense_block",
       targetVm: "pfsense", priority: 32, isActive: true,
     },
-    // ── Cowrie honeypot — bank-web + customer-db ─────────────────────────────
-    {
-      name: "Cowrie Honeypot Touch → Instant Block (bank-web)",
-      description: "Any connection to Cowrie honeypot on bank-web (10.10.10.10) → instant iptables block. Zero false positive — no legitimate user should touch port 2222.",
-      triggerAttackType: "honeypot", triggerSeverity: "any",
-      triggerThreshold: 1, triggerWindowSecs: 60,
-      actionType: "auto", defenseType: "block_ip",
-      targetVm: "bank-web", priority: 5, isActive: true,
-    },
-    {
-      name: "Cowrie Honeypot Touch → Instant Block (customer-db)",
-      description: "Any connection to Cowrie honeypot on customer-db (10.20.20.20) → instant iptables block. Zero false positive — no legitimate user should touch port 2222.",
-      triggerAttackType: "honeypot", triggerSeverity: "any",
-      triggerThreshold: 1, triggerWindowSecs: 60,
-      actionType: "auto", defenseType: "block_ip",
-      targetVm: "customer-db", priority: 5, isActive: true,
-    },
   ];
 
   for (const rule of defaults) {

@@ -532,4 +532,68 @@ Lab attack/defense test အတွက် speed ကွာချင် မကွာ
 
 ---
 
+---
+
+## 2026-07-19 — Cowrie Honeypot ဖြုတ်ခြင်း + Attack/Defense Test Ready စစ်ဆေး
+
+**Status:** ✅ Done  
+**What:** Cowrie honeypot ကို system မှ ဖြုတ်ပြီး bank-web + customer-db + aegis VM သုံးခုနဲ့ attack/defense test စတင်ရန် ပြင်ဆင်  
+**How:** auto-defense rules + system status sensors မှ Cowrie ဖြုတ်လိုက်တယ်  
+**Result:** System clean ဖြစ်ပြီ၊ Cowrie မပါဘဲ core sensors တွေနဲ့ attack/defense test ဆင်းလို့ ရပြီ  
+**Next:** Kali ကနေ attack စမ်း → dashboard မှာ detect ဖြစ်မဖြစ် + auto-defense trigger မဖြစ် စစ်
+
+---
+
+### ဖြုတ်လိုက်တဲ့ Cowrie items
+
+| File | ဖြုတ်လိုက်တာ |
+|---|---|
+| `auto-defense.ts` | Cowrie Honeypot Touch rules ၂ ခု (bank-web + customer-db) |
+| `routes/system.ts` | Cowrie Honeypot sensor ၂ ခု (bank-web + customer-db) |
+
+`/api/ingest/cowrie` endpoint တော့ ကျန်ထားတယ် — ဖျက်မထားဘူး (နောက်မှ လိုချင်ရင် ပြန်သုံးလို့ရ)
+
+---
+
+### Current System — Attack/Defense Test အတွက် လုံလောက်မလား
+
+**✅ လုံလောက်တယ်** — core attack scenarios အားလုံး cover ဖြစ်နေတယ်
+
+#### Active Sensors (VM ၃ ခု)
+
+**bank-web (10.10.10.10)**
+| Sensor | ဖမ်းတာ |
+|---|---|
+| Suricata IDS | Port scan, DDoS, SQLi, XSS, TLS anomaly |
+| Fail2ban | SSH/FTP brute force |
+| SSH Monitor | SSH login success/fail |
+| FTP Monitor | FTP sessions |
+| Apache Monitor | Web attacks (ModSecurity/WAF) |
+
+**customer-db (10.20.20.20)**
+| Sensor | ဖမ်းတာ |
+|---|---|
+| Suricata IDS | Network attacks |
+| Fail2ban | Brute force |
+| SSH Monitor | SSH attacks |
+| PostgreSQL Monitor | DB auth failures |
+
+**aegis (10.30.30.10)**
+| Sensor | ဖမ်းတာ |
+|---|---|
+| Hub Forwarder | Log collection hub |
+| SSH Monitor | MGMT zone SSH attack |
+| Fail2ban | AEGIS VM ကာကွယ် |
+
+#### Attack Scenarios — ဆင်းလို့ ရပြီ
+
+| Attack | Tool | ဘယ် VM target | Sensor ဖမ်းမယ် |
+|---|---|---|---|
+| Port scan | nmap | bank-web / customer-db | Suricata |
+| SSH brute force | hydra | bank-web / customer-db / aegis | Fail2ban + SSH Monitor |
+| Web attack (SQLi/XSS) | sqlmap / curl | bank-web | Suricata + Apache Monitor |
+| FTP brute force | hydra | bank-web | Fail2ban + FTP Monitor |
+| DDoS / SYN flood | hping3 | bank-web | Suricata |
+| DB attack | hydra / sqlmap | customer-db | PostgreSQL Monitor + Suricata |
+
 *Last updated: 2026-07-19*
