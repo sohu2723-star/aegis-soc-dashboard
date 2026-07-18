@@ -384,7 +384,7 @@ def defense_agent_loop(hub_mode: bool = False):
         for vm in vms_to_poll:
             try:
                 r = requests.get(f"{AEGIS_URL}/defense/commands/pending",
-                                  params={"vm": vm}, headers=DEFENSE_HEADERS, timeout=10)
+                                  params={"vm": vm}, headers=DEFENSE_HEADERS, timeout=60)
                 if r.status_code == 200:
                     commands = r.json()
                     if commands:
@@ -426,7 +426,7 @@ def register_host():
                 "isMonitored": True,
             },
             headers=HEADERS,
-            timeout=10,
+            timeout=60,
         )
         if r.status_code in (200, 201):
             print(f"  ✓ Host registered: {hostname} ({ip})  MAC={mac or '?'}  Ports={ports or '?'}")
@@ -449,7 +449,7 @@ def _report_pfsense_online():
                 "metrics":     json.dumps({"agent": "aegis_forwarder", "vm": "pfsense"}),
             },
             headers=HEADERS,
-            timeout=5,
+            timeout=30,
         )
     except Exception:
         pass
@@ -477,7 +477,7 @@ def heartbeat_loop():
                       "openPorts": ports or None,
                       "status": "online", "isMonitored": True},
                 headers=HEADERS,
-                timeout=5,
+                timeout=30,
             )
             # pfSense: also report the global pfSense Firewall component as online
             if VM_NAME == "pfsense":
@@ -501,7 +501,7 @@ def send_offline():
             json={"ip": ip, "hostname": hostname, "role": "ubuntu",
                   "status": "offline", "isMonitored": True},
             headers=HEADERS,
-            timeout=5,
+            timeout=30,
         )
         print("\n[AEGIS] Sent offline status to dashboard.")
     except Exception:
@@ -514,7 +514,7 @@ def send_offline():
                 json={"ip": h["ip"], "hostname": h["name"], "role": "ubuntu",
                       "status": "offline", "isMonitored": True},
                 headers=HEADERS,
-                timeout=5,
+                timeout=30,
             )
             print(f"[AEGIS] Marked {h['name']} ({h['ip']}) offline.")
         except Exception:
@@ -589,7 +589,7 @@ def service_health_loop():
                         }),
                     },
                     headers=HEADERS,
-                    timeout=5,
+                    timeout=30,
                 )
                 indicator = "✓" if status == "online" else "✗"
                 if r.status_code in (200, 201):
@@ -607,7 +607,7 @@ def post(endpoint: str, data: dict):
             f"{AEGIS_URL}/ingest/{endpoint}",
             json=data,
             headers=HEADERS,
-            timeout=5,
+            timeout=30,
         )
         ts = datetime.now().strftime("%H:%M:%S")
         if r.status_code == 201:
@@ -936,7 +936,7 @@ def _remote_register_host(host_name: str, host_ip: str):
                 "isMonitored": True,
             },
             headers=HEADERS,
-            timeout=10,
+            timeout=60,
         )
         if r.status_code in (200, 201):
             print(
@@ -1249,7 +1249,7 @@ def _remote_service_health_loop(hosts: list):
                             json={"component": component, "layer": layer,
                                   "status": status, "hostIp": h["ip"]},
                             headers=HEADERS,
-                            timeout=5,
+                            timeout=30,
                         )
                     except Exception:
                         pass
@@ -1285,7 +1285,7 @@ def _pfsense_health_loop():
                     "metrics":     json.dumps({"agent": "hub", "ip": PFSENSE_IP}),
                 },
                 headers=HEADERS,
-                timeout=5,
+                timeout=30,
             )
         except Exception:
             pass
@@ -1473,7 +1473,7 @@ Modes:
                             "metrics":   json.dumps({"pid": os.getpid(), "mode": "hub"}),
                         },
                         headers=HEADERS,
-                        timeout=5,
+                        timeout=30,
                     )
                     # Local service checks (ssh, fail2ban) for aegis VM
                     for svc, component, layer in local_checks:
@@ -1491,7 +1491,7 @@ Modes:
                                 json={"component": component, "layer": layer,
                                       "status": status, "hostIp": own_ip},
                                 headers=HEADERS,
-                                timeout=5,
+                                timeout=30,
                             )
                         except Exception:
                             pass
