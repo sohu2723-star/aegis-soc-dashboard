@@ -389,6 +389,16 @@ def _dispatch_defense_hub(cmd: dict):
         _exec_defense_ssh_remote(_remote_ips[target_vm], command_text, cmd_id)
         return
 
+    # targetVm="all" — run on every monitored VM: local Aegis + all remote hosts
+    if target_vm == "all":
+        print(f"[defense-hub] Broadcasting to ALL VMs: {command_text}")
+        # Local Aegis VM
+        _exec_defense_shell(command_text, cmd_id)
+        # Remote bank VMs via SSH
+        for h in REMOTE_HOSTS:
+            _exec_defense_ssh_remote(h["ip"], command_text, cmd_id)
+        return
+
     # Route by target IP if name not matched
     if target_ip:
         _all_remote_ips = {h["ip"] for h in REMOTE_HOSTS}

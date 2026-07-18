@@ -1,87 +1,74 @@
 /**
  * AEGIS IP Classifier
  * ===================
- * Shared utility for classifying IP addresses as defender-owned (private/loopback)
- * vs external (potential attacker). Used by auto-defense and ingest endpoints.
+ * Classifies IP addresses as defender-owned vs external attacker.
+ * Used by auto-defense to prevent self-blocking.
  *
- * Covers:
- *   IPv4  — RFC1918 (10/8, 172.16/12, 192.168/16) + loopback (127/8) + link-local (169.254/16)
- *   IPv6  — loopback (::1), ULA (fc00::/7 covers fc::/8 + fd::/8), link-local (fe80::/10),
- *            IPv4-mapped (::ffff:192.168.x.x etc.)
+ * Lab topology (GNS3):
+ *   10.10.10.x  — bank-web subnet  (defender)
+ *   10.20.20.x  — customer-db subnet (defender)
+ *   10.30.30.x  — aegis + pfSense subnet (defender)
+ *   127.x       — loopback
+ *
+ *   192.168.122.x — GNS3 NAT cloud / attacker Kali subnet → NOT whitelisted
+ *
+ * NOTE: We do NOT whitelist all RFC1918. The GNS3 NAT cloud (192.168.122.0/24)
+ * is used by attacker VMs (Kali). Whitelisting all 192.168.x.x would silently
+ * skip auto-defense for the most common attacker source in this lab.
  */
 
-// ─── IPv4 ────────────────────────────────────────────────────────────────────
+// ─── Lab defender subnets ────────────────────────────────────────────────────
+
+// Only these specific subnets are our own defender infrastructure.
+const DEFENDER_SUBNETS: Array<{ prefix: number[]; bits: number }> = [
+  { prefix: [10, 10, 10], bits: 24 },  // bank-web
+  { prefix: [10, 20, 20], bits: 24 },  // customer-db
+  { prefix: [10, 30, 30], bits: 24 },  // aegis + pfSense
+  { prefix: [127],         bits: 8  },  // loopback
+];
 
 function parseIPv4(ip: string): number[] | null {
   const parts = ip.split(".");
   if (parts.length !== 4) return null;
   const octets = parts.map(Number);
-  // Strict validation: each octet must be an integer in [0,255]
   for (const o of octets) {
     if (!Number.isInteger(o) || o < 0 || o > 255) return null;
   }
   return octets;
 }
 
-function isPrivateIPv4(ip: string): boolean {
+function isDefenderIPv4(ip: string): boolean {
   const octets = parseIPv4(ip);
   if (!octets) return false;
-  const [a, b] = octets;
-  // 10.0.0.0/8
-  if (a === 10) return true;
-  // 172.16.0.0/12
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  // 192.168.0.0/16
-  if (a === 192 && b === 168) return true;
-  // 127.0.0.0/8 — loopback
-  if (a === 127) return true;
-  // 169.254.0.0/16 — link-local (APIPA)
-  if (a === 169 && b === 254) return true;
+  for (const { prefix } of DEFENDER_SUBNETS) {
+    if (prefix.every((b, i) => octets[i] === b)) return true;
+  }
   return false;
 }
 
-// ─── IPv6 ────────────────────────────────────────────────────────────────────
-
-function isPrivateIPv6(ip: string): boolean {
+function isDefenderIPv6(ip: string): boolean {
   const lower = ip.toLowerCase().trim();
-
-  // ::1 — loopback
   if (lower === "::1") return true;
-
-  // ::ffff:x.x.x.x or ::ffff:0:x.x.x.x — IPv4-mapped; extract and re-check the IPv4 part
+  // IPv4-mapped — re-check the embedded IPv4
   const v4mapped = lower.match(/^::ffff:(?:0:)?(\d+\.\d+\.\d+\.\d+)$/);
-  if (v4mapped) return isPrivateIPv4(v4mapped[1]);
-
-  // fc00::/7 — Unique Local Addresses (ULA): covers fc::/8 and fd::/8
-  // The first 7 bits must be 1111110x → first byte is fc or fd
-  if (/^f[cd][0-9a-f]{2}:/i.test(lower)) return true;
-
-  // fe80::/10 — link-local
-  if (/^fe[89ab][0-9a-f]:/i.test(lower)) return true;
-
+  if (v4mapped) return isDefenderIPv4(v4mapped[1]);
   return false;
 }
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 /**
- * Returns true if the IP address belongs to our own defender network
- * (private, loopback, or link-local range). These IPs must never be
- * auto-blocked; they are our own hosts making legitimate outbound connections.
- *
- * Returns false for public IPs (potential attackers) and for
- * null/empty/"unknown" inputs (treated as external = not whitelisted).
+ * Returns true only for IPs in our known defender subnets (never for
+ * 192.168.122.x GNS3 NAT / Kali attacker range).
  */
 export function isDefenderIp(ip: string | null | undefined): boolean {
   if (!ip || ip === "unknown") return false;
   const trimmed = ip.trim();
-  // Try IPv4 first (most common in lab)
   if (trimmed.includes(".") && !trimmed.includes(":")) {
-    return isPrivateIPv4(trimmed);
+    return isDefenderIPv4(trimmed);
   }
-  // IPv6 (includes ::1, ::ffff: mapped, ULA, link-local)
   if (trimmed.includes(":")) {
-    return isPrivateIPv6(trimmed);
+    return isDefenderIPv6(trimmed);
   }
   return false;
 }

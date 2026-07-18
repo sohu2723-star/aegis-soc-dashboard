@@ -39,6 +39,10 @@ function toTriggerType(eventType: string, eventSubtype: string): string {
   const sub = (eventSubtype ?? "").toLowerCase();
   const typ = (eventType ?? "").toLowerCase();
 
+  // FTP must be checked BEFORE the generic "brute+network_attack" check —
+  // otherwise "FTP Brute Force" with type="network_attack" would wrongly
+  // map to ssh_brute (network_attack check on line below is intentionally broad).
+  if (sub.includes("ftp"))                                  return "ftp_brute";
   if (sub.includes("brute") && (sub.includes("ssh") || typ === "network_attack")) return "ssh_brute";
   if (sub.includes("port scan") || sub.includes("nmap"))   return "port_scan";
   if (sub.includes("ddos") || sub.includes("flood"))       return "ddos";
@@ -49,7 +53,6 @@ function toTriggerType(eventType: string, eventSubtype: string): string {
   if (sub.includes("phishing") || sub.includes("fake"))    return "phishing";
   if (sub.includes("smtp") || sub.includes("mail") || sub.includes("spam") ||
       typ === "mail_attack")                                return "mail_attack";
-  if (sub.includes("ftp"))                                  return "ftp_brute";
   if (sub.includes("honeypot") || sub.includes("cowrie"))  return "honeypot";
   if (sub.includes("tls") || sub.includes("ssl"))          return "tls_suspicious";
   if (sub.includes("dns"))                                  return "dns_attack";
@@ -195,7 +198,9 @@ export async function evaluateEvent(event: IngestEvent): Promise<void> {
     const count = recordAttack(event.sourceIp, counterKey, rule.triggerWindowSecs);
     if (count < rule.triggerThreshold) continue;
 
-    // Rule fires
+    // Rule fires — allow multiple rules to fire per event so that
+    // local iptables rules (low priority number) AND pfSense WAN rules
+    // (high priority number) can both execute for the same attack.
     try {
       if (rule.actionType === "auto") {
         await executeAutoDefense(rule, event);
@@ -206,8 +211,8 @@ export async function evaluateEvent(event: IngestEvent): Promise<void> {
       // If sanitisation throws, log and skip — don't crash ingest
       console.error(`[AutoDefense] Rule "${rule.name}" skipped — sanitisation error: ${err?.message}`);
     }
-
-    break; // highest-priority rule only
+    // No break — continue evaluating remaining rules so pfSense boundary
+    // blocks (priority 32/45/50) also fire alongside local iptables rules.
   }
 }
 
