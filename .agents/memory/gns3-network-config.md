@@ -95,6 +95,15 @@ sudo ip route add 10.0.0.0/8 via 192.168.122.2
 - bankdb created with accounts + transactions tables
 - 6 sample accounts (1001–1005, 9999/admin)
 - Remote access enabled (bind 0.0.0.0)
+- **⚠️ MySQL 8.0 bind-address quirk:** `sed` fails silently — file has no bind-address line by default.
+  Must append: `echo "bind-address = 0.0.0.0" >> /etc/mysql/mysql.conf.d/mysqld.cnf`
+  Also append: `echo "mysqlx-bind-address = 0.0.0.0" >> /etc/mysql/mysql.conf.d/mysqld.cnf`
+
+### bank-web (10.10.10.10) — DONE ✅
+- Apache + PHP + php-mysql installed
+- All PHP files in /var/www/html (index, signup, dashboard, transfer, history, profile, logout, db, style)
+- Apache running, accessible at http://10.10.10.10
+- Login: 1001/1234
 
 ### bank-web (10.10.10.10) — IN PROGRESS
 - Apache + PHP + php-mysql to install

@@ -47,20 +47,28 @@ echo "nameserver 8.8.8.8" | sudo tee /etc/resolv.conf
 sudo apt update && sudo apt install -y mysql-server
 wget -O setup.sql https://paste.rs/IFRoJ
 sudo mysql < setup.sql
-sudo sed -i 's/127.0.0.1/0.0.0.0/' /etc/mysql/mysql.conf.d/mysqld.cnf
+
+# bind-address fix (MySQL 8.0 — sed မအလုပ်လုပ်ဘူး၊ append နည်း သုံး)
+sudo bash -c 'echo "bind-address = 0.0.0.0" >> /etc/mysql/mysql.conf.d/mysqld.cnf'
+sudo bash -c 'echo "mysqlx-bind-address = 0.0.0.0" >> /etc/mysql/mysql.conf.d/mysqld.cnf'
 sudo systemctl restart mysql
 ```
+
+**⚠️ MySQL 8.0 bind-address note:**
+`sed -i 's/127.0.0.1/0.0.0.0/'` does NOT work on MySQL 8.0 — file has no bind-address line by default.
+Must **append** both lines to mysqld.cnf instead. Verify with `ss -tlnp | grep 3306` → should show `0.0.0.0:3306`.
 
 **Verify:**
 ```bash
 sudo mysql -e "USE bankdb; SELECT acc_no, full_name, balance FROM accounts;"
+ss -tlnp | grep 3306   # should show 0.0.0.0:3306
 ```
 
 **Sample accounts:** 1001/1234, 1002/5678, 1003/9999, 1004/4321, 1005/0000, 9999/admin
 
 ---
 
-## bank-web VM (10.10.10.10) — ⏳ IN PROGRESS
+## bank-web VM (10.10.10.10) — ✅ COMPLETE
 
 ```bash
 sudo apt update && sudo apt install -y apache2 php libapache2-mod-php php-mysql
