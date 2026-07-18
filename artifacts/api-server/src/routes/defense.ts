@@ -162,17 +162,17 @@ router.get("/defense/status", async (req, res) => {
     return matching.some(r => r.status === "online");
   }
 
-  // Per-host sensor breakdown (only when "All Devices" selected so the UI
-  // knows which specific host has each sensor up or down).
+  // Per-host sensor breakdown — returns every sensor row per host so the UI
+  // can show all sensors, not just fail2ban + suricata.
   const hostIps = [...new Set(liveSensorRows.filter(r => r.hostIp).map(r => r.hostIp as string))];
   const perHostSensors = hostIps.map(hostIp => {
     const rows = liveSensorRows.filter(r => r.hostIp === hostIp);
-    const f2b = rows.find(r => r.component.toLowerCase().includes("fail2ban"));
-    const sur = rows.find(r => r.component.toLowerCase().includes("suricata"));
     return {
       hostIp,
-      fail2ban: f2b ? f2b.status === "online" : null,
-      suricata: sur ? sur.status === "online" : null,
+      sensors: rows.map(r => ({ component: r.component, status: r.status })),
+      // legacy fields kept for device-scoped ServiceCards in the frontend
+      fail2ban: rows.find(r => r.component.toLowerCase().includes("fail2ban"))?.status === "online" ?? null,
+      suricata: rows.find(r => r.component.toLowerCase().includes("suricata"))?.status === "online" ?? null,
     };
   });
 

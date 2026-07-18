@@ -38,6 +38,7 @@ interface DefenseAction {
 
 interface HostSensorRow {
   hostIp: string;
+  sensors: { component: string; status: string }[];
   fail2ban: boolean | null;
   suricata: boolean | null;
 }
@@ -432,44 +433,45 @@ export default function Defense() {
               <p className="text-xs text-muted-foreground py-2">No VM sensor data yet — forwarder must be running on each host</p>
             ) : (
               <div className="space-y-2">
-                {status.perHostSensors.map(h => (
-                  <div key={h.hostIp} className="flex items-center gap-3 bg-background rounded border border-border/50 px-3 py-2">
-                    {/* Host */}
-                    <div className="w-36 shrink-0">
-                      <HostLabel ip={h.hostIp} />
+                {status.perHostSensors.map(h => {
+                  const anyOnline = h.sensors.some(s => s.status === "online");
+                  return (
+                    <div key={h.hostIp} className="bg-background rounded border border-border/50 px-3 py-2">
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="w-36 shrink-0">
+                          <HostLabel ip={h.hostIp} />
+                        </div>
+                        <div className="ml-auto">
+                          {anyOnline ? (
+                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400 animate-ping" />
+                          ) : (
+                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-500" />
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {h.sensors.map(s => (
+                          <div key={s.component} className="flex items-center gap-1">
+                            <span className="text-[10px] text-muted-foreground font-mono">{s.component}</span>
+                            <Badge
+                              variant="outline"
+                              className={`text-[10px] ${
+                                s.status === "online"  ? "border-green-600 text-green-400" :
+                                s.status === "offline" ? "border-red-600 text-red-400" :
+                                                         "border-border text-muted-foreground"
+                              }`}
+                            >
+                              {s.status === "online" ? "● UP" : s.status === "offline" ? "● DOWN" : "?"}
+                            </Badge>
+                          </div>
+                        ))}
+                        {h.sensors.length === 0 && (
+                          <span className="text-[10px] text-muted-foreground">No sensor data</span>
+                        )}
+                      </div>
                     </div>
-                    {/* Fail2ban */}
-                    <div className="flex items-center gap-1.5 w-32">
-                      <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-mono">Fail2ban</span>
-                      {h.fail2ban === null ? (
-                        <Badge variant="outline" className="text-[10px] border-border text-muted-foreground">N/A</Badge>
-                      ) : (
-                        <Badge variant="outline" className={`text-[10px] ${h.fail2ban ? "border-green-600 text-green-400" : "border-red-600 text-red-400"}`}>
-                          {h.fail2ban ? "●  UP" : "●  DOWN"}
-                        </Badge>
-                      )}
-                    </div>
-                    {/* Suricata */}
-                    <div className="flex items-center gap-1.5 w-32">
-                      <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-mono">Suricata</span>
-                      {h.suricata === null ? (
-                        <Badge variant="outline" className="text-[10px] border-border text-muted-foreground">N/A</Badge>
-                      ) : (
-                        <Badge variant="outline" className={`text-[10px] ${h.suricata ? "border-green-600 text-green-400" : "border-red-600 text-red-400"}`}>
-                          {h.suricata ? "●  UP" : "●  DOWN"}
-                        </Badge>
-                      )}
-                    </div>
-                    {/* pulse dot */}
-                    <div className="ml-auto">
-                      {(h.fail2ban || h.suricata) ? (
-                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400 animate-ping" />
-                      ) : (
-                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-500" />
-                      )}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </CardContent>
