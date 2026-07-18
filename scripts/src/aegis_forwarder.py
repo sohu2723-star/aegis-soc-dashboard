@@ -78,7 +78,6 @@ REMOTE_HOSTS = [h for h in [
         "sensors": ["suricata", "snort", "fail2ban", "ssh", "http", "ftp"],
         # services to health-check via SSH systemctl on this VM
         "health_services": [
-            ("snort",     "Snort IDS",       "sensor"),
             ("suricata",  "Suricata IDS",    "sensor"),
             ("fail2ban",  "Fail2ban",        "sensor"),
             ("ssh",       "SSH Monitor",     "sensor"),
