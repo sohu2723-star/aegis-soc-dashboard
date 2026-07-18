@@ -312,7 +312,7 @@ Valid values:
 - triggerSeverity: any | medium | high | critical
 - actionType: auto | suggest
 - defenseType: block_ip | null_route | rate_limit | port_block | pfsense_block | alert_only
-- targetVm: ubuntu | pfsense
+- targetVm: bank-web | customer-db | aegis | pfsense | all
 
 Attack data ကို ကြည့်ပြီး defense rules 3-5 ခု recommend ပေးပါ။
 တစ်ခုချင်းစီကို ဒီ JSON format အတိုင်း ဖော်ပြပါ:
@@ -329,7 +329,7 @@ Attack data ကို ကြည့်ပြီး defense rules 3-5 ခု recom
       "triggerWindowSecs": 60,
       "actionType": "auto",
       "defenseType": "block_ip",
-      "targetVm": "ubuntu",
+      "targetVm": "bank-web",
       "priority": 20
     }
   ]

@@ -34,7 +34,7 @@ router.post("/defense/rules", requireAdmin, async (req, res) => {
       "dns_block","waf_rule","pfsense_block","pfsense_port_block","alert_only",
     ]),
     actionParams:      z.string().optional(),
-    targetVm:          z.enum(["ubuntu","pfsense","all"]).default("ubuntu"),
+    targetVm:          z.enum(["bank-web","customer-db","aegis","pfsense","all"]).default("bank-web"),
     priority:          z.number().int().min(1).max(9999).default(100),
   });
 
@@ -72,7 +72,7 @@ router.patch("/defense/rules/:id", requireAdmin, async (req, res) => {
     actionType:        z.enum(["auto","suggest"]).optional(),
     defenseType:       z.string().optional(),
     actionParams:      z.string().optional(),
-    targetVm:          z.enum(["ubuntu","pfsense","all"]).optional(),
+    targetVm:          z.enum(["bank-web","customer-db","aegis","pfsense","all"]).optional(),
   });
 
   const body = schema.safeParse(req.body);

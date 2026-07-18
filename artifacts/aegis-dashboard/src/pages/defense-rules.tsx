@@ -95,7 +95,7 @@ function RulesTab() {
   const [triggerWindow, setTriggerWindow]       = useState(60);
   const [actionType, setActionType]             = useState("auto");
   const [defenseType, setDefenseType]           = useState("block_ip");
-  const [targetVm, setTargetVm]                 = useState("ubuntu");
+  const [targetVm, setTargetVm]                 = useState("bank-web");
   const [priority, setPriority]                 = useState(100);
 
   const authHeaders = () => {
@@ -260,9 +260,11 @@ function RulesTab() {
                   <Select value={targetVm} onValueChange={setTargetVm}>
                     <SelectTrigger className="bg-background border-border text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="ubuntu">ubuntu (iptables — all Linux VMs)</SelectItem>
-                      <SelectItem value="pfsense">pfsense (SSH easyrule — WAN firewall)</SelectItem>
-                      <SelectItem value="all">all (ubuntu + pfsense)</SelectItem>
+                      <SelectItem value="bank-web">bank-web (10.10.10.10)</SelectItem>
+                      <SelectItem value="customer-db">customer-db (10.20.20.20)</SelectItem>
+                      <SelectItem value="aegis">aegis (10.30.30.10)</SelectItem>
+                      <SelectItem value="pfsense">pfsense (WAN firewall — SSH)</SelectItem>
+                      <SelectItem value="all">all (every VM)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

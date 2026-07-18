@@ -402,7 +402,7 @@ export async function seedDefaultRules() {
       triggerAttackType: "port_scan", triggerSeverity: "any",
       triggerThreshold: 1, triggerWindowSecs: 60,
       actionType: "auto", defenseType: "block_ip",
-      targetVm: "ubuntu", priority: 20, isActive: true,
+      targetVm: "bank-web", priority: 20, isActive: true,
     },
     // ── FTP brute force — bank-web only (vsftpd on 10.10.10.10) ─────────────
     {
@@ -411,7 +411,7 @@ export async function seedDefaultRules() {
       triggerAttackType: "ftp_brute", triggerSeverity: "any",
       triggerThreshold: 3, triggerWindowSecs: 60,
       actionType: "auto", defenseType: "block_ip",
-      targetVm: "ubuntu", priority: 12, isActive: true,
+      targetVm: "bank-web", priority: 12, isActive: true,
     },
     // ── pfSense WAN boundary blocks (aegis_forwarder.py --vm pfsense via SSH) ─
     {
