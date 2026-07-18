@@ -255,14 +255,8 @@ def _exec_defense_pfsense(payload_json: str, cmd_id: int):
             remote_cmd = f"easyrule block WAN {ip}"
 
         elif action == "unblock_ip":
-            # Use pfctl table approach: remove IP from the aegis_block table.
-            # Falls back to pfSense PHP shell to delete the floating block rule
-            # that easyrule created.
-            remote_cmd = (
-                f"/usr/local/sbin/pfSense-shell "
-                f"\"filter_delete_rule_interface_addr('block', 'wan', '{ip}'); "
-                f"filter_configure();\""
-            )
+            # easyrule has a built-in unblock — mirrors the block exactly
+            remote_cmd = f"easyrule unblock WAN {ip}"
 
         elif action == "block_port":
             # easyrule supports optional dest-port: easyrule block WAN <ip> <port> <proto>
