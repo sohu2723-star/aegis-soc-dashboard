@@ -42,6 +42,8 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    sourcemap: false,      // disable source maps in production — code stays minified
+    minify: "esbuild",
   },
   server: {
     port,

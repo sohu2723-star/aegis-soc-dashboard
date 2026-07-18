@@ -15,7 +15,11 @@ import {
   BookCheck,
   Settings2,
   Workflow,
+  LogOut,
+  KeyRound,
+  Chrome,
 } from "lucide-react";
+import { useAuth } from "@/contexts/auth-context";
 import {
   Sidebar,
   SidebarContent,
@@ -55,6 +59,7 @@ const reportItems = [
 
 export function Layout({ children }: { children: ReactNode }) {
   const [location] = useLocation();
+  const { user, logout } = useAuth();
 
   return (
     <SidebarProvider>
@@ -122,6 +127,29 @@ export function Layout({ children }: { children: ReactNode }) {
               </SidebarGroupContent>
             </SidebarGroup>
           </SidebarContent>
+
+          {/* ── Session info + logout ── */}
+          <div className="mt-auto p-3 border-t border-border/40 space-y-2">
+            {user && (
+              <div className="flex items-center gap-2 px-2 py-1.5 rounded text-[10px] font-mono text-muted-foreground/60"
+                   style={{ background: "rgba(0,212,170,0.04)" }}>
+                {user.method === "google"
+                  ? <Chrome className="w-3 h-3 shrink-0 text-primary/50" />
+                  : <KeyRound className="w-3 h-3 shrink-0 text-primary/50" />}
+                <span className="truncate">
+                  {user.method === "google" ? user.email : "Admin Key"}
+                </span>
+              </div>
+            )}
+            <button
+              onClick={logout}
+              className="w-full flex items-center gap-2 px-3 py-2 rounded text-xs font-mono
+                         text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Logout</span>
+            </button>
+          </div>
         </Sidebar>
         <main className="flex-1 flex flex-col h-screen overflow-hidden">
           <div className="flex items-center justify-between gap-3 px-6 py-3 border-b border-border bg-card/60 shrink-0">

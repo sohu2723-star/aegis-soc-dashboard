@@ -75,6 +75,7 @@
     "zod": "catalog:"
   },
   "dependencies": {
+    "@react-oauth/google": "^0.13.5",
     "serverless-http": "^4.0.0"
   }
 }
