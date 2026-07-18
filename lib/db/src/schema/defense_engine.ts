@@ -16,7 +16,7 @@ export const defenseRulesTable = pgTable("defense_rules", {
   defenseType:   varchar("defense_type", { length: 32 }).notNull(),
   actionParams:  text("action_params"),
 
-  targetVm:  varchar("target_vm", { length: 32 }).notNull().default("ubuntu"),
+  targetVm:  varchar("target_vm", { length: 32 }).notNull().default("bank-web"),
   priority:  integer("priority").notNull().default(100),
   isActive:  boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -26,7 +26,7 @@ export const defenseCommandsTable = pgTable("defense_commands", {
   id:          integer("id").primaryKey().generatedAlwaysAsIdentity(),
   ruleId:      integer("rule_id"),
   eventId:     integer("event_id"),
-  targetVm:    varchar("target_vm", { length: 32 }).notNull().default("ubuntu"),
+  targetVm:    varchar("target_vm", { length: 32 }).notNull().default("all"),
   commandType: varchar("command_type", { length: 32 }).notNull(),
   commandText: text("command_text").notNull(),
   undoCommand: text("undo_command"),

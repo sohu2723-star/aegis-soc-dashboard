@@ -58,6 +58,26 @@ function Ts({ v }: { v: string }) {
   return <span className="font-mono text-xs text-muted-foreground whitespace-nowrap">{format(new Date(v), "MM/dd HH:mm:ss")}</span>;
 }
 
+// ─── VM name badge ─────────────────────────────────────────────────────────────
+const VM_META: Record<string, { label: string; ip?: string; color: string }> = {
+  "bank-web":    { label: "bank-web",    ip: "10.10.10.10",  color: "border-cyan-500/50 text-cyan-300" },
+  "customer-db": { label: "customer-db", ip: "10.20.20.20",  color: "border-purple-500/50 text-purple-300" },
+  "aegis":       { label: "aegis",       ip: "10.30.30.10",  color: "border-green-500/50 text-green-300" },
+  "pfsense":     { label: "pfSense",                         color: "border-orange-500/50 text-orange-300" },
+  "all":         { label: "all VMs",                         color: "border-yellow-500/50 text-yellow-300" },
+};
+
+function VmBadge({ vm }: { vm: string }) {
+  const meta = VM_META[vm];
+  if (!meta) return <span className="font-mono text-xs text-muted-foreground">{vm}</span>;
+  return (
+    <div className="flex flex-col gap-0.5">
+      <Badge variant="outline" className={`text-[10px] font-mono w-fit ${meta.color}`}>{meta.label}</Badge>
+      {meta.ip && <span className="text-[9px] text-muted-foreground font-mono">{meta.ip}</span>}
+    </div>
+  );
+}
+
 const defenseTypeLabels: Record<string, string> = {
   block_ip: "Block IP", null_route: "Null Route", rate_limit: "Rate Limit",
   port_block: "Port Block", dns_block: "DNS Block", waf_rule: "WAF Rule",
@@ -333,7 +353,7 @@ function RulesTab() {
                     {r.actionType}
                   </Badge>
                 </TableCell>
-                <TableCell><HostLabel ip={r.targetVm} /></TableCell>
+                <TableCell><VmBadge vm={r.targetVm} /></TableCell>
                 <TableCell className="text-right font-mono text-xs text-muted-foreground">{r.priority}</TableCell>
                 <TableCell>
                   <Button

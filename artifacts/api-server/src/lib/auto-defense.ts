@@ -337,6 +337,7 @@ const OBSOLETE_RULE_NAMES = [
   "Web Attack → pfSense Block",       // re-seeded below as actionType:"auto"
   // targetVm renamed from generic "ubuntu" to actual VM hostnames
   "SSH Brute Force → Auto Block",
+  "SSH Brute Force Block",            // old user-facing name with targetVm="ubuntu"
   "DDoS → Null Route",
   "Web Attack (High) → Auto Block",
   "Port Scan → Auto Block",
