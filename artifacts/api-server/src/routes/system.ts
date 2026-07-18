@@ -62,6 +62,13 @@ const PER_HOST_SENSORS = [
     description: "Apache/ModSecurity log watcher — SQLi, XSS, LFI, RFI, directory traversal",
     hostIp: "10.10.10.10",
   },
+  {
+    component: "Cowrie Honeypot",
+    layer: "sensor",
+    status: "unknown",
+    description: "SSH/Telnet honeypot — fake port 2222, captures attacker commands, zero false positive",
+    hostIp: "10.10.10.10",
+  },
 
   // ── aegis-forwarder (10.30.30.10): Hub script VM ────────────────────────────
   // MGMT zone ဖြစ်ပေမယ့် SSH ဖွင့်ထားတာကြောင့် Kali မှ attack လာနိုင်
@@ -114,6 +121,13 @@ const PER_HOST_SENSORS = [
     layer: "sensor",
     status: "unknown",
     description: "PostgreSQL log watcher — auth failures, suspicious queries, connection anomalies",
+    hostIp: "10.20.20.20",
+  },
+  {
+    component: "Cowrie Honeypot",
+    layer: "sensor",
+    status: "unknown",
+    description: "SSH/Telnet honeypot — fake port 2222, captures attacker commands, zero false positive",
     hostIp: "10.20.20.20",
   },
 ];

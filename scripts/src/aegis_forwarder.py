@@ -83,6 +83,7 @@ REMOTE_HOSTS = [h for h in [
             ("ssh",       "SSH Monitor",     "sensor"),
             ("apache2",   "Apache Monitor",  "sensor"),
             ("vsftpd",    "FTP Monitor",     "sensor"),
+            ("cowrie",    "Cowrie Honeypot", "sensor"),
         ],
     } if BANKWEB_IP else None,
     {
@@ -94,6 +95,7 @@ REMOTE_HOSTS = [h for h in [
             ("fail2ban",    "Fail2ban",            "sensor"),
             ("ssh",         "SSH Monitor",         "sensor"),
             ("postgresql",  "PostgreSQL Monitor",  "sensor"),
+            ("cowrie",      "Cowrie Honeypot",     "sensor"),
         ],
     } if CUSTOMERDB_IP else None,
 ] if h is not None]

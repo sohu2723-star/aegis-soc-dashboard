@@ -97,18 +97,18 @@ router.get("/dashboard/summary", async (req, res) => {
   ]);
   // ────────────────────────────────────────────────────────────────────────────
 
-  // Apply same 3-minute stale check as GET /system/status — if forwarder goes
-  // silent, rows stay "online" in DB forever; treat them as offline here too.
-  const STALE_MS = 3 * 60 * 1000;
+  // Apply same stale check as GET /system/status:
+  //   VM sensors  (hostIp set)  → stale after 3 min
+  //   Global rows (no hostIp)   → stale after 2 min (self-heartbeat every 30s)
+  const STALE_VM_MS     = 3 * 60 * 1000;
+  const STALE_GLOBAL_MS = 2 * 60 * 1000;
   const now = Date.now();
-  const resolvedStatuses = allStatuses.map(s => ({
-    ...s,
-    status:
-      s.hostIp && s.status === "online" && s.lastCheck &&
-      now - new Date(s.lastCheck).getTime() > STALE_MS
-        ? "offline"
-        : s.status,
-  }));
+  const resolvedStatuses = allStatuses.map(s => {
+    const ageMs = s.lastCheck ? now - new Date(s.lastCheck).getTime() : Infinity;
+    const staleMs = s.hostIp ? STALE_VM_MS : STALE_GLOBAL_MS;
+    const stale = s.status === "online" && ageMs > staleMs;
+    return { ...s, status: stale ? "offline" : s.status };
+  });
   const systemsOnline = resolvedStatuses.filter(s => s.status === "online").length;
   const systemsTotal  = resolvedStatuses.length;
 
