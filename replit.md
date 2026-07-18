@@ -120,6 +120,18 @@ Render free tier spins down after 15 minutes of inactivity. First request after 
 3. Defense actions are queued in `defense_commands` table → Ubuntu/pfSense agent polls and executes them
 4. Auto-block triggers: Fail2ban bans, Cowrie hits, repeated SSH/web brute force, DDoS thresholds
 
+## Ubuntu VM မှာ Script Update လုပ်နည်း
+
+> **IMPORTANT for all agents**: Ubuntu VM (`/opt/aegis/scripts/src/`) မှာ `git pull` **အလုပ်မလုပ်ဘူး**။ Script update လုပ်ဖို့ `wget` နဲ့ GitHub raw URL ကနေ တိုက်ရိုက် download ရမယ်။
+
+```bash
+# aegis_forwarder.py update
+wget -O /opt/aegis/scripts/src/aegis_forwarder.py \
+  https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/scripts/src/aegis_forwarder.py
+```
+
+`aegis_forwarder.local.conf` ကိုတော့ မထိနဲ့ — machine-specific config ဆိုတော့ gitignore ထဲမှာပဲ ရှိတာ။
+
 ## Run & Operate (Replit code editing only)
 
 - `pnpm --filter @workspace/aegis-dashboard run dev` — frontend (port 5000)

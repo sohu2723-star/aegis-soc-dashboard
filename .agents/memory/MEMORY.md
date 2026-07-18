@@ -8,3 +8,4 @@
 - [Groq AI features](groq-ai-features.md) — Groq llama-3.3-70b; groq-client.ts wrapper; routes/ai.ts has 4 endpoints; reports AI-summary in `summary` text col (fallback template); Burmese+English mixed output.
 - [Auth system](auth-system.md) — JWT+Google SSO; ADMIN_EMAIL env var (not hardcoded); error messages generic (no email leak); SESSION_SECRET must be set on Render; Google Console needs Vercel URL in authorized origins.
 - [Threat Map topology](threat-map-topology.md) — Telegram node added at x:930,y:420; NOTIFY_EDGES aegis→telegram; alert SSE spawns blue isTg packet; keep-alive pings /api/healthz every 4 min; Architecture page removed.
+- [VM script update method](vm-script-update.md) — git pull မအလုပ်လုပ်ဘူး Ubuntu VM မှာ; wget + GitHub raw URL သုံးရမယ်; local.conf မထိနဲ့ (gitignored).
