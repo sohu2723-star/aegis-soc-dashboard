@@ -55,8 +55,8 @@ VM_NAME   = _cfg("VM_NAME",   "ubuntu")   # ubuntu | pfsense — used by the def
 
 # ─── REMOTE / HUB MODE CONFIG ─────────────────────────────────────────────────
 # Used when running with --mode hub on the aegis-forwarder VM (10.30.30.10).
-# The hub SSHes into bank VMs to tail their logs AND calls pfSense REST API
-# to execute firewall rules — all from one script, one machine.
+# The hub SSHes into bank VMs to tail their logs AND SSHes into pfSense
+# to execute firewall rules via easyrule — all from one script, one machine.
 # Override REMOTE_SSH_USER in aegis_forwarder.local.conf if your user differs.
 REMOTE_SSH_USER = _cfg("REMOTE_SSH_USER", "sithu")
 
@@ -115,9 +115,16 @@ DEFENSE_HEADERS = {
     "X-AEGIS-Admin-Key": _cfg("AEGIS_ADMIN_KEY", ""),
 }
 
-# pfSense REST API (only used when VM_NAME == "pfsense")
+# pfSense SSH access — forwarder SSHes into pfSense and runs easyrule/pfctl.
+# No REST API package required on pfSense.
+PFSENSE_SSH_KEY  = _cfg("PFSENSE_SSH_KEY",  "~/.ssh/pfsense_key")
+PFSENSE_SSH_USER = _cfg("PFSENSE_SSH_USER", "admin")
+
+# Legacy REST API vars (kept so old local.conf files don't break on read;
+# not used for execution — SSH is used instead)
 PFSENSE_API_URL = _cfg("PFSENSE_API_URL", f"http://{PFSENSE_IP}/api/v1")
 PFSENSE_API_KEY = _cfg("PFSENSE_API_KEY", "")
+
 DEFENSE_POLL_SECS = int(_cfg("DEFENSE_POLL_SECS", "5"))
 
 
@@ -181,8 +188,8 @@ def get_os_info() -> str:
 # ─── Defense agent (merged from defense_agent.py) ─────────────────────────────
 # Polls the AEGIS API for pending defense commands (issued when someone clicks
 # "Block IP" on the dashboard, or an auto-defense rule fires) and executes them
-# on this machine — iptables locally, or the pfSense REST API when VM_NAME is
-# "pfsense". Runs as its own thread alongside the log-forwarding sensors.
+# on this machine — iptables locally, or SSH into pfSense (easyrule) when the
+# command targets VM "pfsense". Runs as its own thread alongside the log-forwarding sensors.
 
 def _report_defense_result(cmd_id: int, success: bool, error: str = None):
     try:
@@ -215,117 +222,75 @@ def _exec_defense_shell(command: str, cmd_id: int):
         _report_defense_result(cmd_id, False, str(e))
 
 
-def _pfsense_headers():
-    """Return auth headers for pfSense REST API.
-    pfSense-API (community package) accepts:
-      Authorization: <client-token>  (v1 style — api_key directly, no Bearer prefix)
-    Try without Bearer first; if caller set PFSENSE_API_KEY with bearer prefix that's fine too.
-    """
-    return {
-        "Authorization": PFSENSE_API_KEY,   # pfSense API v1: raw key, no 'Bearer' prefix
-        "Content-Type":  "application/json",
-    }
-
-
-def _pfsense_descr(ip: str, reason: str = "") -> str:
-    return f"AEGIS-block {ip}" + (f" {reason}" if reason else "")
-
-
 def _exec_defense_pfsense(payload_json: str, cmd_id: int):
+    """Execute pfSense firewall actions via SSH + easyrule/pfctl.
+    No REST API package needed on pfSense — plain SSH key auth.
+
+    Flow: forwarder (10.30.30.10) → SSH → pfSense (10.30.30.1) → easyrule / pfctl
+
+    Config (aegis_forwarder.local.conf):
+        PFSENSE_SSH_KEY  = /root/.ssh/pfsense_key
+        PFSENSE_SSH_USER = admin
+        PFSENSE_IP       = 10.30.30.1
+    """
     try:
         payload = json.loads(payload_json)
         action  = payload.get("action")
         ip      = payload.get("ip", "")
-        reason  = payload.get("reason", "")
-        headers = _pfsense_headers()
+        port    = str(payload.get("port", ""))
+        proto   = payload.get("protocol", "tcp")
 
-        if not PFSENSE_API_KEY:
-            msg = "PFSENSE_API_KEY not set in config — skipping pfSense action"
-            print(f"[defense] ✗ {msg}")
-            _report_defense_result(cmd_id, False, msg)
-            return
+        ssh_key = os.path.expanduser(PFSENSE_SSH_KEY)
+        ssh_base = [
+            "ssh", "-T",
+            "-i", ssh_key,
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "ConnectTimeout=10",
+            "-o", "BatchMode=yes",
+            f"{PFSENSE_SSH_USER}@{PFSENSE_IP}",
+        ]
 
         if action == "block_ip":
-            descr = _pfsense_descr(ip, reason)
-            rule  = {
-                "type": "block", "interface": "wan", "ipprotocol": "inet",
-                "protocol": "any",
-                "src": ip, "srcmask": "32",
-                "dst": "any",
-                "descr": descr,
-                "top": True,   # insert at top of ruleset
-                "apply": True, # apply immediately
-            }
-            r = requests.post(f"{PFSENSE_API_URL}/firewall/rule", json=rule,
-                               headers=headers, verify=False, timeout=15)
-            if r.status_code in (200, 201):
-                print(f"[defense] ✓ pfSense blocked {ip}")
-                _report_defense_result(cmd_id, True)
-            else:
-                err = r.text[:300]
-                print(f"[defense] ✗ pfSense block error {r.status_code}: {err}")
-                _report_defense_result(cmd_id, False, err)
+            # easyrule adds a block rule on WAN for the source IP
+            remote_cmd = f"easyrule block WAN {ip}"
 
         elif action == "unblock_ip":
-            # Find all AEGIS-created rules for this IP by description, then delete them
-            r = requests.get(f"{PFSENSE_API_URL}/firewall/rule",
-                              headers=headers, verify=False, timeout=10)
-            if r.status_code != 200:
-                _report_defense_result(cmd_id, False, f"GET rules failed: {r.status_code}")
-                return
-
-            rules = r.json().get("data", [])
-            prefix = f"AEGIS-block {ip}"
-            trackers = [
-                rule.get("tracker") for rule in rules
-                if rule.get("descr", "").startswith(prefix) and rule.get("tracker")
-            ]
-
-            if not trackers:
-                print(f"[defense] pfSense unblock {ip}: no AEGIS rule found (already clean)")
-                _report_defense_result(cmd_id, True)
-                return
-
-            errors = []
-            for tracker in trackers:
-                d = requests.delete(f"{PFSENSE_API_URL}/firewall/rule",
-                                     json={"tracker": tracker, "apply": True},
-                                     headers=headers, verify=False, timeout=10)
-                if d.status_code in (200, 204):
-                    print(f"[defense] ✓ pfSense unblocked {ip} (tracker {tracker})")
-                else:
-                    errors.append(f"tracker {tracker}: {d.status_code}")
-
-            if errors:
-                _report_defense_result(cmd_id, False, "; ".join(errors))
-            else:
-                _report_defense_result(cmd_id, True)
+            # Use pfctl table approach: remove IP from the aegis_block table.
+            # Falls back to pfSense PHP shell to delete the floating block rule
+            # that easyrule created.
+            remote_cmd = (
+                f"/usr/local/sbin/pfSense-shell "
+                f"\"filter_delete_rule_interface_addr('block', 'wan', '{ip}'); "
+                f"filter_configure();\""
+            )
 
         elif action == "block_port":
-            port  = str(payload.get("port", ""))
-            proto = payload.get("protocol", "tcp")
-            rule  = {
-                "type": "block", "interface": "wan", "ipprotocol": "inet",
-                "protocol": proto,
-                "src": ip, "srcmask": "32",
-                "dst": "any", "dstport": port,
-                "descr": _pfsense_descr(ip, f"port-{port}"),
-                "top": True, "apply": True,
-            }
-            r = requests.post(f"{PFSENSE_API_URL}/firewall/rule", json=rule,
-                               headers=headers, verify=False, timeout=15)
-            if r.status_code in (200, 201):
-                print(f"[defense] ✓ pfSense port-blocked {ip}:{port}/{proto}")
-                _report_defense_result(cmd_id, True)
+            # easyrule supports optional dest-port: easyrule block WAN <ip> <port> <proto>
+            if port:
+                remote_cmd = f"easyrule block WAN {ip} {port} {proto}"
             else:
-                err = r.text[:300]
-                print(f"[defense] ✗ pfSense port-block error {r.status_code}: {err}")
-                _report_defense_result(cmd_id, False, err)
+                remote_cmd = f"easyrule block WAN {ip}"
 
         else:
             print(f"[defense] Unknown pfSense action: {action}")
             _report_defense_result(cmd_id, False, f"Unknown action: {action}")
+            return
 
+        ssh_cmd = ssh_base + [remote_cmd]
+        print(f"[defense] pfSense SSH → {PFSENSE_SSH_USER}@{PFSENSE_IP}: {remote_cmd}")
+        result = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=30)
+
+        if result.returncode == 0:
+            print(f"[defense] ✓ pfSense {action} {ip} OK")
+            _report_defense_result(cmd_id, True)
+        else:
+            err = (result.stderr.strip() or result.stdout.strip())[:300]
+            print(f"[defense] ✗ pfSense {action} {ip}: {err}")
+            _report_defense_result(cmd_id, False, err)
+
+    except subprocess.TimeoutExpired:
+        print(f"[defense] ✗ pfSense SSH timeout")
+        _report_defense_result(cmd_id, False, "SSH timeout")
     except Exception as e:
         print(f"[defense] ✗ pfSense error: {e}")
         _report_defense_result(cmd_id, False, str(e))
@@ -369,7 +334,7 @@ def _exec_defense_ssh_remote(target_ip: str, command: str, cmd_id: int):
 def _dispatch_defense_hub(cmd: dict):
     """
     Hub-mode dispatcher: routes defense commands to the right executor.
-      target_vm == "pfsense"        → pfSense REST API (PFSENSE_IP)
+      target_vm == "pfsense"        → SSH into pfSense → easyrule/pfctl (PFSENSE_IP)
       target_vm in bank VM names    → SSH iptables into that VM
       target_vm == "aegis" / ""     → local iptables on this machine
     """
@@ -1365,7 +1330,7 @@ def run_hub_mode():
         sensors_str = ", ".join(h.get("sensors", []))
         print(f"    {h['name']:15s} {h['ip']}  sensors=[{sensors_str}]")
         _remote_register_host(h["name"], h["ip"])
-    print(f"  pfSense API  : {PFSENSE_IP} (for defense commands)")
+    print(f"  pfSense SSH  : {PFSENSE_SSH_USER}@{PFSENSE_IP} (key: {PFSENSE_SSH_KEY})")
     print(f"  Defense VMs  : {HUB_DEFENSE_VMS}")
     print()
 
@@ -1440,8 +1405,8 @@ if __name__ == "__main__":
         epilog="""
 Modes:
   hub     Run on the AEGIS VM (10.30.30.10): SSHes into bank-web + customer-db to
-          tail their logs, calls pfSense REST API for firewall commands, and runs
-          the defense agent for ALL VMs.  One script, one machine, everything.
+          tail their logs, SSHes into pfSense to run easyrule/pfctl commands, and
+          runs the defense agent for ALL VMs.  One script, one machine, everything.
   all     Run all local sensors on THIS machine (normal forwarder mode).
   remote  Alias for hub (backward compat).
   <name>  Run a single local sensor: suricata | snort | fail2ban | ssh | ftp | http | cowrie
