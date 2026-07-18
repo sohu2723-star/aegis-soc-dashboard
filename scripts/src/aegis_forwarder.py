@@ -333,7 +333,10 @@ def _dispatch_defense(cmd: dict):
 
 
 def _exec_defense_ssh_remote(target_ip: str, command: str, cmd_id: int):
-    """SSH into a bank VM (bank-web / customer-db) and run an iptables command."""
+    """SSH into a bank VM (bank-web / customer-db) and run an iptables command.
+    If the command is an iptables INPUT block, also kill any existing SSH sessions
+    from that attacker IP so the block takes effect immediately.
+    """
     ssh_cmd = [
         "ssh", "-T",
         "-o", "StrictHostKeyChecking=no",
@@ -348,6 +351,23 @@ def _exec_defense_ssh_remote(target_ip: str, command: str, cmd_id: int):
         if result.returncode == 0:
             print(f"[defense] ✓ SSH {target_ip}: {result.stdout.strip()}")
             _report_defense_result(cmd_id, True)
+
+            # After a DROP rule is added, kill any active sessions from the blocked IP.
+            # Extract the blocked IP from the iptables command (e.g. "iptables -I INPUT -s 1.2.3.4 -j DROP")
+            import re as _re
+            m = _re.search(r"iptables.*-I INPUT.*-s\s+([\d.]+).*-j DROP", command)
+            if m:
+                blocked_ip = m.group(1)
+                kill_cmd = [
+                    "ssh", "-T",
+                    "-o", "StrictHostKeyChecking=no",
+                    "-o", "ConnectTimeout=10",
+                    "-o", "BatchMode=yes",
+                    f"{REMOTE_SSH_USER}@{target_ip}",
+                    f"sudo ss -K dst {blocked_ip} 2>/dev/null; sudo ss -K src {blocked_ip} 2>/dev/null; true",
+                ]
+                print(f"[defense] Killing active sessions from {blocked_ip} on {target_ip}")
+                subprocess.run(kill_cmd, capture_output=True, text=True, timeout=10)
         else:
             err = result.stderr.strip()
             print(f"[defense] ✗ SSH {target_ip}: {err}")
