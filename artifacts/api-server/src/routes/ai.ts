@@ -161,7 +161,7 @@ router.post("/ai/defend", async (req, res) => {
       .limit(10);
 
     if (events.length === 0) {
-      res.json({ recommendation: `IP ${ip} အတွက် event မရှိသေးဘူး — ဒီ IP က database မှာ မတွေ့ဘူး။`, ip });
+      res.json({ recommendation: `IP ${ip} အတွက် event မရှိသေးဘူး — ဒီ IP က database မှာ မတွေ့ဘူး။`, ip, eventCount: 0, attackTypes: {} });
       return;
     }
 

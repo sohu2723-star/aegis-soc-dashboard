@@ -625,10 +625,12 @@ export default function Defense() {
             <div className="space-y-3">
               <div className="flex items-center gap-3 text-xs">
                 <span className="font-mono text-red-400 font-bold">{aiResult.ip}</span>
-                <Badge variant="outline" className="border-border text-muted-foreground">
-                  {aiResult.eventCount} events
-                </Badge>
-                {Object.entries(aiResult.attackTypes).slice(0, 3).map(([t, n]) => (
+                {(aiResult.eventCount ?? 0) > 0 && (
+                  <Badge variant="outline" className="border-border text-muted-foreground">
+                    {aiResult.eventCount} events
+                  </Badge>
+                )}
+                {Object.entries(aiResult.attackTypes ?? {}).slice(0, 3).map(([t, n]) => (
                   <Badge key={t} variant="secondary" className="text-[10px]">{t}: {n}</Badge>
                 ))}
               </div>
