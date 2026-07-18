@@ -236,12 +236,19 @@ router.get("/network/hosts/:ip/events", async (req, res) => {
   const ip = req.params.ip;
   const limit = Math.min(Number(req.query.limit) || 100, 500);
 
+  // Also match by hostname so "bank-web", "customer-db" labels resolve to their IP
+  const [hostRow] = await db.select().from(networkHostsTable).where(eq(networkHostsTable.ip, ip));
+  const hostname = hostRow?.hostname ?? null;
+
+  const conditions = [
+    eq(securityEventsTable.sourceIp, ip),
+    eq(securityEventsTable.targetHost, ip),
+    ...(hostname ? [eq(securityEventsTable.targetHost, hostname)] : []),
+  ];
+
   const events = await db
     .select().from(securityEventsTable)
-    .where(or(
-      eq(securityEventsTable.sourceIp, ip),
-      eq(securityEventsTable.targetHost, ip),
-    ))
+    .where(or(...conditions))
     .orderBy(desc(securityEventsTable.createdAt))
     .limit(limit);
 

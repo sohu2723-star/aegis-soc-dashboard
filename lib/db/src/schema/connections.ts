@@ -26,22 +26,6 @@ export const ftpSessionsTable = pgTable("ftp_sessions", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export const encryptedTrafficTable = pgTable("encrypted_traffic", {
-  id:           integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  sourceIp:     varchar("source_ip", { length: 45 }).notNull(),
-  destIp:       varchar("dest_ip", { length: 45 }).notNull(),
-  destPort:     integer("dest_port"),
-  tlsVersion:   varchar("tls_version", { length: 16 }),
-  cipherSuite:  varchar("cipher_suite", { length: 128 }),
-  sni:          varchar("sni", { length: 255 }),
-  certIssuer:   varchar("cert_issuer", { length: 255 }),
-  certSubject:  varchar("cert_subject", { length: 255 }),
-  certExpiry:   varchar("cert_expiry", { length: 32 }),
-  isSuspicious: boolean("is_suspicious").notNull().default(false),
-  reason:       varchar("reason", { length: 128 }),
-  createdAt:    timestamp("created_at").defaultNow().notNull(),
-});
-
 export const httpAttacksTable = pgTable("http_attacks", {
   id:          integer("id").primaryKey().generatedAlwaysAsIdentity(),
   sourceIp:    varchar("source_ip", { length: 45 }).notNull(),
@@ -56,17 +40,14 @@ export const httpAttacksTable = pgTable("http_attacks", {
   createdAt:   timestamp("created_at").defaultNow().notNull(),
 });
 
-export const insertSshSessionSchema       = createInsertSchema(sshSessionsTable).omit({ createdAt: true });
-export const insertFtpSessionSchema       = createInsertSchema(ftpSessionsTable).omit({ createdAt: true });
-export const insertEncryptedTrafficSchema = createInsertSchema(encryptedTrafficTable).omit({ createdAt: true });
-export const insertHttpAttackSchema       = createInsertSchema(httpAttacksTable).omit({ createdAt: true });
+export const insertSshSessionSchema  = createInsertSchema(sshSessionsTable).omit({ createdAt: true });
+export const insertFtpSessionSchema  = createInsertSchema(ftpSessionsTable).omit({ createdAt: true });
+export const insertHttpAttackSchema  = createInsertSchema(httpAttacksTable).omit({ createdAt: true });
 
-export type SshSession        = typeof sshSessionsTable.$inferSelect;
-export type FtpSession        = typeof ftpSessionsTable.$inferSelect;
-export type EncryptedTraffic  = typeof encryptedTrafficTable.$inferSelect;
-export type HttpAttack        = typeof httpAttacksTable.$inferSelect;
+export type SshSession  = typeof sshSessionsTable.$inferSelect;
+export type FtpSession  = typeof ftpSessionsTable.$inferSelect;
+export type HttpAttack  = typeof httpAttacksTable.$inferSelect;
 
-export type InsertSshSession       = z.infer<typeof insertSshSessionSchema>;
-export type InsertFtpSession       = z.infer<typeof insertFtpSessionSchema>;
-export type InsertEncryptedTraffic = z.infer<typeof insertEncryptedTrafficSchema>;
-export type InsertHttpAttack       = z.infer<typeof insertHttpAttackSchema>;
+export type InsertSshSession  = z.infer<typeof insertSshSessionSchema>;
+export type InsertFtpSession  = z.infer<typeof insertFtpSessionSchema>;
+export type InsertHttpAttack  = z.infer<typeof insertHttpAttackSchema>;

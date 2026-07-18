@@ -7,11 +7,12 @@
  * All endpoints require X-AEGIS-Key header.
  */
 import { Router } from "express";
+import { z } from "zod";
 import { db } from "@workspace/db";
 import {
   securityEventsTable, alertsTable,
   sshSessionsTable, ftpSessionsTable,
-  encryptedTrafficTable, httpAttacksTable,
+  httpAttacksTable,
   blockedIpsTable,
 } from "@workspace/db";
 import { broadcaster } from "../lib/broadcaster";
@@ -144,53 +145,6 @@ router.post("/ingest/suricata", auth, async (req, res) => {
   });
   if (s === "critical" || s === "high") await mkAlert(event.id, s, `SURICATA: ${a.signature} — ${src_ip} → ${dest_ip}`);
   res.status(201).json({ id: event.id });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Suricata TLS (encrypted traffic)
-// ─────────────────────────────────────────────────────────────────────────────
-router.post("/ingest/suricata/tls", auth, async (req, res) => {
-  const { src_ip, dest_ip, dest_port, tls } = req.body;
-  const t = tls ?? {};
-
-  // If src_ip is our own private/defender network making an OUTBOUND connection
-  // (e.g. forwarder → Render API), treat as benign — log only, no alert/auto-defense.
-  const isOutboundFromDefender = isDefenderIp(src_ip);
-  if (isOutboundFromDefender) {
-    await db.insert(encryptedTrafficTable).values({
-      sourceIp: src_ip ?? "unknown", destIp: dest_ip ?? "unknown",
-      destPort: dest_port ?? null, tlsVersion: t.version ?? null,
-      cipherSuite: t.cipher_suite ?? null, sni: t.sni ?? null,
-      certIssuer: t.issuerdn ?? null, certSubject: t.subject ?? null,
-      certExpiry: t.notafter ?? null, isSuspicious: false, reason: null,
-    });
-    res.status(201).json({ isSuspicious: false, skipped: "outbound_from_defender" });
-    return;
-  }
-
-  const isSuspicious = t.version === "SSLv3" || t.version === "TLSv1" ||
-    (t.notafter && new Date(t.notafter) < new Date()) || !t.issuerdn;
-
-  await db.insert(encryptedTrafficTable).values({
-    sourceIp: src_ip ?? "unknown", destIp: dest_ip ?? "unknown",
-    destPort: dest_port ?? null, tlsVersion: t.version ?? null,
-    cipherSuite: t.cipher_suite ?? null, sni: t.sni ?? null,
-    certIssuer: t.issuerdn ?? null, certSubject: t.subject ?? null,
-    certExpiry: t.notafter ?? null, isSuspicious,
-    reason: isSuspicious ? (t.version === "SSLv3" || t.version === "TLSv1" ? "Weak TLS" : !t.issuerdn ? "Self-signed" : "Expired cert") : null,
-  });
-
-  if (isSuspicious) {
-    const event = await insertEvent({
-      type:"web_attack", subtype:"Suspicious TLS", severity:"high",
-      sourceIp: src_ip ?? "unknown", targetHost: dest_ip ?? "unknown",
-      toolUsed:"suricata",
-      description:`Suspicious TLS: ${t.version ?? "unknown"} | SNI: ${t.sni ?? "-"} | Issuer: ${t.issuerdn ?? "self-signed"}`,
-      status:"detected", layer:"perimeter",
-    });
-    await mkAlert(event.id, "high", `TLS SUSPICIOUS: ${t.version} from ${src_ip} — ${t.sni ?? dest_ip}`);
-  }
-  res.status(201).json({ isSuspicious });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

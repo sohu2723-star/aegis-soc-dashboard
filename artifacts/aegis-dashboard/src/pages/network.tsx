@@ -3,8 +3,9 @@ import { HostLabel } from "@/lib/host-utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Wifi, Monitor, Shield, Activity, X, AlertTriangle, Trash2 } from "lucide-react";
+import { Wifi, Monitor, Shield, Activity, X, AlertTriangle, Trash2, Search } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar } from "recharts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -296,14 +297,25 @@ export default function Network() {
   const { data: traffic = [] } = useNetworkTraffic();
   const { selectedIp } = useDeviceContext();
 
-  // Use selectedHost IP for the main chart — falls back to global selectedIp
   const [selectedHost, setSelectedHost] = useState<NetworkHost | null>(null);
-  const chartIp = selectedHost?.ip ?? selectedIp;
+  const [ipSearch, setIpSearch] = useState("");
+
+  // Active IP: local search wins over global device-context filter
+  const activeIp = ipSearch.trim() || selectedIp;
+  const chartIp = selectedHost?.ip ?? activeIp;
   const { data: hostEvents } = useHostEvents(chartIp);
 
-  const hosts = selectedIp
-    ? allHosts.filter(h => h.ip === selectedIp)
+  // Inline IP-analysis data for arbitrary typed IPs
+  const { data: searchedIpEvents, isLoading: searchedIpLoading } = useHostEvents(
+    ipSearch.trim() && !allHosts.find(h => h.ip === ipSearch.trim()) ? ipSearch.trim() : null
+  );
+
+  const hosts = activeIp
+    ? allHosts.filter(h => h.ip === activeIp)
     : allHosts.filter(h => h.role !== "kali");
+
+  // When user typed an IP with no registered host, show inline analysis
+  const showIpAnalysis = !!ipSearch.trim() && hosts.length === 0;
 
   const [loadingId, setLoadingId] = useState<number | null>(null);
   const [flashedIds, setFlashedIds] = useState<Set<number>>(new Set());
@@ -535,21 +547,81 @@ export default function Network() {
       {/* Connected Hosts table */}
       <Card className="bg-card border-border">
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-            <Wifi className="w-4 h-4" /> Connected Hosts
-            <span className="text-[10px] text-muted-foreground/60 ml-1 font-normal normal-case">— click a row to see attack details</span>
-          </CardTitle>
+          <div className="flex items-center justify-between gap-4">
+            <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+              <Wifi className="w-4 h-4" /> Connected Hosts
+              <span className="text-[10px] text-muted-foreground/60 ml-1 font-normal normal-case">— click a row to see attack details</span>
+            </CardTitle>
+            <div className="relative w-60 shrink-0">
+              <Search className="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-muted-foreground" />
+              <Input
+                placeholder="Search any IP..."
+                value={ipSearch}
+                onChange={e => { setIpSearch(e.target.value); setSelectedHost(null); }}
+                className="pl-8 h-8 text-xs bg-background border-border font-mono"
+              />
+              {ipSearch && (
+                <button onClick={() => setIpSearch("")} className="absolute right-2 top-2 text-muted-foreground hover:text-foreground">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
+          {/* Inline IP Analysis — shown when typed IP has no registered host */}
+          {showIpAnalysis && (
+            <div className="mb-4 border border-primary/30 rounded-lg bg-primary/5 p-4">
+              <p className="text-xs font-mono text-primary font-bold mb-3 uppercase tracking-wider">
+                IP Analysis — {ipSearch.trim()}
+              </p>
+              {searchedIpLoading ? (
+                <p className="text-muted-foreground text-xs">Loading events…</p>
+              ) : searchedIpEvents && searchedIpEvents.totalEvents > 0 ? (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-4 gap-2">
+                    {(["critical","high","medium","low"] as const).map(s => (
+                      <div key={s} className={`rounded p-2 text-center ${s==="critical"?"bg-red-500/20":s==="high"?"bg-orange-500/20":s==="medium"?"bg-yellow-500/20":"bg-green-500/20"}`}>
+                        <p className={`text-lg font-bold ${s==="critical"?"text-red-400":s==="high"?"text-orange-400":s==="medium"?"text-yellow-400":"text-green-400"}`}>
+                          {searchedIpEvents.bySeverity[s]}
+                        </p>
+                        <p className={`text-[10px] uppercase ${s==="critical"?"text-red-400":s==="high"?"text-orange-400":s==="medium"?"text-yellow-400":"text-green-400"}`}>{s}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    <span className="text-foreground font-bold">{searchedIpEvents.totalEvents}</span> events found · Top types:{" "}
+                    {searchedIpEvents.byType.slice(0,3).map(t => `${t.type} (${t.count})`).join(", ")}
+                  </div>
+                  <div className="space-y-1 max-h-48 overflow-y-auto">
+                    {searchedIpEvents.recentEvents.slice(0,10).map((e: any) => (
+                      <div key={e.id} className="flex items-center gap-2 text-xs font-mono border-b border-border/30 py-1">
+                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${e.severity==="critical"?"bg-red-400":e.severity==="high"?"bg-orange-400":e.severity==="medium"?"bg-yellow-400":"bg-green-400"}`} />
+                        <span className="text-muted-foreground shrink-0">{format(new Date(e.createdAt),"HH:mm:ss")}</span>
+                        <span className="text-foreground truncate">{e.subtype}</span>
+                        <span className="text-muted-foreground shrink-0">→ {e.targetHost}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 text-muted-foreground text-xs">
+                  <AlertTriangle className="w-4 h-4 opacity-50" />
+                  No events found for {ipSearch.trim()} — IP may not be in the database yet.
+                </div>
+              )}
+            </div>
+          )}
+
           {hostsLoading ? (
             <p className="text-muted-foreground text-sm">Loading hosts...</p>
-          ) : hosts.length === 0 ? (
+          ) : !showIpAnalysis && hosts.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               <Monitor className="w-10 h-10 mx-auto mb-3 opacity-30" />
               <p className="text-sm">No hosts registered yet.</p>
               <p className="text-xs mt-1">Hosts appear when forwarder scripts connect from your VMs.</p>
             </div>
-          ) : (
+          ) : !showIpAnalysis && (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
