@@ -49,7 +49,6 @@ const BLOCKS: BlockDetail[] = [
     textColor: "text-green-400",
     subBlocks: [
       { name: "IDS/IPS", tools: ["Snort", "Suricata", "Auto Block IP", "iptables DROP", "Rule-based Detection"], color: "border-green-400/50 bg-green-900/30" },
-      { name: "Honeypot", tools: ["Cowrie SSH/Telnet", "Fake Services", "Trap Attacker", "Credential Logger", "Command Logger"], color: "border-green-400/50 bg-green-900/30" },
       { name: "Encryption", tools: ["AES-256", "RSA-2048", "PKI", "TLS/SSL", "Data Protection"], color: "border-green-400/50 bg-green-900/30" },
     ],
     workflow: [
@@ -57,9 +56,8 @@ const BLOCKS: BlockDetail[] = [
       { step: 2, action: "Signature Match", detail: "Compare packet against 30,000+ Suricata rules — ET Open ruleset" },
       { step: 3, action: "Alert Generate", detail: "Match found → write to /var/log/suricata/eve.json — EVE JSON format" },
       { step: 4, action: "Auto Block", detail: "Fail2ban reads auth.log → 5 failed SSH attempts → iptables -A INPUT -s ATTACKER_IP -j DROP" },
-      { step: 5, action: "Honeypot Trap", detail: "Cowrie listens on port 2222 → fake SSH accepts any password → logs all commands" },
-      { step: 6, action: "Forwarder Sends", detail: "aegis_forwarder.py reads logs → POST /api/ingest/suricata with X-AEGIS-Key header" },
-      { step: 7, action: "Dashboard Update", detail: "API stores to PostgreSQL → SSE broadcasts → Dashboard live update" },
+      { step: 5, action: "Forwarder Sends", detail: "aegis_forwarder.py reads logs → POST /api/ingest/suricata with X-AEGIS-Key header" },
+      { step: 6, action: "Dashboard Update", detail: "API stores to PostgreSQL → SSE broadcasts → Dashboard live update" },
     ],
     description: "Blue Team defense layer — Attack ဝင်လာတာကို detect, block, trap လုပ်ပြီး AEGIS Brain ဆီ log ပို့သည်"
   },
@@ -78,7 +76,7 @@ const BLOCKS: BlockDetail[] = [
     ],
     workflow: [
       { step: 1, action: "Log Ingest", detail: "Events arrive via POST /api/ingest/* — authenticated with X-AEGIS-Key header" },
-      { step: 2, action: "Parse & Normalize", detail: "API parses Snort/Suricata/Fail2ban/Cowrie formats → normalized SecurityEvent object" },
+      { step: 2, action: "Parse & Normalize", detail: "API parses Snort/Suricata/Fail2ban formats → normalized SecurityEvent object" },
       { step: 3, action: "Store to DB", detail: "INSERT INTO security_events → Supabase PostgreSQL via connection pooler (port 6543)" },
       { step: 4, action: "Auto-Defense Check", detail: "Event matches defense rule? → queue iptables/pfSense command → defense_agent.py picks up within 5s" },
       { step: 5, action: "Severity Score", detail: "Auto-classify: critical (exploit) / high (brute-force) / medium (scan) / low (probe)" },

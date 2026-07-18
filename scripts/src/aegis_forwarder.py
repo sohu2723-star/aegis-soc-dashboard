@@ -3,7 +3,7 @@
 AEGIS Forwarder — Ubuntu Blue Team Script
 ==========================================
 Runs on Ubuntu defense server. Forwards real events from:
-  Suricata, Snort, Fail2ban, Cowrie, SSH auth.log, FTP, ModSecurity
+  Suricata, Snort, Fail2ban, SSH auth.log, FTP, ModSecurity
 
 Usage:
     python3 aegis_forwarder.py --mode all
@@ -69,7 +69,7 @@ BANKWEB_IP     = _cfg("BANKWEB_IP",     "")
 CUSTOMERDB_IP  = _cfg("CUSTOMERDB_IP",  "")
 
 # Per-host sensor list — controls which log tailer threads are spawned per VM.
-# Sensors: suricata, snort, fail2ban, ssh, http, ftp, cowrie, postgresql
+# Sensors: suricata, snort, fail2ban, ssh, http, ftp, postgresql
 # Only include hosts whose IP is configured (non-empty).
 REMOTE_HOSTS = [h for h in [
     {
@@ -83,7 +83,6 @@ REMOTE_HOSTS = [h for h in [
             ("ssh",       "SSH Monitor",     "sensor"),
             ("apache2",   "Apache Monitor",  "sensor"),
             ("vsftpd",    "FTP Monitor",     "sensor"),
-            ("cowrie",    "Cowrie Honeypot", "sensor"),
         ],
     } if BANKWEB_IP else None,
     {
@@ -95,7 +94,6 @@ REMOTE_HOSTS = [h for h in [
             ("fail2ban",    "Fail2ban",            "sensor"),
             ("ssh",         "SSH Monitor",         "sensor"),
             ("postgresql",  "PostgreSQL Monitor",  "sensor"),
-            ("cowrie",      "Cowrie Honeypot",     "sensor"),
         ],
     } if CUSTOMERDB_IP else None,
 ] if h is not None]
@@ -835,21 +833,6 @@ def watch_modsecurity():
             current_ip = None
 
 
-# ─── COWRIE ───────────────────────────────────────────────────────────────────
-COWRIE_LOG = "/home/cowrie/cowrie/var/log/cowrie/cowrie.json"
-COWRIE_EVENTS = {"cowrie.login.failed", "cowrie.login.success", "cowrie.command.input", "cowrie.session.connect"}
-
-
-def watch_cowrie():
-    print(f"[COWRIE] Watching {COWRIE_LOG}")
-    for line in tail_file(COWRIE_LOG):
-        try:
-            evt = json.loads(line)
-            if evt.get("eventid") in COWRIE_EVENTS:
-                post("cowrie", evt)
-        except json.JSONDecodeError:
-            pass
-
 
 # ─── REMOTE MODE (hub SSHes into bank VMs) ───────────────────────────────────
 
@@ -1309,7 +1292,6 @@ def run_hub_mode():
       http       — /var/log/apache2/modsec_audit.log  (bank-web)
       ftp        — /var/log/vsftpd.log                (bank-web)
       postgresql — /var/log/postgresql/*.log           (customer-db)
-      cowrie     — cowrie.json honeypot log
     """
     _SENSOR_FN = {
         "suricata":   _watch_remote_suricata,
@@ -1391,7 +1373,6 @@ MODES = {
     "ssh":         watch_ssh,
     "ftp":         watch_ftp,
     "http":        watch_modsecurity,
-    "cowrie":      watch_cowrie,
 }
 
 if __name__ == "__main__":
@@ -1405,7 +1386,7 @@ Modes:
           runs the defense agent for ALL VMs.  One script, one machine, everything.
   all     Run all local sensors on THIS machine (normal forwarder mode).
   remote  Alias for hub (backward compat).
-  <name>  Run a single local sensor: suricata | snort | fail2ban | ssh | ftp | http | cowrie
+  <name>  Run a single local sensor: suricata | snort | fail2ban | ssh | ftp | http
 """,
     )
     parser.add_argument("--mode", choices=list(MODES.keys()) + ["all", "remote", "hub"], default="all")

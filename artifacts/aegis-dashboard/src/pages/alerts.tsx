@@ -62,7 +62,6 @@ const attackTypeLabel: Record<string, string> = {
   web:        "Web Attack",
   ssh:        "SSH Attack",
   ftp:        "FTP Attack",
-  cowrie:     "Honeypot Hit",
   tls:        "TLS Anomaly",
   fail2ban:   "Fail2ban Ban",
   malware:    "Malware",
