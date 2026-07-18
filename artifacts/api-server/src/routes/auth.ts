@@ -53,7 +53,7 @@ router.post("/auth/google", async (req, res) => {
       return;
     }
     if (payload.email !== ALLOWED_EMAIL) {
-      res.status(403).json({ error: `Access denied — ${payload.email} is not authorised` });
+      res.status(403).json({ error: "Access denied" });
       return;
     }
 
