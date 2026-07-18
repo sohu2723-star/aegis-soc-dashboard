@@ -177,7 +177,7 @@ function LoginInner() {
             {/* ── Google SSO ── */}
             <div className="space-y-2.5">
               <p className="text-[9px] font-mono text-muted-foreground/50 uppercase tracking-[0.2em]">
-                — SSO —
+                — Continue With Google —
               </p>
               <div className="flex justify-center">
                 <GoogleLogin
