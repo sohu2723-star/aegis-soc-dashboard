@@ -408,4 +408,128 @@ sudo systemctl restart aegis-forwarder
 
 ---
 
+---
+
+## 2026-07-19 — GNS3 Network Interface များ နားလည်မှု (virbr0 vs Bridge vs NAT)
+
+**Status:** ✅ Done  
+**What:** GNS3 NAT Cloud မှာ ဘယ် interface သုံးရမလဲ၊ virbr0/bridge/NAT ကွာခြားချက် နားလည်ပြီး မှတ်တမ်းတင်ခြင်း  
+**How:** Lab မေးခွန်းများမှ ရှင်းလင်းချက်  
+**Result:** virbr0 သာ GNS3 NAT cloud မှာ သုံးရမယ်ဆိုတာ confirm ဖြစ်တယ်  
+**Next:** virbr0 ကို GNS3 NAT cloud မှာ ထည့်ပြီး bank-web internet access ရယူ → Cowrie install ဆက်လုပ်
+
+---
+
+### virbr0 vs Bridge vs enp1s0 — ကွာခြားချက်
+
+#### virbr0 (libvirt NAT Bridge)
+
+libvirt (KVM/QEMU) က အလိုအလျောက် ဆောက်ပေးတဲ့ virtual NAT bridge ဖြစ်တယ်။
+
+```
+VM (192.168.122.x)
+       │
+   virbr0 (192.168.122.1)   ← host ရဲ့ virtual interface
+       │
+  iptables NAT (masquerade)
+       │
+  Host ရဲ့ real NIC (enp1s0)
+       │
+  Internet / LAN
+```
+
+- VM တွေကို `192.168.122.x` IP ပေးတယ် (DHCP)
+- VM ကနေ internet ထွက်ရင် host ရဲ့ IP နဲ့ NAT လုပ်ပြီး ထွက်တယ်
+- Outside ကနေ VM ကို တိုက်ရိုက် ဝင်လို့ **မရဘူး**
+- VMware ရဲ့ NAT mode နဲ့ အတူတူပဲ၊ libvirt version သာ ကွာတယ်
+
+စစ်ကြည့်နည်း (host မှာ):
+```bash
+ip addr show virbr0
+# → 192.168.122.1 ပြမယ်
+
+sudo iptables -t nat -L -n | grep 122
+# → MASQUERADE rule ပြမယ်
+```
+
+---
+
+#### enp1s0 (Physical NIC)
+
+`enp1s0` က software bridge **မဟုတ်ဘူး** — physical ethernet NIC (network card) ဖြစ်တယ်။  
+သို့သော် GNS3 NAT cloud မှာ enp1s0 သုံးရင် **bridge effect ဖြစ်တယ်** — NAT မပါဘဲ VM traffic ကို real LAN ထဲ တိုက်ရိုက် ထုတ်လိုက်တယ်။
+
+```
+enp1s0 GNS3 မှာ သုံးရင်:
+GNS3 VM ──► enp1s0 ──► Real LAN (192.168.1.x)
+              ↑
+         NAT မပါ = bridge လိုပဲ အလုပ်လုပ်
+```
+
+---
+
+#### NAT Layer နှစ်ထပ် (ပြည့်စုံတဲ့ picture)
+
+```
+Internet
+    │
+[ISP Router NAT]    ← LAN တစ်ခုလုံးကို internet ကနေ ကာတယ်
+    │
+Host PC (192.168.1.x)
+    │
+[virbr0 NAT]        ← VM တွေကို LAN ကနေ ကာတယ်
+    │
+GNS3 VM (192.168.122.x)
+```
+
+- **Router NAT** — Internet ↔ LAN ကြား ကာတယ်
+- **virbr0 NAT** — LAN ↔ VM ကြား ကာတယ်
+- နှစ်ခု မတူဘူး၊ တစ်ခုကနောက်တစ်ခု **အစားမထိုးနိုင်**
+
+---
+
+### GNS3 NAT Cloud — Interface ရွေးချယ်မှု
+
+GNS3 → NAT Cloud → Node Properties → Ethernet interfaces မှာ—
+
+| Interface | သုံးသင့်? | ဘာကြောင့် |
+|---|---|---|
+| `lo` | ❌ | Loopback — internet မရဘူး |
+| `enp1s0` | ⚠️ | Physical NIC — real LAN ထဲ bridge effect ဖြစ်မယ် |
+| `virbr0` | ✅ | NAT — safe, internet ရတယ်, LAN မထိ |
+| `wlp0s20f3` | ⚠️ | WiFi — ရပေမဲ့ unstable ဖြစ်နိုင် |
+
+**→ virbr0 သာ ရွေးပါ**
+
+---
+
+### Bridge Mode သုံးရင် ဘာဆိုးသလဲ
+
+Lab မှာ enp1s0 (bridge effect) သုံးမိရင်—
+
+```
+Kali → bank-web (real LAN IP ရတယ်) → Home Router, NAS, PC တွေ ← အန္တရာယ်
+```
+
+- Hydra, nmap, sqlmap attack တွေ real LAN device တွေကို ပါ ထိနိုင်တယ်
+- Suricata alert တွေ real internet traffic ကြောင့် noisy ဖြစ်မယ်
+- Lab isolated မဖြစ်တော့ဘူး
+
+**Lab မှာ bridge/enp1s0 မသုံးပါနဲ့ — virbr0 NAT သာ သုံးပါ။**
+
+---
+
+### Speed နှိုင်းယှဉ် (Bridge vs NAT)
+
+| | virbr0 (NAT) | Bridge (enp1s0) |
+|---|---|---|
+| Overhead | NAT translation ရှိ | တိုက်ရိုက် pass |
+| Latency | အနည်းငယ် မြင့် | နိမ့် |
+| Speed | အနည်းငယ် နှေး | ပိုမြန် |
+| Lab အတွက် | ✅ မကွာဘူး | ⚠️ Security risk |
+
+Lab attack/defense test အတွက် speed ကွာချင် မကွာဘူး — **security isolation ပိုအရေးကြီးတယ်**။
+
+---
+
 *Last updated: 2026-07-19*
