@@ -222,6 +222,39 @@ def _exec_defense_shell(command: str, cmd_id: int):
         _report_defense_result(cmd_id, False, str(e))
 
 
+def _exec_defense_pfsense_ssh(command: str, cmd_id: int):
+    """SSH into pfSense and run a raw shell command (e.g. easyrule block WAN <ip>).
+    Used when commandType == 'ssh_pfsense' — command_text is plain text, not JSON.
+    """
+    ssh_key = os.path.expanduser(PFSENSE_SSH_KEY)
+    ssh_cmd = [
+        "ssh", "-T",
+        "-i", ssh_key,
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "ConnectTimeout=10",
+        "-o", "BatchMode=yes",
+        f"{PFSENSE_SSH_USER}@{PFSENSE_IP}",
+        command,
+    ]
+    print(f"[defense] pfSense SSH → {PFSENSE_SSH_USER}@{PFSENSE_IP}: {command}")
+    try:
+        result = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=30)
+        if result.returncode == 0:
+            out = result.stdout.strip()
+            print(f"[defense] ✓ pfSense SSH OK: {out}")
+            _report_defense_result(cmd_id, True)
+        else:
+            err = (result.stderr.strip() or result.stdout.strip())[:300]
+            print(f"[defense] ✗ pfSense SSH failed: {err}")
+            _report_defense_result(cmd_id, False, err)
+    except subprocess.TimeoutExpired:
+        print("[defense] ✗ pfSense SSH timeout")
+        _report_defense_result(cmd_id, False, "SSH timeout")
+    except Exception as e:
+        print(f"[defense] ✗ pfSense SSH error: {e}")
+        _report_defense_result(cmd_id, False, str(e))
+
+
 def _exec_defense_pfsense(payload_json: str, cmd_id: int):
     """Execute pfSense firewall actions via SSH + easyrule/pfctl.
     No REST API package needed on pfSense — plain SSH key auth.
@@ -340,9 +373,14 @@ def _dispatch_defense_hub(cmd: dict):
 
     print(f"[defense-hub] Command #{cmd_id}: [{command_type}] vm={target_vm} ip={target_ip}")
 
-    # Route to pfSense REST API
-    if target_vm == "pfsense" or command_type == "pfsense_api":
-        _exec_defense_pfsense(command_text, cmd_id)
+    # Route to pfSense
+    if target_vm == "pfsense" or command_type in ("pfsense_api", "ssh_pfsense"):
+        if command_type == "ssh_pfsense":
+            # Plain-text easyrule/pfctl command — run directly via SSH
+            _exec_defense_pfsense_ssh(command_text, cmd_id)
+        else:
+            # JSON payload {"action":..., "ip":...} — pfSense REST API path
+            _exec_defense_pfsense(command_text, cmd_id)
         return
 
     # Route to bank VMs via SSH
