@@ -61,7 +61,7 @@ function Ts({ v }: { v: string }) {
 const defenseTypeLabels: Record<string, string> = {
   block_ip: "Block IP", null_route: "Null Route", rate_limit: "Rate Limit",
   port_block: "Port Block", dns_block: "DNS Block", waf_rule: "WAF Rule",
-  pfsense_block: "pfSense Block", pfsense_port_block: "pfSense Port Block", alert_only: "Alert Only",
+  pfsense_block: "pfSense SSH Block", pfsense_port_block: "pfSense SSH Port Block", alert_only: "Alert Only",
 };
 
 const statusColors: Record<string, string> = {
@@ -95,7 +95,7 @@ function RulesTab() {
   const [triggerWindow, setTriggerWindow]       = useState(60);
   const [actionType, setActionType]             = useState("auto");
   const [defenseType, setDefenseType]           = useState("block_ip");
-  const [targetVm, setTargetVm]                 = useState("bank-web");
+  const [targetVm, setTargetVm]                 = useState("ubuntu");
   const [priority, setPriority]                 = useState(100);
 
   const authHeaders = () => {
@@ -260,10 +260,9 @@ function RulesTab() {
                   <Select value={targetVm} onValueChange={setTargetVm}>
                     <SelectTrigger className="bg-background border-border text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="bank-web">bank-web (10.10.10.10)</SelectItem>
-                      <SelectItem value="customer-db">customer-db (10.20.20.20)</SelectItem>
-                      <SelectItem value="aegis">aegis (10.30.30.10)</SelectItem>
-                      <SelectItem value="all">all (every VM)</SelectItem>
+                      <SelectItem value="ubuntu">ubuntu (iptables — all Linux VMs)</SelectItem>
+                      <SelectItem value="pfsense">pfsense (SSH easyrule — WAN firewall)</SelectItem>
+                      <SelectItem value="all">all (ubuntu + pfsense)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

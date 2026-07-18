@@ -39,7 +39,15 @@ router.post("/defense/rules", requireAdmin, async (req, res) => {
   });
 
   const body = schema.safeParse(req.body);
-  if (!body.success) { res.status(400).json({ error: body.error.flatten() }); return; }
+  if (!body.success) {
+    const flat = body.error.flatten();
+    const msgs = [
+      ...flat.formErrors,
+      ...Object.entries(flat.fieldErrors).map(([f, errs]) => `${f}: ${(errs ?? []).join(", ")}`),
+    ];
+    res.status(400).json({ error: msgs.join(" | ") || "Validation failed" });
+    return;
+  }
 
   const [row] = await db.insert(defenseRulesTable).values({
     ...body.data,

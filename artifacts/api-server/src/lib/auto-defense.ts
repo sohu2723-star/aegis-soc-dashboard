@@ -111,33 +111,21 @@ function buildCommand(rule: DefenseRule, sourceIp: string, _eventId: number) {
     }
 
     case "pfsense_block":
+      // SSH into pfSense via forwarder and run easyrule (no REST API package needed)
       return {
-        commandType: "pfsense_api",
-        // Structured JSON — aegis_forwarder.py parses this and SSHes into pfSense
-        // to run "easyrule block WAN <ip>" (no REST API package needed).
-        // firewall rule. Only executed for actionType="auto" rules.
-        commandText: JSON.stringify({
-          action: "block_ip",
-          ip:     safeIp,
-          reason: rule.name,
-          ttl:    params.durationSecs,
-        }),
-        undoCommand: JSON.stringify({ action: "unblock_ip", ip: safeIp }),
+        commandType: "ssh_pfsense",
+        commandText: `easyrule block WAN ${safeIp}`,
+        undoCommand: `easyrule pass WAN ${safeIp}`,
       };
 
     case "pfsense_port_block": {
       const port  = sanitizePort(params.port || "80");
       const proto = sanitizeProtocol(params.protocol);
       return {
-        commandType: "pfsense_api",
-        commandText: JSON.stringify({
-          action:   "block_port",
-          ip:       safeIp,
-          port,
-          protocol: proto,
-          reason:   rule.name,
-        }),
-        undoCommand: JSON.stringify({ action: "unblock_port", ip: safeIp, port }),
+        commandType: "ssh_pfsense",
+        // pfSense easyrule doesn't support per-port; use pfctl table rule via SSH
+        commandText: `pfctl -t blocklist -T add ${safeIp} && echo "block in quick on em0 proto ${proto} from ${safeIp} to any port = ${port}" | pfctl -f -`,
+        undoCommand: `pfctl -t blocklist -T del ${safeIp}`,
       };
     }
 
@@ -414,7 +402,7 @@ export async function seedDefaultRules() {
       triggerAttackType: "port_scan", triggerSeverity: "any",
       triggerThreshold: 1, triggerWindowSecs: 60,
       actionType: "auto", defenseType: "block_ip",
-      targetVm: "bank-web", priority: 20, isActive: true,
+      targetVm: "ubuntu", priority: 20, isActive: true,
     },
     // ── FTP brute force — bank-web only (vsftpd on 10.10.10.10) ─────────────
     {
@@ -423,12 +411,12 @@ export async function seedDefaultRules() {
       triggerAttackType: "ftp_brute", triggerSeverity: "any",
       triggerThreshold: 3, triggerWindowSecs: 60,
       actionType: "auto", defenseType: "block_ip",
-      targetVm: "bank-web", priority: 12, isActive: true,
+      targetVm: "ubuntu", priority: 12, isActive: true,
     },
-    // ── pfSense WAN boundary blocks (defense_agent.py --vm pfsense) ──────────
+    // ── pfSense WAN boundary blocks (aegis_forwarder.py --vm pfsense via SSH) ─
     {
       name: "Critical Attack → pfSense Block",
-      description: "Critical severity attack → persistent block at pfSense WAN firewall via REST API. Requires defense_agent.py --vm pfsense on pfSense with PFSENSE_API_KEY set.",
+      description: "Critical severity attack → persistent block at pfSense WAN firewall via SSH easyrule. Requires aegis_forwarder.py --vm pfsense on a host with SSH access to pfSense.",
       triggerAttackType: "any", triggerSeverity: "critical",
       triggerThreshold: 1, triggerWindowSecs: 60,
       actionType: "auto", defenseType: "pfsense_block",
@@ -436,7 +424,7 @@ export async function seedDefaultRules() {
     },
     {
       name: "Web Attack → pfSense Block",
-      description: "High/critical web attack → persistent block at pfSense WAN boundary. Requires defense_agent.py --vm pfsense on pfSense.",
+      description: "High/critical web attack → persistent block at pfSense WAN boundary via SSH easyrule.",
       triggerAttackType: "web_attack", triggerSeverity: "high",
       triggerThreshold: 1, triggerWindowSecs: 60,
       actionType: "auto", defenseType: "pfsense_block",
@@ -444,7 +432,7 @@ export async function seedDefaultRules() {
     },
     {
       name: "FTP Brute → pfSense Block",
-      description: "FTP brute force ≥5 events in 2 min → persistent block at pfSense WAN via REST API. Requires defense_agent.py --vm pfsense.",
+      description: "FTP brute force ≥5 events in 2 min → persistent block at pfSense WAN via SSH easyrule.",
       triggerAttackType: "ftp_brute", triggerSeverity: "any",
       triggerThreshold: 5, triggerWindowSecs: 120,
       actionType: "auto", defenseType: "pfsense_block",

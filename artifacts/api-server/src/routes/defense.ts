@@ -50,13 +50,11 @@ router.post("/defense/block", async (req, res) => {
     status:      "success",
   });
 
-  // Also push the block out to the real infrastructure — queue commands for
-  // whichever agents are polling (Ubuntu VM iptables + pfSense REST API).
-  // defense_agent.py claims these via GET /defense/commands/pending and
-  // executes them; if no agent is running yet the commands just sit as
-  // "pending" and cause no harm.
+  // Push block to infrastructure agents — Ubuntu iptables + pfSense SSH.
+  // defense_agent.py / aegis_forwarder.py claims these via GET /defense/commands/pending.
   try {
     const safeIp = sanitizeIp(body.data.ip);
+    // Ubuntu VM: iptables
     await db.insert(defenseCommandsTable).values({
       targetVm:    "ubuntu",
       commandType: "iptables",
@@ -65,11 +63,12 @@ router.post("/defense/block", async (req, res) => {
       targetIp:    safeIp,
       status:      "pending",
     });
+    // pfSense: SSH easyrule (no REST API — forwarder SSHes into pfSense)
     await db.insert(defenseCommandsTable).values({
       targetVm:    "pfsense",
-      commandType: "pfsense_api",
-      commandText: JSON.stringify({ action: "block_ip", ip: safeIp, reason: body.data.reason }),
-      undoCommand: JSON.stringify({ action: "unblock_ip", ip: safeIp }),
+      commandType: "ssh_pfsense",
+      commandText: `easyrule block WAN ${safeIp}`,
+      undoCommand: `easyrule pass WAN ${safeIp}`,
       targetIp:    safeIp,
       status:      "pending",
     });
@@ -99,6 +98,7 @@ router.delete("/defense/block/:ip", async (req, res) => {
 
   try {
     const safeIp = sanitizeIp(ip);
+    // Ubuntu VM: remove iptables rule
     await db.insert(defenseCommandsTable).values({
       targetVm:    "ubuntu",
       commandType: "iptables",
@@ -106,10 +106,11 @@ router.delete("/defense/block/:ip", async (req, res) => {
       targetIp:    safeIp,
       status:      "pending",
     });
+    // pfSense: SSH easyrule pass (re-allow)
     await db.insert(defenseCommandsTable).values({
       targetVm:    "pfsense",
-      commandType: "pfsense_api",
-      commandText: JSON.stringify({ action: "unblock_ip", ip: safeIp }),
+      commandType: "ssh_pfsense",
+      commandText: `easyrule pass WAN ${safeIp}`,
       targetIp:    safeIp,
       status:      "pending",
     });

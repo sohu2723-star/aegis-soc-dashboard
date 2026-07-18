@@ -326,7 +326,14 @@ export default function Defense() {
           targetVm: rec.targetVm, priority: rec.priority, isActive: true,
         }),
       });
-      if (!r.ok) { const e = await r.json(); throw new Error(e.error ?? "Failed"); }
+      if (!r.ok) {
+        const e = await r.json();
+        const msg = typeof e.error === "string" ? e.error
+          : e.error?.fieldErrors
+            ? Object.entries(e.error.fieldErrors).map(([f, v]) => `${f}: ${(v as string[]).join(", ")}`).join(" | ")
+            : JSON.stringify(e.error ?? "Failed");
+        throw new Error(msg);
+      }
       setAppliedRules(prev => new Set([...prev, rec.name]));
       toast({ title: "Rule Applied", description: `"${rec.name}" — Defense Rules page မှာ ကြည့်နိုင်သည်` });
     } catch (err: any) {
