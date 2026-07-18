@@ -231,4 +231,128 @@ Code edit (Replit) → git push (gitPush callback) → GitHub main
 
 ---
 
+---
+
+## [2026-07-18] — pfSense SSH Bridge Implementation & Defense System Testing
+
+**Status:** ✅ Done  
+**What:** pfSense firewall ကို dashboard ကနေ control လုပ်ဖို့ REST API approach ကနေ SSH + `easyrule` approach သို့ ပြောင်းလဲ implement လုပ်ခဲ့တယ်။ Block/Unblock အပြည့်အဝ test ပြီး အောင်မြင်တယ်။
+
+---
+
+### ဘာကြောင့် REST API မသုံးတော့ဘဲ SSH သုံးသလဲ
+
+pfSense REST API သုံးဖို့ pfSense မှာ **"pfSense-API" community package** install လုပ်ထားဖို့ လိုတယ်။ ဒါ default မပါဘဲ install ခက်ခဲနိုင်တယ်။ SSH + `easyrule` ကတော့ pfSense built-in ဆိုတော့ package မလိုဘဲ SSH ဖွင့်ရုံနဲ့ အလုပ်လုပ်တယ်။
+
+---
+
+### Implementation
+
+**Flow:**
+```
+Dashboard → AEGIS API (Render) → defense_commands table
+    → aegis_forwarder.py (10.30.30.10) polls
+    → SSH → pfSense (10.30.30.1)
+    → easyrule block WAN <ip>
+    → Firewall → Rules → WAN မှာ static rule ပေါ်လာ
+```
+
+**Code change** (`scripts/src/aegis_forwarder.py`):
+- `PFSENSE_SSH_KEY` = `/home/sithu/.ssh/pfsense_key`
+- `PFSENSE_SSH_USER` = `admin`
+- `_exec_defense_pfsense()` function — REST API calls အားလုံး ဖျက်၊ SSH + easyrule နဲ့ replace
+
+**Commands:**
+| Action | SSH Command |
+|---|---|
+| block_ip | `easyrule block WAN <ip>` |
+| unblock_ip | `easyrule unblock WAN <ip>` |
+| block_port | `easyrule block WAN <ip> <port> <proto>` |
+
+**`commandType: "pfsense_api"`** — forwarder dispatch routing label အနေနဲ့ ကျန်ထားတယ် (command JSON payload ကို parse ပြီး SSH execute လုပ်တယ်)။
+
+---
+
+### pfSense Setup (One-time)
+
+```bash
+# AEGIS VM (10.30.30.10) မှာ
+ssh-keygen -t ed25519 -f ~/.ssh/pfsense_key -N ""
+cat ~/.ssh/pfsense_key.pub   # copy ယူ → pfSense ထဲ paste
+```
+
+pfSense Web UI:
+- **System → Advanced → Admin Access** → Enable Secure Shell ✅
+- **System → User Manager → admin → Edit → Authorized SSH Keys** → public key paste → Save
+
+```bash
+# aegis_forwarder.local.conf မှာ
+PFSENSE_SSH_KEY=/home/sithu/.ssh/pfsense_key
+PFSENSE_SSH_USER=admin
+PFSENSE_IP=10.30.30.1
+# PFSENSE_API_KEY= မလိုတော့ဘူး (SSH သုံးတာဆိုတော့)
+```
+
+**Script update လုပ်နည်း (IMPORTANT):**
+Ubuntu VM မှာ `git pull` **မအလုပ်လုပ်ဘူး** — `wget` သုံးရမယ်—
+```bash
+wget -O /opt/aegis/scripts/src/aegis_forwarder.py \
+  https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/scripts/src/aegis_forwarder.py
+```
+
+---
+
+### Test Results ✅
+
+```
+# Block test
+[defense-hub] Command #X: [pfsense_api] vm=pfsense ip=192.168.122.132
+[defense] pfSense SSH → admin@10.30.30.1: easyrule block WAN 192.168.122.132
+[defense] ✓ pfSense block_ip 192.168.122.132 OK
+
+# Unblock test
+[defense] pfSense SSH → admin@10.30.30.1: easyrule unblock WAN 192.168.122.132
+[defense] ✓ pfSense unblock_ip 192.168.122.132 OK
+```
+
+pfSense **Firewall → Rules → WAN** မှာ `EasyRuleBlockHostsWAN` rule ပေါ်လာတယ် ✅
+
+**Note:** `easyrule` က pfSense `config.xml` ထဲ rule ရေးတာဆိုတော့ reboot ရင်လည်း rule ကျန်နေတယ် (persistent static rule)။ Unblock လုပ်ရင် IP က table ထဲကပျောက်တယ်၊ rule row ကတော့ ကျန်နေနိုင်တယ် — ဒါ pfSense normal behavior ဖြစ်တယ်၊ block မဖြစ်တော့ဘူး။
+
+---
+
+### Defense System Architecture (အကျဉ်းချုပ်)
+
+Dashboard မှာ firewall control လုပ်နည်း ၃ မျိုး—
+
+**① Defense Center → Block IP**
+- Manual, ချက်ချင်း
+- pfSense WAN layer ကနေ block → network ဝင်ပေါက်မှာပဲ ဖြတ် → VM အားလုံးသို့ မရောက်နိုင်
+
+**② Defense Rules → Auto Defense Rules**
+- Attack pattern threshold ပြည့်ရင် အလိုအလျောက် trigger
+- `targetVm = pfsense` → pfSense WAN block
+- `targetVm = ubuntu` → Ubuntu iptables block
+
+**③ Defense Rules → ADD FIREWALL RULE**
+- Ubuntu VM iptables manual rule
+- Port-specific block ဖြစ်နိုင် (SSH ပဲ, web ပဲ စသည်)
+- Ubuntu VM တစ်ခုတည်းသာ သက်ရောက်
+
+**pfSense block vs Ubuntu iptables block:**
+| | pfSense block | Ubuntu iptables |
+|---|---|---|
+| Layer | Network (WAN) | OS |
+| သက်ရောက်မည်သူ | VM အားလုံး | Ubuntu တစ်ခုတည်း |
+| Port-specific | ❌ | ✅ |
+| ပိုထိရောက် | ✅ | — |
+
+---
+
+### Known Issues
+
+- `customer-db` VM မှာ PostgreSQL install မရသေးဘူး (`postgresql.service not found`) → `sudo apt install -y postgresql postgresql-contrib` လိုအပ်သေးတယ်
+
+---
+
 *Last updated: 2026-07-18*
