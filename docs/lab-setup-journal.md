@@ -664,6 +664,182 @@ ping -c 3 8.8.8.8
 
 ---
 
+## 2026-07-19 — OVS Switch VLAN Setup + pfSense VLAN Sub-Interface + Firewall Rules
+
+**Status:** ✅ Done  
+**What:** GNS3 topology မှာ OVS switch ၂ ခု (Public-Services, Internal-Services) ထည့်ပြီး VLAN 10/20 ခွဲ၊ pfSense VLAN sub-interface config လုပ်၊ firewall rules ထည့်ကာ attacker → internal network block လုပ်  
+**Result:** Kali → bank-web ✅ reach ရ၊ Kali → customer-db ❌ pfSense block ဖြစ် — VLAN separation အလုပ်လုပ်တယ်
+
+---
+
+### Topology ပြောင်းလဲချက် (v3 → v3.1)
+
+| မူလ | ခု |
+|---|---|
+| pfSense e1 တိုက်ရိုက် bank-web | pfSense e1 → Public-Services OVS → bank-web |
+| pfSense e2 တိုက်ရိုက် customer-db | pfSense e2 → Internal-Services OVS → customer-db |
+| pfSense em1: plain interface | pfSense em1.10: VLAN 10 sub-interface |
+| pfSense em2: plain interface | pfSense em2.20: VLAN 20 sub-interface |
+
+**ရည်ရွယ်ချက်:** OVS switch က L2 VLAN ခွဲ၊ pfSense firewall rule က L3 access control လုပ် — attacker က Public zone (bank-web) ကို attack လုပ်လို့ရ၊ Internal zone (customer-db) ကို access မရအောင် ကာကွယ်
+
+---
+
+### Step 1 — OVS-Public Switch Config (VLAN 10)
+
+**GNS3 → Public-Services node → Console**
+
+```bash
+# br0 နဲ့ port တွေ auto-created ဖြစ်နေတယ် — add-br / add-port မလုပ်ရဘူး
+# set သာ လုပ်ရမယ်
+
+ovs-vsctl set port eth0 vlan-mode=trunk trunks=10   # pfSense ဘက် — trunk
+ovs-vsctl set port eth1 vlan-mode=access tag=10      # bank-web ဘက် — access VLAN 10
+ovs-vsctl show
+```
+
+**Expected output:**
+```
+Bridge br0
+    Port eth0
+        trunks: [10]
+    Port eth1
+        tag: 10
+```
+
+---
+
+### Step 2 — OVS-Internal Switch Config (VLAN 20)
+
+**GNS3 → Internal-Services node → Console**
+
+```bash
+ovs-vsctl set port eth0 vlan-mode=trunk trunks=20   # pfSense ဘက် — trunk
+ovs-vsctl set port eth1 vlan-mode=access tag=20      # customer-db ဘက် — access VLAN 20
+ovs-vsctl show
+```
+
+**Expected output:**
+```
+Bridge br0
+    Port eth0
+        trunks: [20]
+    Port eth1
+        tag: 20
+```
+
+---
+
+### ⚠️ OVS Gotcha — မှတ်သားရမည်
+
+OVS GNS3 image မှာ `br0` နဲ့ `eth0`–`eth7` **auto-created** ဖြစ်နေတယ်:
+- `ovs-vsctl add-br br0` → **error**: bridge named br0 already exists
+- `ovs-vsctl add-port br0 eth0` → **error**: port named eth0 already exists
+
+**Fix:** `add-br` / `add-port` မသုံးနဲ့ — `ovs-vsctl set port <name> ...` သာ သုံးရမယ်
+
+---
+
+### Step 3 — pfSense VLAN Sub-Interfaces Create
+
+**pfSense Web UI:** `https://10.30.30.1` (aegis ကနေ browser ဖွင့်)
+
+**Interfaces → Assignments → VLANs tab → + Add**
+
+| | VLAN 10 | VLAN 20 |
+|---|---|---|
+| Parent interface | `em1` | `em2` |
+| VLAN tag | `10` | `20` |
+| Description | `PUBLIC` | `INTERNAL` |
+
+Save
+
+> ⚠️ pfSense 2.7.2 မှာ VLANs က **Interfaces → Assignments → VLANs tab** အောက်မှာရှိတယ် — Interfaces dropdown မှာ မပေါ်ဘူး
+
+---
+
+### Step 4 — Interface Assignments ပြောင်း
+
+**Interfaces → Assignments (Interface Assignments tab)**
+
+| Interface | Network Port (ပြောင်းမယ်) |
+|---|---|
+| LAN | `VLAN 10 on em1 - lan (PUBLIC)` |
+| BANK_WEB | `VLAN 20 on em2 - opt1 (INTERNAL)` |
+| CUSTOMER_DB | `em3` (မပြောင်းဘူး — aegis management) |
+
+Save → Apply Changes
+
+**Interface IPs (ကျန်တူတူပဲ):**
+- LAN (em1.10): `10.10.10.1/24`
+- BANK_WEB (em2.20): `10.20.20.1/24`
+- CUSTOMER_DB (em3): `10.30.30.1/24`
+
+---
+
+### Step 5 — Firewall Rules
+
+**Firewall → Rules → WAN → + Add**
+
+| Rule | Action | Protocol | Source | Destination | Description |
+|---|---|---|---|---|---|
+| 1 | Block | **Any** | * | `10.20.20.0/24` | Block attacker from Internal |
+| 2 | Pass | **Any** | * | `10.10.10.0/24` | Allow attacker to bank-web |
+
+Apply Changes
+
+> ⚠️ **Protocol = Any** ဖြစ်ရမယ် — TCP သာ ထားရင် ICMP (ping) မဖြတ်ဘူး၊ ALLOW rule ကို bypass ဖြစ်မသွားဘူး
+
+---
+
+### Step 6 — VM Gateway Verify
+
+**bank-web:**
+```bash
+ip route show | grep default
+# default via 10.10.10.1 dev ens3 ← ✅
+```
+
+**customer-db:**
+```bash
+ip route show | grep default
+# default via 10.20.20.1 ← ✅
+```
+
+---
+
+### Step 7 — Final Verification
+
+**Kali ကနေ test:**
+```bash
+ping -c 3 10.10.10.10   # bank-web   → ✅ reach ရ (ALLOW rule)
+ping -c 3 10.20.20.20   # customer-db → ❌ blocked (BLOCK rule)
+```
+
+**Result:** ✅ VLAN separation + firewall rules အလုပ်လုပ်တယ်
+
+---
+
+### Architecture Summary (Post-Setup)
+
+```
+Kali (192.168.10.99)
+    │
+    ▼ Router → pfSense WAN (10.0.23.2)
+    │
+    ├─ ALLOW ──► pfSense em1.10 (VLAN 10)
+    │               └─ OVS-Public (trunk eth0 / access eth1)
+    │                   └─ bank-web (10.10.10.10)    ← attack target ✅
+    │
+    └─ BLOCK ──► pfSense em2.20 (VLAN 20)
+                    └─ OVS-Internal (trunk eth0 / access eth1)
+                        └─ customer-db (10.20.20.20)  ← protected ❌
+```
+
+**Next:** Dashboard Defense Center ကနေ block/unblock rule control လုပ်ခြင်း + Attack demo ဆင်းခြင်း
+
+---
+
 ## 2026-07-19 — Render + Vercel Deployment Guide စစ်ဆေး
 
 **Status:** ✅ Done  
