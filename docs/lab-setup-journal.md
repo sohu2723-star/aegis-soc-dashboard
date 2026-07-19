@@ -850,6 +850,103 @@ Kali (192.168.10.99)
 
 ---
 
+## 2026-07-19 — Network Switch Types ရှင်းလင်းချက်
+
+### L2 Managed Switch vs L3 Multi-layer Switch
+
+| | L2 Managed Switch | L3 Multi-layer Switch |
+|---|---|---|
+| **VLAN** | ✅ ရတယ် | ✅ ရတယ် |
+| **Inter-VLAN Routing** | ❌ မရဘူး (router လိုတယ်) | ✅ switch ထဲမှာပဲ ရတယ် |
+| **ACL** | Limited | ✅ Full ACL |
+| **Config ရေးတဲ့နေရာ** | port/VLAN setting သာ | routing + ACL ထဲမှာပါ ရေးနိုင် |
+| **GNS3 example** | OVS | Cisco IOSvL2 / c3725 |
+
+### ခု Lab မှာ သုံးနေတာ
+
+```
+OVS-Public / OVS-Internal  = L2 Managed Switch (VLAN tagging သာ)
+pfSense                    = Router + Firewall (inter-VLAN routing + ACL)
+```
+
+**OVS သည် L2 switch** ဖြစ်တဲ့အတွက် routing မလုပ်နိုင်ဘူး — pfSense က VLAN sub-interface (em1.10, em2.20) ဖြင့် inter-VLAN routing လုပ်ပေးတယ်။
+
+### L3 Switch သုံးလို့ ရတဲ့အခြေအနေ
+
+GNS3 မှာ Cisco IOSvL2 (`.qcow2`) image ရှိရင် L3 switch ထည့်ပြီး switch ထဲမှာပဲ config ရေးနိုင်:
+
+```cisco
+! VLAN ဖန်တီး
+vlan 10
+vlan 20
+
+! SVI — inter-VLAN routing
+interface vlan 10
+  ip address 10.10.10.1 255.255.255.0
+interface vlan 20
+  ip address 10.20.20.1 255.255.255.0
+
+! ACL — Internal ကို block
+ip access-list extended BLOCK-INTERNAL
+  deny ip 192.168.10.0 0.0.0.255 10.20.20.0 0.0.0.255
+  permit ip any any
+
+interface vlan 10
+  ip access-group BLOCK-INTERNAL in
+```
+
+pfSense မပါဘဲ switch တစ်ခုတည်းနဲ့ VLAN + routing + firewall ACL အကုန် ဖြေရှင်းနိုင်တယ်။
+
+---
+
+## 2026-07-19 — pfSense Control Method: SSH Remote (API မဟုတ်)
+
+### စစ်ဆေးချက်
+
+AEGIS dashboard ကနေ pfSense ကို control တဲ့နည်းလမ်းကို codebase စစ်ဆေးခဲ့တယ်။
+
+**ရလဒ် — SSH Remote သုံးနေတယ် (pfSense REST API package မဟုတ်)**
+
+### အလုပ်လုပ်ပုံ
+
+```
+Dashboard → API Server → defense_commands table
+                              ↓
+                    aegis_forwarder.py (Aegis VM မှာ run)
+                              ↓
+                    SSH → pfSense → easyrule command
+```
+
+### Code Evidence (`auto-defense.ts`, `defense.ts`)
+
+```typescript
+// pfSense block
+commandType: "ssh_pfsense",
+commandText: `easyrule block WAN ${ip}`
+
+// pfSense unblock
+commandType: "ssh_pfsense",
+commandText: `easyrule pass WAN ${ip}`
+```
+
+### ကုဒ် comment (auto-defense.ts)
+```
+// SSH into pfSense via forwarder and run easyrule (no REST API package needed)
+```
+
+### ဘာကြောင့် SSH သုံးတာလဲ
+
+| | pfSense REST API | SSH + easyrule |
+|---|---|---|
+| Extra package | pfSense-pkg-API install လိုတယ် | မလိုဘူး |
+| Setup | Token generate, HTTPS config | SSH key/password သာ |
+| Reliability | Package version ပေါ် မူတည် | pfSense built-in command |
+| ခု Lab မှာ | ❌ မသုံးဘူး | ✅ သုံးနေတယ် |
+
+**`aegis_forwarder.py`** က `defense_commands` table ကို poll လုပ်ပြီး `ssh_pfsense` commandType တွေ့ရင် pfSense ထဲ SSH ဝင်ကာ `easyrule` run တယ်။
+
+---
+
 ## 2026-07-19 — pfSense WAN Firewall Rule Fix (BLOCK INTERNAL မအလုပ်လုပ်တဲ့ ပြဿနာ)
 
 **Status:** ✅ Fixed  
