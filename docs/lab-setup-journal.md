@@ -847,3 +847,83 @@ Kali (192.168.10.99)
 **How:** `pnpm --filter @workspace/api-server run build` run ကြည့်၊ render.yaml + vercel.json စစ်ဆေး  
 **Result:** API build clean (warnings only, no errors). Config files ၂ ခုလုံး ready ဖြစ်တယ်။ Render မှာ env vars ၃ ခု (`SUPABASE_DB_URL`, `AEGIS_INGEST_KEY`, `AEGIS_ADMIN_KEY`) ထည့်ပေးဖို့ ကျန်တယ်  
 **Next:** Render → Blueprint (render.yaml) သုံးပြီး deploy၊ Vercel → GitHub repo connect ပြီး deploy
+
+---
+
+## 2026-07-19 — pfSense WAN Firewall Rule Fix (BLOCK INTERNAL မအလုပ်လုပ်တဲ့ ပြဿနာ)
+
+**Status:** ✅ Fixed  
+
+### ပြဿနာ
+- pfSense WAN tab မှာ BLOCK INTERNAL rule ထည့်ထားသော်လည်း Kali ကနေ `ping 10.20.20.20` (customer-db) ကို ဖြတ်သန်းနေတယ်
+
+### Root Cause (၂ ခု)
+
+**1. Protocol = TCP သာ ဖြစ်နေတယ်**
+- ping သည် ICMP ဆိုတော့ TCP rule မှာ match မဖြစ်ဘူး → skip ဖြစ်သွားတယ်
+
+**2. "Allow any" rule ရှိနေတယ်**
+- Source: `192.168.10.0/24` (Kali subnet) ကနေ ဘယ် destination မဆို allow လုပ်တဲ့ rule
+- pfSense က top-down first-match ဆိုတော့ BLOCK rule skip ပြီး "Allow any" rule မှာ match ဖြစ်ကာ ping ဖြတ်သွားတယ်
+
+### Fix
+
+**WAN Rules ကို အောက်ပါအတိုင်း ပြင်:**
+
+| # | Action | Protocol | Destination | Description |
+|---|---|---|---|---|
+| 1 | Block | **Any** | 10.20.20.0/24 | BLOCK INTERNAL |
+| 2 | Pass | **Any** | 10.10.10.0/24 | ALLOW PUBLIC |
+
+- "Allow any" rule (source 192.168.10.0/24) → **Delete**
+- BLOCK INTERNAL + ALLOW PUBLIC Protocol → **Any** (TCP မဟုတ်ဘဲ)
+- pfSense default policy က implicit deny ဆိုတော့ rule ၂ ကြောင်းသာ ထားရမယ်
+
+### ရလဒ်
+- `ping 10.10.10.10` → ✅ Reply (bank-web reach ရတယ်)
+- `ping 10.20.20.20` → ❌ Blocked (customer-db ကာကွယ်ပြီး)
+
+---
+
+## 2026-07-19 — GNS3 Docker 409 Conflict Error Fix + Permanent Solution
+
+**Status:** ✅ Fixed  
+
+### ပြဿနာ
+GNS3 ပြန်ဖွင့်တိုင်း CRITICAL error ထွက်:
+```
+Docker has returned an error: 409 Conflict.
+The container name "/GNS3.Public-Services.xxxx" is already in use by container "c001ba20cb77..."
+You have to remove (or rename) that container to be able to reuse that name.
+```
+
+### Root Cause
+GNS3 ကို properly stop မလုပ်ဘဲ ပိတ်လိုက်ရင် Docker container တွေ background မှာ `Exited` state နဲ့ ကျန်ရစ်တယ်။ နောက်ကြိမ် GNS3 ဖွင့်ရင် same name ဖြင့် container အသစ် create လုပ်ဖို့ ကြိုးစားတဲ့အခါ conflict ဖြစ်တယ်။
+
+### One-time Fix (ဖြစ်ပြီးသားအခြေအနေမှာ)
+```bash
+# Public-Services container ရှာပြီး ဖျက်
+docker ps -a | grep "Public-Services"
+docker rm -f <container_id>
+
+# သို့မဟုတ် GNS3 container အကုန်တစ်ကြိမ်တည်း ဖျက်
+docker ps -a | grep GNS3 | awk '{print $1}' | xargs -r docker rm -f
+```
+
+### Permanent Fix — Bash Alias
+`~/.bashrc` မှာ alias ထည့်ထားတာဆိုတော့ GNS3 ဖွင့်တိုင်း auto-clean ဖြစ်တယ်:
+
+```bash
+echo "alias gns3='docker ps -a | grep GNS3 | awk \"{print \$1}\" | xargs -r docker rm -f; /usr/bin/gns3'" >> ~/.bashrc && source ~/.bashrc
+```
+
+**နောက်ကြိမ်ကစပြီး GNS3 ဖွင့်ချင်ရင်:**
+```bash
+gns3
+```
+→ GNS3 container တွေ အကုန် auto-remove + GNS3 launch တစ်ပြိုင်တည်း ဖြစ်သွားတယ်
+
+### မှတ်ချက်
+- Docker container ဖျက်တာသည် GNS3 project file (`.gns3`) ကို မထိဘူး
+- Topology, node config, IP settings အားလုံး disk မှာ ကျန်တယ်
+- GNS3 ပြန်ဖွင့်ရင် project အတိုင်း ပြန် load ဖြစ်ပြီး nodes start ပြန်လုပ်လို့ ရတယ်
