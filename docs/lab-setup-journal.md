@@ -597,3 +597,13 @@ Lab attack/defense test အတွက် speed ကွာချင် မကွာ
 | DB attack | hydra / sqlmap | customer-db | PostgreSQL Monitor + Suricata |
 
 *Last updated: 2026-07-19*
+
+---
+
+## 2026-07-19 — Render + Vercel Deployment Guide စစ်ဆေး
+
+**Status:** ✅ Done  
+**What:** Production deployment config (render.yaml + vercel.json) မှန်ကန်ကြောင်း verify လုပ်ပြီး deployment steps ရေး  
+**How:** `pnpm --filter @workspace/api-server run build` run ကြည့်၊ render.yaml + vercel.json စစ်ဆေး  
+**Result:** API build clean (warnings only, no errors). Config files ၂ ခုလုံး ready ဖြစ်တယ်။ Render မှာ env vars ၃ ခု (`SUPABASE_DB_URL`, `AEGIS_INGEST_KEY`, `AEGIS_ADMIN_KEY`) ထည့်ပေးဖို့ ကျန်တယ်  
+**Next:** Render → Blueprint (render.yaml) သုံးပြီး deploy၊ Vercel → GitHub repo connect ပြီး deploy
