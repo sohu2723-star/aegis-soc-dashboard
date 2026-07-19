@@ -1024,3 +1024,133 @@ gns3
 - Docker container ဖျက်တာသည် GNS3 project file (`.gns3`) ကို မထိဘူး
 - Topology, node config, IP settings အားလုံး disk မှာ ကျန်တယ်
 - GNS3 ပြန်ဖွင့်ရင် project အတိုင်း ပြန် load ဖြစ်ပြီး nodes start ပြန်လုပ်လို့ ရတယ်
+
+---
+
+## 2026-07-19 — Future Bank Services Plan (Final Internship Project)
+
+**Status:** 📋 Planned (not yet implemented)
+**Context:** Final internship project — 2 person team. ခု ရှိပြီးသား system ကို base အဖြစ်ထား၍ realistic bank SOC topology ဖြစ်အောင် ဆက်တိုက် ထည့်မည်။
+
+---
+
+### Real Bank Network Segmentation (Target Architecture)
+
+Real bank မှာ services တွေကို security level အရ VLAN ခွဲထားတယ်:
+
+```
+pfSense
+├── VLAN 10 — DMZ/Public (10.10.10.0/24)     ← Internet ကနေ reach နိုင်
+│   ├── bank-web      10.10.10.10  ✅ Done
+│   ├── dns-server    10.10.10.20  📋 Planned
+│   └── mail-mx       10.10.10.30  📋 Planned
+│
+├── VLAN 20 — Internal (10.20.20.0/24)        ← Staff only, internet block
+│   ├── customer-db   10.20.20.10  ✅ Done
+│   ├── cctv-nvr      10.20.20.20  📋 Planned
+│   ├── voip-pbx      10.20.20.30  📋 Planned
+│   └── ad-server     10.20.20.40  📋 Planned
+│
+└── MGMT — Management (10.30.30.0/24)         ← Admin/SOC only
+    └── aegis-forwarder 10.30.30.10  ✅ Done
+```
+
+**Firewall logic (Real-world aligned):**
+- Kali → VLAN 10 ✅ (DMZ — attacker can try)
+- Kali → VLAN 20 ❌ (Internal — blocked by pfSense)
+- VLAN 10 → VLAN 20 ❌ (DMZ cannot reach internal DB)
+
+---
+
+### Future Services — Priority Order
+
+#### 🔴 Priority 1 — ထည့်ရလွယ်၊ demo impact ကြီး
+
+**DNS Server (BIND9)** — VLAN 10, IP: 10.10.10.20
+- Ubuntu VM + BIND9
+- Attack: DNS amplification, zone transfer, tunneling
+- Log: `/var/log/named/queries.log`
+- Dashboard: DNS flood alert, suspicious query alert
+
+**Email MX (Postfix)** — VLAN 10, IP: 10.10.10.30
+- Ubuntu VM + Postfix
+- Attack: SMTP relay abuse, phishing flood, spam
+- Log: `/var/log/mail.log`
+- Dashboard: Mail anomaly, relay abuse alert
+
+#### 🟡 Priority 2 — Visual impact ကြီး (Demo impressive)
+
+**CCTV/NVR Server** — VLAN 20, IP: 10.20.20.20
+- Ubuntu VM + ffmpeg RTSP stream
+- Real/fake video stream (vlc နဲ့ ကြည့်လို့ ရ)
+- Attack: RTSP brute force, unauthorized access, DoS
+- Dashboard: Camera offline alert, unauthorized stream access
+- Demo: Kali မြင်လို့ ရတဲ့ stream → block → stream ပြတ်
+
+**VoIP PBX (Asterisk)** — VLAN 20, IP: 10.20.20.30
+- Ubuntu VM + Asterisk SIP server
+- Attack: SIP flood, registration hijack, toll fraud
+- Log: `/var/log/asterisk/messages`
+- Dashboard: SIP anomaly, call volume spike alert
+
+#### 🟠 Priority 3 — Advanced (Extension)
+
+**Active Directory (Samba4)** — VLAN 20, IP: 10.20.20.40
+- Ubuntu VM + Samba4
+- Attack: Pass-the-hash, Kerberos brute force, LDAP enum
+- Dashboard: Auth failure flood, privilege escalation
+
+---
+
+### Dashboard Control — ဘယ်ဟာအားလုံး Control ရတယ်
+
+Service အားလုံးကို dashboard ကနေ **security level** မှာ control ရတယ်:
+
+```
+Service မှာ Attack ဖြစ်
+        ↓
+Dashboard Alert ထွက်
+        ↓
+Auto-defense / Manual Block
+        ↓
+pfSense → easyrule block WAN <attacker_ip>
+VM      → iptables DROP <attacker_ip>
+```
+
+| Service | Monitor | Block Attacker | Auto-defense |
+|---|---|---|---|
+| bank-web | ✅ | ✅ | ✅ (ရှိပြီး) |
+| customer-db | ✅ | ✅ | ✅ (ရှိပြီး) |
+| CCTV | ✅ | ✅ | 📋 rule ထည့်ရမည် |
+| VoIP | ✅ | ✅ | 📋 rule ထည့်ရမည် |
+| DNS | ✅ | ✅ | 📋 rule ထည့်ရမည် |
+| Mail | ✅ | ✅ | 📋 rule ထည့်ရမည် |
+
+---
+
+### New Service ထည့်တိုင်း Checklist
+
+```
+□ GNS3: Ubuntu VM node ထည့်
+□ GNS3: OVS switch မှာ port ချိတ် (VLAN tag assign)
+□ VM: service install + config
+□ VM: log path မှတ်
+□ aegis_forwarder.py: watch_<service>() function ထည့်
+□ aegis_forwarder.py: REMOTE_HOSTS မှာ new VM + sensors ထည့်
+□ auto-defense.ts: new attack type rule seed ထည့် (မလိုရင် existing သုံး)
+□ Dashboard: service status card ထည့်
+□ Dashboard: alert display ထည့်
+```
+
+---
+
+### Team Split (2 Person)
+
+| Person 1 — Network/Infrastructure | Person 2 — SOC Dashboard/App |
+|---|---|
+| GNS3 topology + VLAN config | React UI + components |
+| pfSense firewall rules | API Server routes |
+| VM setup (all services) | Supabase DB schema |
+| aegis_forwarder.py hub mode | Auto-defense rules |
+| Kali attack execution | Dashboard alert display |
+| New VMs: DNS, Mail, CCTV, VoIP | New cards for each service |
