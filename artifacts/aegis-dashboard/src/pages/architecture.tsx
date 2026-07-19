@@ -18,7 +18,7 @@ const BLOCKS: BlockDetail[] = [
   {
     id: "attacker",
     title: "Attacker Zone",
-    subtitle: "Kali Linux VM — 192.168.122.132",
+    subtitle: "Kali Linux VM — 192.168.122.153",
     color: "#ef4444",
     borderColor: "border-red-500",
     bgColor: "bg-red-950/40",
@@ -37,7 +37,7 @@ const BLOCKS: BlockDetail[] = [
       { step: 6, action: "ARP Spoofing", detail: "arpspoof -i eth0 -t 10.10.10.10 192.168.122.1 — MITM positioning" },
       { step: 7, action: "FTP Attack", detail: "medusa -u admin -P wordlist.txt -h 10.10.10.10 -M ftp — FTP brute force" },
     ],
-    description: "Red Team လုပ်ဆောင်ချက်တွေ — Kali Linux (192.168.122.132) မှ attack vector အမျိုးမျိုးသုံးပြီး Ubuntu VM (10.10.10.10) ကို attack လုပ်သည်"
+    description: "Red Team လုပ်ဆောင်ချက်တွေ — Kali Linux (192.168.122.153) မှ attack vector အမျိုးမျိုးသုံးပြီး Ubuntu VM (10.10.10.10) ကို attack လုပ်သည်"
   },
   {
     id: "defense",
@@ -104,8 +104,8 @@ const BLOCKS: BlockDetail[] = [
       { step: 2, action: "Command Center", detail: "Total Events, Critical Threats, Active Alerts, Systems Online counters update live" },
       { step: 3, action: "Network Monitor", detail: "Network topology map, traffic chart (12h), connected hosts from VMs" },
       { step: 4, action: "Defense Center", detail: "Auto-block log (Fail2ban/Suricata) + Manual admin block/unblock IP form" },
-      { step: 5, action: "Telegram Alert", detail: "Attack detected → Telegram Bot sends: 🚨 ALERT: SQLi from 192.168.122.132 → bank-web" },
-      { step: 6, action: "Admin Commands", detail: "Admin replies to Telegram Bot: /block 192.168.122.132 → API auto-blocks IP" },
+      { step: 5, action: "Telegram Alert", detail: "Attack detected → Telegram Bot sends: 🚨 ALERT: SQLi from 192.168.122.153 → bank-web" },
+      { step: 6, action: "Admin Commands", detail: "Admin replies to Telegram Bot: /block 192.168.122.153 → API auto-blocks IP" },
       { step: 7, action: "Report Generate", detail: "Reports page → Generate → PDF/HTML with event summary, incident count, top attackers" },
     ],
     description: "Security team ကို real-time visibility, instant alerts, detailed reports ပေးသည်"

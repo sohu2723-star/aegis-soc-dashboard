@@ -502,7 +502,7 @@ function FirewallTab() {
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-xs uppercase text-muted-foreground">Source IP</Label>
-                    <Input value={sourceIp} onChange={e => setSourceIp(e.target.value)} className="bg-background border-border" placeholder="e.g. 192.168.122.132" />
+                    <Input value={sourceIp} onChange={e => setSourceIp(e.target.value)} className="bg-background border-border" placeholder="e.g. 192.168.122.153" />
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-xs uppercase text-muted-foreground">Dest IP</Label>

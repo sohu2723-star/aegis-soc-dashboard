@@ -21,7 +21,7 @@
 
 | Node | IP | Subnet |
 |---|---|---|
-| Kali Linux | 192.168.122.132 (DHCP) | virbr0 |
+| Kali Linux | 192.168.122.153 (DHCP) | virbr0 |
 | Router-1 ether1 | 192.168.122.2/24 | virbr0 |
 | Router-1 ether3 | 10.0.12.1/30 | R1↔R2 |
 | Router-2 ether1 | 10.0.12.2/30 | R1↔R2 |
@@ -463,7 +463,7 @@ curl -s https://aegis-api-server-jp3b.onrender.com/api/health
 curl -s -X POST https://aegis-api-server-jp3b.onrender.com/api/ingest/ssh \
   -H "Content-Type: application/json" \
   -H "X-AEGIS-Key: $AEGIS_KEY" \
-  -d '{"src_ip":"192.168.122.132","username":"root","status":"failed","failures":5}'
+  -d '{"src_ip":"192.168.122.153","username":"root","status":"failed","failures":5}'
 # Expected: {"ok":true}
 ```
 → Open dashboard → **Security Events** — SSH brute-force event appears.

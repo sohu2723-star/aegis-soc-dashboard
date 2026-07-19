@@ -596,6 +596,29 @@ Lab attack/defense test အတွက် speed ကွာချင် မကွာ
 | DDoS / SYN flood | hping3 | bank-web | Suricata |
 | DB attack | hydra / sqlmap | customer-db | PostgreSQL Monitor + Suricata |
 
+---
+
+## 2026-07-19 — Topology ပြောင်းလဲ + Kali IP Update
+
+**Status:** ✅ Done  
+**What:** ဆရာမ ညွှန်ကြားချက်အတိုင်း GNS3 topology logic စစ်ဆေး၊ Kali IP ပြောင်းလဲမှု code မှာ update လုပ်  
+**How:** GNS3 screenshot စစ်ဆေး၊ code ထဲ hardcoded Kali IP `192.168.122.132` → `192.168.122.153` update  
+**Result:**
+- Topology structure ✅ မှန်ကန်တယ် (Router → pfSense → DMZ/Internal/MGMT zones)
+- Kali IP code files updated: `architecture.tsx`, `defense-rules.tsx`, `docs/network-architecture.md`, `docs/GNS3_SETUP.md`, `docs/API.md`
+- Kali internet မရတဲ့ ပြဿနာ: default gateway `192.168.122.1` (virbr0 host bridge) ထည့်ပေးရမည်  
+**Next:** Kali မှာ `sudo ip route replace default via 192.168.122.1` run ပြီး internet ရမရ စစ်
+
+### Kali Internet Fix Commands
+```bash
+sudo ip route replace default via 192.168.122.1 dev eth0
+sudo ip route add 10.0.0.0/8 via 192.168.122.2
+echo "nameserver 8.8.8.8" | sudo tee /etc/resolv.conf
+ping -c 3 8.8.8.8
+```
+
+---
+
 *Last updated: 2026-07-19*
 
 ---
