@@ -1587,60 +1587,55 @@ ssh dns-server   # laptop → aegis → dns-server (auto)
 
 ### 15.11 v4 Build Checklist
 
+> **⚠️ SCOPE CHANGE (2026-07-20):** Mail-Server, AD-Server, CCTV-Server ဖြုတ်ပြီ — ဒီ checklist ကို simplified v4 (bank-web, dns-server, customer-db, atm-server, aegis သာ) နဲ့ update လုပ်ထားတယ်
+
 ```
 GNS3 Topology:
-  ✅ Router
+  ✅ Router (MikroTik CHR)
   ✅ pfSense
-  ✅ Attacker (Kali)
+  ✅ Attacker (Kali — 192.168.10.99)
   ✅ Public-Switch (OVS)
   ✅ Internal-Switch (OVS)
   ✅ aegis (10.30.30.10)
   ✅ bank-web (10.10.10.10)
   ✅ DNS-Server cloned
-  ✅ Mail-Server cloned
-  ✅ customer-db (10.20.20.10)
-  ✅ AD-Server cloned
+  ✅ customer-db (VM ready)
   ✅ ATM-Server cloned
-  ✅ CCTV-Server cloned
-  ⬜ pfSense em4 ဖောက် (CCTV)
-  ⬜ CCTV-Server ↔ pfSense em4 cable
 
 pfSense Config:
   ✅ VLAN 10 (em1) = PUBLIC
   ✅ VLAN 20 (em2) = INTERNAL
   ⬜ Interface rename (PUBLIC/INTERNAL/MGMT)
-  ⬜ em4 add → CCTV (10.40.40.1/24)
-  ⬜ WAN firewall rules (80,443,21,53,25)
-  ⬜ INTERNAL rules (143,587,8080)
-  ⬜ MGMT rules (SSH only)
-  ⬜ CCTV rules (isolated)
+  ⬜ WAN firewall rules (80,443,21 → bank-web; 53 → dns-server)
+  ⬜ INTERNAL → block WAN
+  ⬜ MGMT rules (SSH only, from aegis)
 
 OVS Config:
   ✅ eth0 trunk:10 (pfSense ↔ Public-Switch)
   ✅ eth1 tag:10 (bank-web)
   ⬜ dns-server port tag=10
-  ⬜ mail-server port tag=10
   ⬜ customer-db port tag=20 (Internal-Switch)
-  ⬜ ad-server port tag=20
   ⬜ atm-server port tag=20
 
 VM IP + SSH:
-  ⬜ DNS-Server netplan 10.10.10.20 + SSH
-  ⬜ Mail-Server netplan 10.10.10.30 + SSH
-  ⬜ customer-db IP ပြောင်း .20→.10
-  ⬜ AD-Server netplan 10.20.20.20 + SSH
-  ⬜ ATM-Server netplan 10.20.20.30 + SSH
-  ⬜ CCTV-Server netplan 10.40.40.10 + SSH
-  ⬜ aegis RAM 1GB + jump host config
-  ⬜ Laptop SSH config
+  ✅ bank-web: 10.10.10.10 running
+  ✅ customer-db: VM ready (IP ပြောင်းရမည်)
+  ⬜ DNS-Server: netplan 10.10.10.20/24 + SSH key
+  ⬜ customer-db: IP change .20 → .10 (netplan apply)
+  ⬜ ATM-Server: netplan 10.20.20.20/24 + SSH key
+  ⬜ aegis: SSH key to all VMs + forwarder config update
 
 Services:
-  ⬜ bind9 (dns-server)
-  ⬜ postfix + dovecot (mail-server)
-  ⬜ samba4 AD (ad-server)
-  ⬜ flask ATM + psycopg2→DB (atm-server)
-  ⬜ ffmpeg RTSP + status API (cctv-server)
-  ⬜ bankdb + bankmail DB tables (customer-db)
+  ✅ bank-web: Apache, vsftpd, Suricata, Fail2ban
+  ⬜ dns-server: bind9 install + bank.local zone
+  ⬜ customer-db: IP fix, bankdb + bankmail tables
+  ⬜ atm-server: Flask ATM app → connects to 10.20.20.10:5432
+
+Dashboard Code: ✅ Updated (2026-07-20)
+  ✅ System Status sensors: DNS/ATM entries added
+  ✅ Auto-defense rules: DNS/ATM SSH brute force rules
+  ✅ Attack flow map: dns-server + atm-server nodes
+  ✅ Setup page: new IP assignments + topology
 ```
 
 ---

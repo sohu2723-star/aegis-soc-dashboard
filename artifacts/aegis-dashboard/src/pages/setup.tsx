@@ -97,12 +97,12 @@ export default function SetupGuide() {
                 [DMZ Zone]        [INT Zone]      [MGMT Zone]
                      │                │                │
                [bank-web]      [customer-db]   [aegis-forwarder]
-              10.10.10.10      10.20.20.20      10.30.30.10
-            Apache, vsftpd      PostgreSQL       Hub agent
-            Suricata            Suricata         (SSH → VMs)
-            Fail2ban            Fail2ban
+           10.10.10.10  10.10.10.20  10.20.20.10  10.20.20.20  10.30.30.10
+           Apache,FTP   BIND9        PostgreSQL   Flask ATM    Hub agent
+           Suricata     Suricata     Suricata     Fail2ban     (SSH → VMs)
+           Fail2ban     Fail2ban     Fail2ban
 
-aegis-forwarder (hub): SSHes into bank-web + customer-db → tails logs → POST to API`}</pre>
+aegis-forwarder (hub): SSHes into all VMs → tails logs → POST to API`}</pre>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
@@ -126,7 +126,7 @@ aegis-forwarder (hub): SSHes into bank-web + customer-db → tails logs → POST
               <h2 className="text-xl font-bold uppercase text-primary border-b border-border/50 pb-2">
                 2. GNS3 Node Requirements
               </h2>
-              <p className="text-sm text-muted-foreground mb-4">Current topology — 5 VMs + 1 router. Host PC: 8GB+ RAM, 80GB+ storage.</p>
+              <p className="text-sm text-muted-foreground mb-4">Current topology (v4) — 7 VMs + 1 router + 2 OVS switches. Host PC: 8GB+ RAM, 80GB+ storage.</p>
               <Table className="border border-border">
                 <TableHeader className="bg-muted/30">
                   <TableRow className="border-border">
@@ -162,8 +162,20 @@ aegis-forwarder (hub): SSHes into bank-web + customer-db → tails logs → POST
                     <TableCell className="font-mono text-muted-foreground text-xs">Ubuntu 24.04</TableCell>
                   </TableRow>
                   <TableRow className="border-border">
+                    <TableCell className="font-medium text-cyan-400">dns-server</TableCell>
+                    <TableCell>DNS Server (Public)</TableCell>
+                    <TableCell className="font-mono text-muted-foreground text-xs">10.10.10.20/24</TableCell>
+                    <TableCell className="font-mono text-muted-foreground text-xs">Ubuntu 24.04</TableCell>
+                  </TableRow>
+                  <TableRow className="border-border">
                     <TableCell className="font-medium text-cyan-400">customer-db</TableCell>
                     <TableCell>Database (Internal)</TableCell>
+                    <TableCell className="font-mono text-muted-foreground text-xs">10.20.20.10/24</TableCell>
+                    <TableCell className="font-mono text-muted-foreground text-xs">Ubuntu 24.04</TableCell>
+                  </TableRow>
+                  <TableRow className="border-border">
+                    <TableCell className="font-medium text-cyan-400">atm-server</TableCell>
+                    <TableCell>ATM API (Internal)</TableCell>
                     <TableCell className="font-mono text-muted-foreground text-xs">10.20.20.20/24</TableCell>
                     <TableCell className="font-mono text-muted-foreground text-xs">Ubuntu 24.04</TableCell>
                   </TableRow>
@@ -186,18 +198,18 @@ aegis-forwarder (hub): SSHes into bank-web + customer-db → tails logs → POST
                 3. Network Configuration
               </h2>
               <p className="text-foreground leading-relaxed">
-                pfSense manages three internal zones (DMZ, Internal, MGMT) directly from R1 — R2 has been removed.
+                pfSense manages 3 zones via OVS switches + direct MGMT cable. R2 removed. Public-Switch and Internal-Switch are OpenVSwitch nodes in GNS3.
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
                 <div className="bg-muted/20 p-4 rounded border border-border">
                   <h4 className="text-sm font-bold mb-2 uppercase text-primary">pfSense WAN</h4>
                   <p className="text-sm text-muted-foreground font-mono">10.0.23.2/30</p>
-                  <p className="text-xs mt-2">Upstream → R1 ether3 (10.0.23.1) → Switch1 → attacker/internet.</p>
+                  <p className="text-xs mt-2">Upstream → R1 ether3 (10.0.23.1) → attacker/internet.</p>
                 </div>
                 <div className="bg-muted/20 p-4 rounded border border-border">
                   <h4 className="text-sm font-bold mb-2 uppercase text-primary">pfSense Zones</h4>
-                  <p className="text-sm text-muted-foreground font-mono">DMZ · INT · MGMT</p>
-                  <p className="text-xs mt-2">bank-web (DMZ), customer-db (INT), aegis-forwarder (MGMT).</p>
+                  <p className="text-sm text-muted-foreground font-mono">PUBLIC · INTERNAL · MGMT</p>
+                  <p className="text-xs mt-2">bank-web + dns-server (Public), customer-db + atm-server (Internal), aegis (MGMT).</p>
                 </div>
               </div>
               <div className="bg-muted/20 p-4 rounded border border-border">
@@ -208,10 +220,12 @@ aegis-forwarder (hub): SSHes into bank-web + customer-db → tails logs → POST
                   <p>192.168.10.x  — Kali (dynamic DHCP, pool .2–.100)</p>
                   <p>10.0.23.1     — R1 ether3 (pfSense WAN upstream)</p>
                   <p>10.0.23.2     — pfSense WAN</p>
-                  <p>10.10.10.1    — pfSense BANK_WEB gateway</p>
-                  <p>10.10.10.10   — bank-web</p>
-                  <p>10.20.20.1    — pfSense CUSTOMER_DB gateway</p>
-                  <p>10.20.20.20   — customer-db</p>
+                  <p>10.10.10.1    — pfSense PUBLIC gateway (OVS Public-Switch)</p>
+                  <p>10.10.10.10   — bank-web (Apache, vsftpd, Suricata)</p>
+                  <p>10.10.10.20   — dns-server (BIND9)</p>
+                  <p>10.20.20.1    — pfSense INTERNAL gateway (OVS Internal-Switch)</p>
+                  <p>10.20.20.10   — customer-db (PostgreSQL, Suricata)</p>
+                  <p>10.20.20.20   — atm-server (Flask ATM API)</p>
                   <p>10.30.30.1    — pfSense MGMT gateway</p>
                   <p>10.30.30.10   — aegis-forwarder (hub)</p>
                 </div>
@@ -279,7 +293,7 @@ AEGIS_ADMIN_KEY=your-admin-key
 VM_NAME=aegis
 BANK_WEB_IP=10.10.10.10
 BANK_WEB_SSH_USER=sithu
-CUSTOMER_DB_IP=10.20.20.20
+CUSTOMER_DB_IP=10.20.20.10
 CUSTOMER_DB_SSH_USER=sithu
 
 # pfSense (for defense block commands)
@@ -289,10 +303,14 @@ PFSENSE_API_KEY=your-pfsense-api-key-here`} />
               <CodeBlock language="bash" code={`# 4. Setup SSH key auth (AEGIS VM → bank-web, customer-db)
 ssh-keygen -t ed25519 -f ~/.ssh/aegis_hub -N ""
 ssh-copy-id -i ~/.ssh/aegis_hub.pub sithu@10.10.10.10
+ssh-copy-id -i ~/.ssh/aegis_hub.pub sithu@10.10.10.20
+ssh-copy-id -i ~/.ssh/aegis_hub.pub sithu@10.20.20.10
 ssh-copy-id -i ~/.ssh/aegis_hub.pub sithu@10.20.20.20
 
 # Test SSH (should connect without password)
 ssh -i ~/.ssh/aegis_hub sithu@10.10.10.10 "echo OK"
+ssh -i ~/.ssh/aegis_hub sithu@10.10.10.20 "echo OK"
+ssh -i ~/.ssh/aegis_hub sithu@10.20.20.10 "echo OK"
 ssh -i ~/.ssh/aegis_hub sithu@10.20.20.20 "echo OK"`} />
 
               <CodeBlock language="bash" code={`# 5. Test run (hub mode)
@@ -354,17 +372,33 @@ sudo cp /etc/modsecurity/modsecurity.conf-recommended /etc/modsecurity/modsecuri
 sudo sed -i 's/SecRuleEngine DetectionOnly/SecRuleEngine On/' /etc/modsecurity/modsecurity.conf
 sudo systemctl restart apache2`} />
 
-              <h3 className="text-sm font-bold uppercase text-primary mt-4">customer-db (10.20.20.20) — Internal</h3>
+              <h3 className="text-sm font-bold uppercase text-primary mt-4">dns-server (10.10.10.20) — Public</h3>
+              <CodeBlock language="bash" code={`# DNS + IDS/IPS
+sudo apt install -y bind9 bind9utils suricata fail2ban ufw iptables
+
+sudo suricata-update
+sudo systemctl enable --now suricata fail2ban bind9`} />
+
+              <h3 className="text-sm font-bold uppercase text-primary mt-4">customer-db (10.20.20.10) — Internal</h3>
               <CodeBlock language="bash" code={`# Database + IDS/IPS
 sudo apt install -y suricata fail2ban postgresql ufw iptables
 
 sudo suricata-update
 sudo systemctl enable --now suricata fail2ban postgresql`} />
 
+              <h3 className="text-sm font-bold uppercase text-primary mt-4">atm-server (10.20.20.20) — Internal</h3>
+              <CodeBlock language="bash" code={`# ATM API + security
+sudo apt install -y python3 python3-pip python3-flask python3-psycopg2 fail2ban ufw iptables
+
+# ATM service (connects to customer-db 10.20.20.10:5432)
+sudo systemctl enable --now fail2ban`} />
+
               <h3 className="text-sm font-bold uppercase text-primary mt-4">Verify SSH from AEGIS VM</h3>
               <CodeBlock language="bash" code={`# From AEGIS VM (10.30.30.10):
 ssh sithu@10.10.10.10 "sudo tail -5 /var/log/suricata/eve.json"
-ssh sithu@10.20.20.20 "sudo tail -5 /var/log/auth.log"`} />
+ssh sithu@10.10.10.20 "sudo systemctl status bind9"
+ssh sithu@10.20.20.10 "sudo tail -5 /var/log/auth.log"
+ssh sithu@10.20.20.20 "sudo systemctl status atm"`} />
             </section>
 
             {/* ── 6. pfSense Config ── */}
@@ -378,19 +412,19 @@ ssh sithu@10.20.20.20 "sudo tail -5 /var/log/auth.log"`} />
                 <div>
                   <p className="font-bold text-primary mb-1">Interfaces Setup</p>
                   <div className="font-mono text-xs space-y-1 text-muted-foreground">
-                    <p>em0 (WAN)  → 10.0.23.2/30  — upstream: R1 ether3</p>
-                    <p>em1 (LAN)  → 10.10.10.1/24 — DMZ (bank-web)</p>
-                    <p>em2 (OPT1) → 10.20.20.1/24 — Internal (customer-db)</p>
-                    <p>em3 (OPT2) → 10.30.30.1/24 — MGMT (aegis-forwarder)</p>
+                    <p>em0 (WAN)      → 10.0.23.2/30  — upstream: R1 ether3</p>
+                    <p>em1 (PUBLIC)   → 10.10.10.1/24 — OVS Public-Switch (bank-web, dns-server)</p>
+                    <p>em2 (INTERNAL) → 10.20.20.1/24 — OVS Internal-Switch (customer-db, atm-server)</p>
+                    <p>em3 (MGMT)     → 10.30.30.1/24 — direct to aegis-forwarder</p>
                   </div>
                 </div>
                 <div>
                   <p className="font-bold text-primary mb-1">Firewall Rules (minimum)</p>
                   <div className="text-xs text-muted-foreground space-y-1">
-                    <p>• WAN → DMZ: Allow TCP 80, 443, 22, 21 to 10.10.10.10 (for attack testing)</p>
-                    <p>• DMZ → MGMT: Allow TCP 22 from 10.10.10.1 (pfSense) to 10.30.30.10 (AEGIS SSH back)</p>
-                    <p>• MGMT → DMZ/INT: Allow TCP 22 (AEGIS VM SSHes into bank VMs)</p>
-                    <p>• MGMT → any: Allow TCP 443 (AEGIS VM → Render API)</p>
+                    <p>• WAN → PUBLIC: Allow TCP 80,443,21 → 10.10.10.10; UDP 53 → 10.10.10.20</p>
+                    <p>• WAN → INTERNAL: Block all (internal zone not exposed)</p>
+                    <p>• MGMT → PUBLIC/INTERNAL: Allow TCP 22 (aegis SSHes into all VMs)</p>
+                    <p>• MGMT → any: Allow TCP 443 (aegis-forwarder → Render API outbound)</p>
                   </div>
                 </div>
                 <div>
@@ -495,7 +529,7 @@ TELEGRAM_CHAT_ID=your-chat-id       # your Telegram user/group ID`} />
                   },
                   {
                     label: "DB Brute",
-                    cmd: "hydra -l postgres -P /usr/share/wordlists/rockyou.txt postgres://10.20.20.20",
+                    cmd: "hydra -l postgres -P /usr/share/wordlists/rockyou.txt postgres://10.20.20.10",
                     result: "Fail2ban on customer-db → high event"
                   },
                 ].map(({ label, cmd, result }) => (

@@ -86,33 +86,84 @@ const PER_HOST_SENSORS = [
     hostIp: "10.30.30.10",
   },
 
-  // ── customer-db (10.20.20.20): PostgreSQL/Suricata/Fail2ban ─────────────────
+  // ── customer-db (10.20.20.10): PostgreSQL/Suricata/Fail2ban ─────────────────
   {
     component: "Suricata IDS",
     layer: "sensor",
     status: "unknown",
     description: "Network intrusion detection — port scans, DDoS, SQL injection attempts",
-    hostIp: "10.20.20.20",
+    hostIp: "10.20.20.10",
   },
   {
     component: "Fail2ban",
     layer: "sensor",
     status: "unknown",
     description: "Brute-force IP banning — SSH and service auth failures",
-    hostIp: "10.20.20.20",
+    hostIp: "10.20.20.10",
   },
   {
     component: "SSH Monitor",
     layer: "sensor",
     status: "unknown",
     description: "SSH auth.log watcher — detects brute force and unauthorized access to DB host",
-    hostIp: "10.20.20.20",
+    hostIp: "10.20.20.10",
   },
   {
     component: "PostgreSQL Monitor",
     layer: "sensor",
     status: "unknown",
     description: "PostgreSQL log watcher — auth failures, suspicious queries, connection anomalies",
+    hostIp: "10.20.20.10",
+  },
+  // ── dns-server (10.10.10.20): BIND9/Suricata/Fail2ban ──────────────────────
+  {
+    component: "DNS Monitor",
+    layer: "sensor",
+    status: "unknown",
+    description: "BIND9 query log watcher — DNS amplification, zone transfer attempts, suspicious queries",
+    hostIp: "10.10.10.20",
+  },
+  {
+    component: "Suricata IDS",
+    layer: "sensor",
+    status: "unknown",
+    description: "Network intrusion detection — DNS flood, amplification, port scans",
+    hostIp: "10.10.10.20",
+  },
+  {
+    component: "Fail2ban",
+    layer: "sensor",
+    status: "unknown",
+    description: "Brute-force IP banning — SSH auth failures on dns-server",
+    hostIp: "10.10.10.20",
+  },
+  {
+    component: "SSH Monitor",
+    layer: "sensor",
+    status: "unknown",
+    description: "SSH auth.log watcher — unauthorized access attempts on dns-server",
+    hostIp: "10.10.10.20",
+  },
+  // ── atm-server (10.20.20.20): Flask ATM API/Fail2ban ───────────────────────
+  {
+    component: "ATM API Monitor",
+    layer: "sensor",
+    status: "unknown",
+    description: "Flask ATM API log watcher — transaction replay, invalid requests, logic flaw attempts",
+    hostIp: "10.20.20.20",
+  },
+  {
+    component: "Fail2ban",
+    layer: "sensor",
+    status: "unknown",
+    description: "Brute-force IP banning — SSH auth failures on atm-server",
+    hostIp: "10.20.20.20",
+  },
+  {
+    component: "SSH Monitor",
+    layer: "sensor",
+    status: "unknown",
+    description: "SSH auth.log watcher — unauthorized access attempts on atm-server",
     hostIp: "10.20.20.20",
   },
 ];
@@ -139,6 +190,12 @@ const ALWAYS_DELETE_COMPONENTS = [
   "FTP Service (vsftpd)",     // renamed → "FTP Monitor"
 ];
 
+// Old IPs that no longer exist in the topology — rows with these hostIps must be purged
+// so stale DB entries (from old forwarder versions) don't appear on the dashboard.
+const OBSOLETE_HOST_IPS = [
+  "10.20.20.20",  // old customer-db IP before topology v4 (now 10.20.20.10); atm-server uses .20 but registers its own rows
+];
+
 async function purgeStaleRows() {
   const [all, hosts] = await Promise.all([
     db.select().from(systemStatusTable),
@@ -157,6 +214,8 @@ async function purgeStaleRows() {
     if (seededPairs.has(pair)) return false;
     // Always delete broken old sensor names
     if (ALWAYS_DELETE_COMPONENTS.includes(s.component)) return true;
+    // Delete rows that belong to obsolete host IPs (topology changes)
+    if (s.hostIp && OBSOLETE_HOST_IPS.includes(s.hostIp)) return true;
     // Delete old global (no-hostIp) obsolete entries
     if (!s.hostIp && GLOBAL_OBSOLETE_COMPONENTS.includes(s.component)) return true;
     // Delete orphaned per-host rows whose host is no longer registered

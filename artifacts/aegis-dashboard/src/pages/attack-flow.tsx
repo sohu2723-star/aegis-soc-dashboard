@@ -6,63 +6,75 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const VW = 960;
 const VH = 520;
 
-// ── Node definitions — real lab topology (R2 removed) ────────────────────────
-// Path: Attacker → R1 (ether1:192.168.122.2) → pfSense WAN (10.0.23.2)
-//       → DMZ: bank-web (10.10.10.10)
-//       → INT: customer-db (10.20.20.20)
+// ── Node definitions — real lab topology (v4 simplified) ─────────────────────
+// Path: Attacker → R1 → pfSense (OVS switches) → bank-web / dns-server / customer-db / atm-server
 //       → MGMT: aegis-forwarder (10.30.30.10) → AEGIS Dashboard
 const NODES = {
   attacker: {
-    x: 75,  y: 260,
+    x: 55,  y: 260,
     label: "Attacker", sub: "Any Source IP",
     ip: "* / any",
     color: "#ef4444", glow: "rgba(239,68,68,0.4)",
     icon: "👤",
   },
   r1: {
-    x: 245, y: 260,
+    x: 205, y: 260,
     label: "R1 Router", sub: "MikroTik CHR",
     ip: "192.168.122.2",
     color: "#818cf8", glow: "rgba(129,140,248,0.3)",
     icon: "⬡",
   },
   pfsense: {
-    x: 440, y: 260,
-    label: "pfSense", sub: "Suricata IDS",
+    x: 380, y: 260,
+    label: "pfSense", sub: "Firewall / OVS",
     ip: "10.0.23.2",
     color: "#f59e0b", glow: "rgba(245,158,11,0.45)",
     icon: "🛡",
   },
   bankweb: {
-    x: 660, y: 120,
+    x: 570, y: 80,
     label: "bank-web", sub: "Apache · Fail2ban",
-    ip: "10.10.10.10 (DMZ)",
+    ip: "10.10.10.10 (Public)",
     color: "#22c55e", glow: "rgba(34,197,94,0.3)",
     icon: "🖥",
   },
+  dnsserver: {
+    x: 570, y: 190,
+    label: "dns-server", sub: "BIND9 · DNS",
+    ip: "10.10.10.20 (Public)",
+    color: "#22c55e", glow: "rgba(34,197,94,0.3)",
+    icon: "🌐",
+  },
   forwarder: {
-    x: 660, y: 260,
+    x: 570, y: 300,
     label: "aegis-forwarder", sub: "Hub · SSH agent",
     ip: "10.30.30.10 (MGMT)",
     color: "#06b6d4", glow: "rgba(6,182,212,0.3)",
     icon: "⬡",
   },
   customerdb: {
-    x: 660, y: 400,
+    x: 570, y: 400,
     label: "customer-db", sub: "PostgreSQL",
-    ip: "10.20.20.20 (INT)",
+    ip: "10.20.20.10 (Internal)",
     color: "#22c55e", glow: "rgba(34,197,94,0.3)",
     icon: "🗄",
   },
+  atmserver: {
+    x: 570, y: 490,
+    label: "atm-server", sub: "Flask ATM API",
+    ip: "10.20.20.20 (Internal)",
+    color: "#22c55e", glow: "rgba(34,197,94,0.3)",
+    icon: "🏧",
+  },
   aegis: {
-    x: 820, y: 260,
+    x: 790, y: 300,
     label: "AEGIS", sub: "SOC Dashboard",
     ip: "Render · Vercel",
     color: "#06b6d4", glow: "rgba(6,182,212,0.25)",
     icon: "📊",
   },
   telegram: {
-    x: 930, y: 420,
+    x: 900, y: 450,
     label: "Telegram", sub: "Alert Channel",
     ip: "api.telegram.org",
     color: "#29b6f6", glow: "rgba(41,182,246,0.4)",
@@ -74,12 +86,14 @@ type NodeKey = keyof typeof NODES;
 
 // ── Edges — exact lab connections only ────────────────────────────────────────
 const EDGES: [NodeKey, NodeKey][] = [
-  ["attacker", "r1"],        // Attacker → R1 ether1 (192.168.122.x)
-  ["r1",       "pfsense"],   // R1 ether3 (10.0.23.1) → pfSense WAN (10.0.23.2)
-  ["pfsense",  "bankweb"],   // pfSense DMZ → bank-web
-  ["pfsense",  "forwarder"], // pfSense MGMT → aegis-forwarder
-  ["pfsense",  "customerdb"],// pfSense INT → customer-db
-  ["forwarder","aegis"],     // aegis-forwarder → AEGIS Dashboard (via Render API)
+  ["attacker",  "r1"],         // Attacker → R1 ether1 (192.168.122.x)
+  ["r1",        "pfsense"],    // R1 ether3 (10.0.23.1) → pfSense WAN (10.0.23.2)
+  ["pfsense",   "bankweb"],    // pfSense → Public-Switch → bank-web (10.10.10.10)
+  ["pfsense",   "dnsserver"],  // pfSense → Public-Switch → dns-server (10.10.10.20)
+  ["pfsense",   "forwarder"],  // pfSense MGMT → aegis-forwarder (10.30.30.10)
+  ["pfsense",   "customerdb"], // pfSense → Internal-Switch → customer-db (10.20.20.10)
+  ["pfsense",   "atmserver"],  // pfSense → Internal-Switch → atm-server (10.20.20.20)
+  ["forwarder", "aegis"],      // aegis-forwarder → AEGIS Dashboard (via Render API)
 ];
 
 // ── Notification edges — AEGIS → Telegram (alert channel, styled differently) ─
@@ -93,7 +107,13 @@ function getAttackPath(targetHost: string | null | undefined): NodeKey[] {
   if (t.includes("bank") || t.includes("web") || t === "10.10.10.10" || t.includes("apache") || t.includes("ftp") || t.includes("dvwa")) {
     return ["attacker", "r1", "pfsense", "bankweb"];
   }
-  if (t.includes("db") || t.includes("customer") || t === "10.20.20.20" || t.includes("postgres") || t.includes("sql")) {
+  if (t.includes("dns") || t === "10.10.10.20" || t.includes("bind")) {
+    return ["attacker", "r1", "pfsense", "dnsserver"];
+  }
+  if (t.includes("atm") || t === "10.20.20.20" || t.includes("flask")) {
+    return ["attacker", "r1", "pfsense", "atmserver"];
+  }
+  if (t.includes("db") || t.includes("customer") || t === "10.20.20.10" || t.includes("postgres") || t.includes("sql")) {
     return ["attacker", "r1", "pfsense", "customerdb"];
   }
   return ["attacker", "r1", "pfsense"];

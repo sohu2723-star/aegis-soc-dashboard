@@ -22,13 +22,14 @@ const STATIC_LABELS: Record<string, { label: string; role: "defender" | "attacke
 const GENERIC_LABELS: Record<string, { label: string; role: "defender" | "attacker" | "infra" }> = {
   "bank-web":         { label: "bank-web",        role: "defender" },
   "customer-db":      { label: "customer-db",     role: "defender" },
+  "dns-server":       { label: "dns-server",      role: "defender" },
+  "atm-server":       { label: "atm-server",      role: "defender" },
   "aegis-forwarder":  { label: "aegis-forwarder", role: "defender" },
   "aegis":            { label: "aegis-forwarder", role: "defender" },
   "ubuntu":           { label: "ubuntu (VM)",     role: "defender" },
   "pfsense":          { label: "pfSense",         role: "infra"    },
   "internal-network": { label: "internal-network",role: "infra"    },
   "lan-segment":      { label: "LAN segment",     role: "infra"    },
-  "dns-server":       { label: "dns-server",      role: "infra"    },
 };
 
 export interface HostInfo {

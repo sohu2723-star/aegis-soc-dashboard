@@ -1128,6 +1128,33 @@ VM      → iptables DROP <attacker_ip>
 
 ---
 
+### [2026-07-20] — Topology Simplification: Mail/AD/CCTV ဖြုတ်, DNS/ATM ထည့်
+
+**Status:** ✅ Done  
+**What:** v4 topology ကို simplify လုပ်ခဲ့တယ်။ Mail-Server, AD-Server, CCTV-Server ဖြုတ်၊ DNS-Server + ATM-Server သာ ထည့်မယ်ဟု ဆုံးဖြတ်ခဲ့တယ်။ Customer-db IP ကိုလည်း `10.20.20.20` မှ `10.20.20.10` ပြောင်းခဲ့တယ် (ATM-Server က `.20` ကိုသုံးမည်)
+
+**Final Topology (v4 Simplified):**
+```
+Public-Switch  → bank-web (10.10.10.10) + dns-server (10.10.10.20)
+Internal-Switch → customer-db (10.20.20.10) + atm-server (10.20.20.20)
+MGMT (direct)  → aegis-forwarder (10.30.30.10)
+```
+
+**Code changes:**
+- `system.ts` — customer-db IP `.20`→`.10`, DNS/ATM sensor rows ထည့်, obsolete hostIP purge
+- `auto-defense.ts` — DNS/ATM SSH brute force rules ထည့်, DNS attack rule ထည့်
+- `host-utils.tsx` — atm-server/dns-server generic labels ထည့်
+- `attack-flow.tsx` — dns-server/atm-server nodes + edges ထည့်, customer-db IP fix
+- `setup.tsx` — topology diagram, IP assignments, pfSense interfaces, VM table update
+
+**Next (GNS3 side):**
+- DNS-Server: OVS port `tag=10` → netplan `10.10.10.20/24` → BIND9 install
+- customer-db: netplan IP `10.20.20.20`→`10.20.20.10` → netplan apply
+- ATM-Server: OVS port `tag=20` → netplan `10.20.20.20/24` → Flask ATM install
+- aegis_forwarder.py: `DNS_SERVER_IP`, `ATM_SERVER_IP` config ထည့်
+
+---
+
 ### New Service ထည့်တိုင်း Checklist
 
 ```
