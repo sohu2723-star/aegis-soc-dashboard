@@ -258,14 +258,16 @@ async function executeAutoDefense(rule: DefenseRule, event: IngestEvent) {
   });
 
   broadcaster.broadcast("defense_action", {
-    type:      "auto",
-    ruleId:    rule.id,
-    ruleName:  rule.name,
-    action:    rule.defenseType,
-    targetIp:  event.sourceIp,
-    commandId: cmdRow.id,
-    status:    "queued",
-    timestamp: new Date().toISOString(),
+    type:       "auto",
+    ruleId:     rule.id,
+    ruleName:   rule.name,
+    action:     rule.defenseType,
+    targetIp:   event.sourceIp,   // attacker IP (for block list)
+    sourceIp:   event.sourceIp,   // same — explicit alias used by threat map
+    targetHost: event.targetHost, // victim host — threat map uses this to match in-flight packets
+    commandId:  cmdRow.id,
+    status:     "queued",
+    timestamp:  new Date().toISOString(),
   });
 
   broadcaster.broadcast("stats_update", { timestamp: new Date().toISOString() });

@@ -120,6 +120,7 @@ interface Packet {
   severity: string;
   evType: string;
   targetHost: string;
+  sourceIp: string;   // attacker IP — used to match defense_action block
   isTg?: boolean;     // true = AEGIS→Telegram notification packet
 }
 
@@ -206,6 +207,7 @@ export default function AttackFlowPage() {
             severity: ev.severity ?? "medium",
             evType: ev.type ?? "unknown",
             targetHost: ev.targetHost ?? "",
+            sourceIp: ev.sourceIp ?? "",
           };
 
           setPackets(prev => [...prev.slice(-40), pkt]);
@@ -235,8 +237,14 @@ export default function AttackFlowPage() {
 
           // Block in-flight packets to this host
           const nowMs = Date.now();
+          // Match in-flight packets whose *victim* (targetHost) or *attacker* (sourceIp)
+          // corresponds to this defense action.  ev.targetHost = victim; ev.targetIp = attacker.
           setPackets(prev => prev.map(p =>
-            (!p.blocked && (p.targetHost === ev.targetIp || p.targetHost === ev.targetHost))
+            (!p.blocked && (
+              p.targetHost === ev.targetHost ||
+              p.targetHost === ev.targetIp   ||   // legacy fallback
+              p.sourceIp   === ev.targetIp        // if packet carries sourceIp later
+            ))
               ? { ...p, blocked: true, blockedAt: nowMs }
               : p
           ));
@@ -294,6 +302,7 @@ export default function AttackFlowPage() {
             severity: sev,
             evType: "telegram",
             targetHost: "telegram",
+            sourceIp: "aegis",
             isTg: true,
           };
           setPackets(prev => [...prev.slice(-40), tgPkt]);
