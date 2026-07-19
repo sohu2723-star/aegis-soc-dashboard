@@ -598,6 +598,25 @@ Lab attack/defense test အတွက် speed ကွာချင် မကွာ
 
 ---
 
+## 2026-07-19 — Kali DHCP IP ပြောင်းနည်း
+
+**Status:** ✅ Done  
+**What:** DHCP lease persistence — Kali restart တိုင်း IP တူနေတာ (MAC address ကြောင့်)  
+**Result:** Normal behavior — `.99` နဲ့ attack test ဆင်းလို့ ရပြီ  
+**IP ပြောင်းချင်ရင်:**
+
+MikroTik:
+```routeros
+/ip dhcp-server lease remove [find]
+```
+Kali:
+```bash
+sudo dhclient -r eth0
+sudo dhclient eth0
+```
+
+---
+
 ## 2026-07-19 — Topology v3 မှတ်တမ်း — Documentation Full Update
 
 **Status:** ✅ Done  
