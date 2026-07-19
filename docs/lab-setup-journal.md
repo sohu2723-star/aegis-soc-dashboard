@@ -598,6 +598,28 @@ Lab attack/defense test အတွက် speed ကွာချင် မကွာ
 
 ---
 
+## 2026-07-19 — Topology v3 မှတ်တမ်း — Documentation Full Update
+
+**Status:** ✅ Done  
+**What:** ဆရာမ ညွှန်ကြားချက်အတိုင်း topology v3 ကို docs/code files အားလုံး update လုပ်ပြီး git push  
+
+**Topology Changes (v2 → v3):**
+
+| ပြောင်းတာ | မူလ | ခု |
+|---|---|---|
+| Switch1 | NAT+R1+Kali ကြား | ဖြုတ်ပြီ |
+| Kali connection | Switch1 ကတဆင့် | Router ether2 တိုက်ရိုက် |
+| Kali subnet | 192.168.122.0/24 (virbr0) | 192.168.10.0/24 (Router DHCP) |
+| Router ether2 | NAT DHCP client | 192.168.10.1/24 + DHCP server |
+| pfSense WAN rule | 192.168.122.0/24 | 192.168.10.0/24 |
+| pfSense static route | မရှိ | 192.168.10.0/24 via 10.0.23.1 |
+
+**Files Updated:** network-architecture.md, ip-plan.md, router-config.md, GNS3_SETUP.md, vm-config.md, README.md, setup.tsx, memory  
+**Result:** Kali internet ✅, bank-web ping ✅, real-world topology ✅  
+**Next:** Attack test ဆင်းပြီး dashboard ရောက်မရောက် စစ်
+
+---
+
 ## 2026-07-19 — Topology ပြောင်းလဲ + Kali IP Update
 
 **Status:** ✅ Done  

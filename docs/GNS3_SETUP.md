@@ -1,6 +1,6 @@
 # AEGIS-SecureBank — GNS3 Setup Guide
-> Last updated: 2026-07-10
-> IP plan matches: per-VM scripts/src/aegis_forwarder.py deployments (canonical source of truth)
+> Last updated: 2026-07-19
+> Topology v3 — Switch1 ဖြုတ်ပြီ, R2 ဖြုတ်ပြီ, Kali ↔ Router ether2 direct, Kali subnet = 192.168.10.0/24
 
 ---
 
@@ -17,70 +17,55 @@
 
 ---
 
-## Quick IP Reference
+## Quick IP Reference (v3 — Current)
 
-| Node | IP | Subnet |
+| Node | IP | Network |
 |---|---|---|
-| Kali Linux | 192.168.122.x (DHCP) (DHCP) | virbr0 |
-| Router-1 ether1 | 192.168.122.2/24 | virbr0 |
-| Router-1 ether3 | 10.0.12.1/30 | R1↔R2 |
-| Router-2 ether1 | 10.0.12.2/30 | R1↔R2 |
-| Router-2 ether2 | 10.0.23.1/30 | R2↔pfSense |
-| pfSense WAN | 10.0.23.2/30 | R2↔pfSense |
-| pfSense DMZ | 10.10.10.1/24 | DMZ |
-| pfSense INT | 10.20.20.1/24 | Internal |
+| Internet (virbr0) | — | 192.168.122.0/24 |
+| Router ether1 | 192.168.122.2/24 | Internet side |
+| Router ether2 | 192.168.10.1/24 | Kali DHCP gateway |
+| Router ether3 | 10.0.23.1/30 | pfSense WAN link |
+| Kali / Attacker | DHCP 192.168.10.x | 192.168.10.0/24 (pool .2–.100) |
+| pfSense WAN | 10.0.23.2/30 | R1↔pfSense |
+| pfSense BANK_WEB | 10.10.10.1/24 | DMZ |
+| pfSense CUSTOMER_DB | 10.20.20.1/24 | Internal |
 | pfSense MGMT | 10.30.30.1/24 | Management |
 | bank-web | 10.10.10.10/24 | DMZ |
-| bank-mail | 10.10.10.20/24 | DMZ |
-| teller-pc | 10.20.20.10/24 | Internal |
 | customer-db | 10.20.20.20/24 | Internal |
 | aegis-forwarder | 10.30.30.10/24 | Management |
+
+**Removed:** Router-2, Switch1, bank-mail (10.10.10.20), teller-pc (10.20.20.10)
 
 ---
 
 ## Step 1 — GNS3 Node Placement & Cabling
 
-### Nodes to create
+### Nodes to create (v3 — Current)
 
 | Node | Template | Interfaces |
 |---|---|---|
-| Switch1 | Ethernet switch | e0, e1, b2 |
-| Router-1 | MikroTik CHR | ether1(e0), ether2(e1), ether3(e2) |
-| Router-2 | MikroTik CHR | ether1(e0), ether2(e1) |
-| NAT | Built-in NAT node | natD |
-| pfSense | pfSense CE VM | vtnet0(e0), vtnet1(e1), vtnet2(e2), vtnet3(e3) |
-| DMZ-Switch | Ethernet switch | e0–e3 |
-| INT-Switch | Ethernet switch | e0–e4 |
-| bank-web | Ubuntu 22.04 | e0 |
-| bank-mail | Ubuntu 22.04 | e0 |
-| teller-pc | Ubuntu 22.04 | e0 |
-| customer-db | Ubuntu 22.04 | e0 |
-| aegis-forwarder | Ubuntu 22.04 | e0 |
+| Internet | Cloud node (virbr0) | virbr0 |
+| Router | MikroTik CHR | ether1(e0), ether2(e1), ether3(e2) |
 | Attacker | Kali Linux | e0 |
-| Internet | Cloud node (virbr0) | b2 |
+| pfSense | pfSense CE VM | vtnet0(e0), vtnet1(e1), vtnet2(e2), vtnet3(e3) |
+| Public-Service Switch | Ethernet switch | e0–e2 |
+| Internal-Service Switch | Ethernet switch | e0–e2 |
+| bank-web | Ubuntu Server | e0 |
+| customer-db | Ubuntu Server | e0 |
+| aegis-forwarder | Ubuntu Server | e0 |
 
-### Cable connections
+### Cable connections (v3)
 
 ```
-Attacker (e0)          → Switch1 (e0)
-Internet/virbr0 (b2)   → Switch1 (b2)
-Switch1 (e1)           → Router-1 (e0 / ether1)
-Router-1 (e1 / ether2) → NAT cloud (natD)
-Router-1 (e2 / ether3) → Router-2 (e0 / ether1)
-Router-2 (e1 / ether2) → pfSense (e0 / vtnet0)  ← WAN
-pfSense (e1 / vtnet1)  → DMZ-Switch (e0)
-pfSense (e2 / vtnet2)  → INT-Switch (e0)
-pfSense (e3 / vtnet3)  → INT-Switch (e1)          ← MGMT port on same switch
-DMZ-Switch (e1)        → bank-web (e0)
-DMZ-Switch (e2)        → bank-mail (e0)
-INT-Switch (e2)        → teller-pc (e0)
-INT-Switch (e3)        → customer-db (e0)
-INT-Switch (e4)        → aegis-forwarder (e0)
+Internet/virbr0  → Router e0 (ether1: 192.168.122.2)  [direct]
+Attacker/Kali e0 → Router e1 (ether2: 192.168.10.1)  [direct, no switch]
+Router e2 (ether3: 10.0.23.1) → pfSense e0 WAN (10.0.23.2)  [direct]
+pfSense e1 (BANK_WEB: 10.10.10.1) → Public-Service Switch e0
+pfSense e2 (CUSTOMER_DB: 10.20.20.1) → Internal-Service Switch e0
+pfSense e3 (MGMT: 10.30.30.1) → aegis-forwarder e0 (10.30.30.10)  [direct]
+Public-Service Switch e1 → bank-web e0 (10.10.10.10)
+Internal-Service Switch e1 → customer-db e0 (10.20.20.20)
 ```
-
-> **MGMT path:** pfSense vtnet3 (10.30.30.1) plugs into INT-Switch. aegis-forwarder plugs into
-> the same INT-Switch. pfSense routes 10.30.30.0/24 out vtnet3 — aegis-forwarder gets its
-> MGMT IP that way without needing a separate physical switch.
 
 ---
 

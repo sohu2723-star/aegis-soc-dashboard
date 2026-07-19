@@ -5,148 +5,110 @@ description: Confirmed IP assignments, interface mappings, internet fix, and VM 
 
 # GNS3 Network Configuration — AEGIS-SecureBank
 
-## Current Topology (2026-07-19 — Updated, Switch+NAT node removed)
+## Current Topology (v3 — 2026-07-19, ဆရာမ ညွှန်ကြားချက်အတိုင်း)
 
 ```
-Internet cloud (virbr0/NAT) ─── R1 ether1: 192.168.122.2/24
-        │                         └─ ether3: 10.0.23.1/30
-        │                                        │
-   Kali (DHCP, 192.168.122.x)            pfSense WAN: 10.0.23.2/30
-   [no switch, directly to Internet]     ├─ e1: 10.10.10.1/24 → bank-web (10.10.10.10)
-                                         ├─ e2: 10.20.20.1/24 → customer-db (10.20.20.20)
-                                         └─ e3: 10.30.30.1/24 → aegis (10.30.30.10)
+Internet (NAT cloud / virbr0)
+        │ direct cable
+[Router — MikroTik CHR]
+  ether1: 192.168.122.2/24  ← Internet/virbr0 side
+  ether2: 192.168.10.1/24   ← Kali/Attacker side (DHCP server)
+  ether3: 10.0.23.1/30      ← pfSense WAN link
+        │ direct cable
+[Kali]  → Router e1 (direct, no switch) — DHCP 192.168.10.x
+[pfSense WAN] 10.0.23.2/30
+  ├─ BANK_WEB   (e1): 10.10.10.1/24 → Public-Service Switch → bank-web (10.10.10.10)
+  ├─ CUSTOMER_DB (e2): 10.20.20.1/24 → Internal-Service Switch → customer-db (10.20.20.20)
+  └─ MGMT       (e3): 10.30.30.1/24 → aegis-forwarder (10.30.30.10)
 ```
-
-> Kali IP is dynamic (DHCP from virbr0). Internet works automatically via gateway 192.168.122.1.
-> To reach internal VMs, add: `sudo ip route add 10.0.0.0/8 via 192.168.122.2`
 
 ## IP Plan
 
 | Segment | Subnet | Devices |
 |---|---|---|
-| Attacker ↔ R1 | 192.168.122.0/24 | Kali: dynamic DHCP, R1-ether1:192.168.122.2 |
-| R1 ↔ pfSense WAN | 10.0.23.0/30 | R1-ether3:10.0.23.1, pfSense-WAN:10.0.23.2 |
-| DMZ | 10.10.10.0/24 | pfSense:10.10.10.1, bank-web:10.10.10.10 |
-| Internal | 10.20.20.0/24 | pfSense:10.20.20.1, customer-db:10.20.20.20 |
-| Management | 10.30.30.0/24 | pfSense:10.30.30.1, aegis-forwarder:10.30.30.10 |
+| Internet (virbr0) | 192.168.122.0/24 | Router ether1: 192.168.122.2 |
+| Attacker network | 192.168.10.0/24 | Router ether2: 192.168.10.1, Kali: DHCP .2–.100 |
+| Router ↔ pfSense WAN | 10.0.23.0/30 | Router ether3: 10.0.23.1, pfSense WAN: 10.0.23.2 |
+| DMZ (BANK_WEB) | 10.10.10.0/24 | pfSense: 10.10.10.1, bank-web: 10.10.10.10 |
+| Internal (CUSTOMER_DB) | 10.20.20.0/24 | pfSense: 10.20.20.1, customer-db: 10.20.20.20 |
+| Management | 10.30.30.0/24 | pfSense: 10.30.30.1, aegis-forwarder: 10.30.30.10 |
 
-## Internet Connectivity Fix (2026-07-18 — Confirmed Working)
-
-### Problem
-VMs couldn't reach internet even though R1 could ping 8.8.8.8.
-
-### Root Cause
-MikroTik R1 was not forwarding packets from pfSense (ether3) to internet (ether1).
-
-### Fix — R1 MikroTik
-```routeros
-# Masquerade outbound traffic
-/ip firewall nat add chain=srcnat action=masquerade out-interface=ether1
-
-# Allow forward chain (CRITICAL — without this, R1 drops forwarded packets)
-/ip firewall filter add chain=forward action=accept place-before=0
-```
-
-### Fix — pfSense
-- System > Routing > Gateways → Default gateway IPv4 = **WANGW** (10.0.23.1)
-- Interfaces > WAN → uncheck "Block private networks" and "Block bogon networks"
-- Firewall > Rules > WAN — Source: 192.168.122.0/24, Action: Pass
-
-### pfSense Console Ping Note
-**Option 7 (Ping) always shows "Permission denied"** — this is a pfSense FreeBSD limitation, NOT a network issue.
-Use **Diagnostics > Ping** in the GUI to test connectivity instead.
-
-### VM Gateway Setup (run after each reboot or add to netplan)
-```bash
-# bank-web
-sudo ip route add default via 10.10.10.1
-echo "nameserver 8.8.8.8" | sudo tee /etc/resolv.conf
-
-# customer-db
-sudo ip route add default via 10.20.20.1
-echo "nameserver 8.8.8.8" | sudo tee /etc/resolv.conf
-
-# aegis-forwarder
-sudo ip route add default via 10.30.30.1
-echo "nameserver 8.8.8.8" | sudo tee /etc/resolv.conf
-```
-
-## R1 MikroTik Full Config
+## Router MikroTik — Full Config
 
 ```routeros
 /ip address add address=192.168.122.2/24 interface=ether1
-/ip address add address=10.0.23.1/30 interface=ether3
+/ip address add address=192.168.10.1/24  interface=ether2
+/ip address add address=10.0.23.1/30     interface=ether3
+/ip route add dst-address=0.0.0.0/0 gateway=192.168.122.1
+/ip route add dst-address=10.0.0.0/8 gateway=10.0.23.2
 /ip firewall nat add chain=srcnat action=masquerade out-interface=ether1
 /ip firewall filter add chain=forward action=accept place-before=0
-/ip route add dst-address=10.0.0.0/8 gateway=10.0.23.2
+/ip pool add name=kali-pool ranges=192.168.10.2-192.168.10.100
+/ip dhcp-server add name=kali-dhcp interface=ether2 address-pool=kali-pool disabled=no
+/ip dhcp-server network add address=192.168.10.0/24 gateway=192.168.10.1 dns-server=8.8.8.8
 ```
 
-## Kali Route (add after every reboot)
+## Kali — /etc/network/interfaces
 
+```
+auto eth0
+iface eth0 inet dhcp
+    post-up ip route add 10.0.0.0/8 via 192.168.10.1 || true
+```
+
+## pfSense — Required Settings
+
+- Static route: `192.168.10.0/24` via `10.0.23.1` (return path to Kali)
+- WAN firewall rule: allow source `192.168.10.0/24`
+- Default gateway: WANGW (10.0.23.1)
+- WAN interface: uncheck "Block private networks" and "Block bogon networks"
+
+## DHCP Troubleshooting
+
+If MikroTik DHCP shows `address-pool: static-only`:
+```routeros
+/ip dhcp-server set 0 address-pool=kali-pool disabled=no
+```
+
+If Kali has no `dhclient`:
 ```bash
-sudo ip route add 10.0.0.0/8 via 192.168.122.2
+sudo apt install isc-dhcp-client -y
+sudo dhclient eth0
 ```
+
+## Default Gateways
+
+| Node | Default Gateway |
+|---|---|
+| Router | 192.168.122.1 (virbr0 host bridge) |
+| Kali | 192.168.10.1 (Router ether2) |
+| pfSense | 10.0.23.1 (WANGW) |
+| bank-web | 10.10.10.1 (pfSense BANK_WEB) |
+| customer-db | 10.20.20.1 (pfSense CUSTOMER_DB) |
+| aegis-forwarder | 10.30.30.1 (pfSense MGMT) |
+
+## Removed Nodes
+
+| Node | Removed | Reason |
+|---|---|---|
+| Switch1 (NAT+R1+Kali switch) | 2026-07-19 | ဆရာမ topology change |
+| Router-2 (R2) | 2026-07-16 | R1 ↔ pfSense direct |
+| bank-mail | 2026-07-16 | internet မရ |
+| teller-pc | 2026-07-16 | internet မရ |
+| Cowrie honeypot | 2026-07-19 | ဖြုတ်ပြီ |
 
 ## VM Software Setup
 
-### customer-db (10.20.20.20) — DONE ✅
-- MySQL installed
-- bankdb created with accounts + transactions tables
-- 6 sample accounts (1001–1005, 9999/admin)
-- Remote access enabled (bind 0.0.0.0)
-- **⚠️ MySQL 8.0 bind-address quirk:** `sed` fails silently — file has no bind-address line by default.
-  Must append: `echo "bind-address = 0.0.0.0" >> /etc/mysql/mysql.conf.d/mysqld.cnf`
-  Also append: `echo "mysqlx-bind-address = 0.0.0.0" >> /etc/mysql/mysql.conf.d/mysqld.cnf`
-
 ### bank-web (10.10.10.10) — DONE ✅
-- Apache + PHP + php-mysql installed
-- All PHP files in /var/www/html (index, signup, dashboard, transfer, history, profile, logout, db, style)
-- Apache running, accessible at http://10.10.10.10
-- Login: 1001/1234
+- Apache2, vsftpd, Suricata, Fail2ban installed
+- Web app deployed at http://10.10.10.10
 
-### bank-web (10.10.10.10) — IN PROGRESS
-- Apache + PHP + php-mysql to install
-- Files: db.php, index.php, signup.php, dashboard.php, transfer.php, history.php, profile.php, logout.php, style.css
-- paste.rs URLs (valid as of 2026-07-18):
-  - db.php        → https://paste.rs/3kh3i
-  - index.php     → https://paste.rs/D1ESe
-  - signup.php    → https://paste.rs/ChRQ9
-  - dashboard.php → https://paste.rs/XPBoL
-  - transfer.php  → https://paste.rs/yumVL
-  - history.php   → https://paste.rs/XL7Z6
-  - profile.php   → https://paste.rs/Osgsq
-  - logout.php    → https://paste.rs/KX1qm
-  - style.css     → https://paste.rs/YR5lT
-- setup.sql       → https://paste.rs/IFRoJ
+### customer-db (10.20.20.20) — DONE ✅
+- PostgreSQL installed, bankdb created
+- Remote access enabled (bind 0.0.0.0)
+- ⚠️ MySQL 8.0 bind-address quirk: must append to mysqld.cnf, not sed
 
-### aegis-forwarder (10.30.30.10) — PENDING
-- Script at /opt/aegis/scripts/src/aegis_forwarder.py
-- Config at /opt/aegis/scripts/src/aegis_forwarder.local.conf
-- Restart: sudo systemctl restart aegis-forwarder
-
-## Verify Commands
-
-```routeros
-# R1 — check interfaces and forward rule
-/ip address print
-/ip firewall filter print
-/ip firewall nat print
-```
-
-```bash
-# pfSense GUI → Diagnostics > Ping
-# Test: 10.0.23.1 (R1)      → should work
-# Test: 192.168.122.1 (host) → should work
-# Test: 8.8.8.8 (internet)   → should work after fix
-```
-
-```bash
-# customer-db verify
-sudo mysql -e "USE bankdb; SELECT acc_no, full_name, balance FROM accounts;"
-```
-
-```bash
-# bank-web verify
-curl -I http://localhost   # Apache running
-curl http://10.10.10.10    # from another VM
-```
+### aegis-forwarder (10.30.30.10)
+- Script: /opt/aegis/scripts/src/aegis_forwarder.py
+- Config: /opt/aegis/scripts/src/aegis_forwarder.local.conf (gitignored)
+- Update via: wget from GitHub raw URL (not git pull)

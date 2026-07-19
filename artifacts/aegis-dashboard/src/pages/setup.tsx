@@ -80,16 +80,18 @@ export default function SetupGuide() {
 
               <div className="bg-muted/20 p-4 rounded border border-border">
                 <h4 className="text-sm font-bold mb-3 uppercase text-muted-foreground">Current Lab Topology (v3):</h4>
-                <pre className="text-xs font-mono text-primary/80 leading-relaxed">{`[Attacker VM] ── Switch1 ── [Router-1 / MikroTik CHR]
-(any IP)                      ether1: 192.168.122.2   ← attacker side
-                              ether3: 10.0.23.1/30    ← pfSense WAN (direct)
-
-                                       │
-                                [pfSense 2.7.2]
-                             WAN:  10.0.23.2/30
-                             DMZ:  10.10.10.1/24
-                             INT:  10.20.20.1/24
-                             MGMT: 10.30.30.1/24
+                <pre className="text-xs font-mono text-primary/80 leading-relaxed">{`[Internet / NAT cloud (virbr0)]
+         │ direct cable
+[Router — MikroTik CHR]
+  ether1: 192.168.122.2/24  ← Internet
+  ether2: 192.168.10.1/24   ← Kali (DHCP 192.168.10.x) — direct, no switch
+  ether3: 10.0.23.1/30      ← pfSense WAN
+         │ direct cable
+[Kali]                      [pfSense 2.7.2]
+  DHCP 192.168.10.x          WAN:         10.0.23.2/30
+  no switch                  BANK_WEB:    10.10.10.1/24
+                             CUSTOMER_DB: 10.20.20.1/24
+                             MGMT:        10.30.30.1/24
                                        │
                      ┌─────────────────┼──────────────┐
                 [DMZ Zone]        [INT Zone]      [MGMT Zone]
@@ -138,13 +140,13 @@ aegis-forwarder (hub): SSHes into bank-web + customer-db → tails logs → POST
                   <TableRow className="border-border">
                     <TableCell className="font-medium text-red-400">Attacker VM</TableCell>
                     <TableCell>Red Team (any IP)</TableCell>
-                    <TableCell className="font-mono text-muted-foreground text-xs">192.168.122.x (DHCP) or any</TableCell>
+                    <TableCell className="font-mono text-muted-foreground text-xs">192.168.10.x (DHCP, dynamic)</TableCell>
                     <TableCell className="font-mono text-muted-foreground text-xs">QEMU / any OS</TableCell>
                   </TableRow>
                   <TableRow className="border-border">
                     <TableCell className="font-medium text-muted-foreground">Router-1 (R1)</TableCell>
                     <TableCell>Edge Routing + NAT</TableCell>
-                    <TableCell className="font-mono text-muted-foreground text-xs">eth1: 192.168.122.2 · eth3: 10.0.23.1</TableCell>
+                    <TableCell className="font-mono text-muted-foreground text-xs">eth1: 192.168.122.2 · eth2: 192.168.10.1 · eth3: 10.0.23.1</TableCell>
                     <TableCell className="font-mono text-muted-foreground text-xs">MikroTik CHR</TableCell>
                   </TableRow>
                   <TableRow className="border-border">
@@ -201,11 +203,14 @@ aegis-forwarder (hub): SSHes into bank-web + customer-db → tails logs → POST
               <div className="bg-muted/20 p-4 rounded border border-border">
                 <h4 className="text-sm font-bold mb-2 uppercase text-muted-foreground">IP Assignments:</h4>
                 <div className="font-mono text-xs space-y-1 text-primary/80">
+                  <p>192.168.122.2 — R1 ether1 (Internet/virbr0 side)</p>
+                  <p>192.168.10.1  — R1 ether2 (Kali side — DHCP gateway)</p>
+                  <p>192.168.10.x  — Kali (dynamic DHCP, pool .2–.100)</p>
                   <p>10.0.23.1     — R1 ether3 (pfSense WAN upstream)</p>
                   <p>10.0.23.2     — pfSense WAN</p>
-                  <p>10.10.10.1    — pfSense DMZ gateway</p>
+                  <p>10.10.10.1    — pfSense BANK_WEB gateway</p>
                   <p>10.10.10.10   — bank-web</p>
-                  <p>10.20.20.1    — pfSense Internal gateway</p>
+                  <p>10.20.20.1    — pfSense CUSTOMER_DB gateway</p>
                   <p>10.20.20.20   — customer-db</p>
                   <p>10.30.30.1    — pfSense MGMT gateway</p>
                   <p>10.30.30.10   — aegis-forwarder (hub)</p>
@@ -213,18 +218,29 @@ aegis-forwarder (hub): SSHes into bank-web + customer-db → tails logs → POST
               </div>
               <div className="bg-muted/20 p-4 rounded border border-border">
                 <h4 className="text-sm font-bold mb-2 uppercase text-muted-foreground">R1 MikroTik Config:</h4>
-                <CodeBlock language="routeros" code={`# R1 — ether1=attacker side, ether2=NAT, ether3=pfSense WAN direct
+                <CodeBlock language="routeros" code={`# R1 — ether1=Internet(virbr0), ether2=Kali(DHCP server), ether3=pfSense WAN
 /ip address add address=192.168.122.2/24 interface=ether1
-/ip address add address=10.0.23.1/30 interface=ether3
-/ip dhcp-client add interface=ether2 disabled=no
-/ip firewall nat add chain=srcnat out-interface=ether2 action=masquerade
-/ip route add dst-address=10.0.0.0/8 gateway=10.0.23.2`} />
+/ip address add address=192.168.10.1/24  interface=ether2
+/ip address add address=10.0.23.1/30     interface=ether3
+/ip route add dst-address=0.0.0.0/0 gateway=192.168.122.1
+/ip route add dst-address=10.0.0.0/8 gateway=10.0.23.2
+/ip firewall nat add chain=srcnat out-interface=ether1 action=masquerade
+/ip firewall filter add chain=forward action=accept place-before=0
+# DHCP server for Kali (ether2)
+/ip pool add name=kali-pool ranges=192.168.10.2-192.168.10.100
+/ip dhcp-server add name=kali-dhcp interface=ether2 address-pool=kali-pool disabled=no
+/ip dhcp-server network add address=192.168.10.0/24 gateway=192.168.10.1 dns-server=8.8.8.8`} />
               </div>
               <div className="bg-muted/20 p-4 rounded border border-border">
                 <h4 className="text-sm font-bold mb-2 uppercase text-muted-foreground">Attacker VM Route (add each session):</h4>
-                <CodeBlock language="bash" code={`# Attacker needs route to reach bank VMs through R1
-sudo ip route add 10.0.0.0/8 via 192.168.122.2
-# Note: lost on reboot — add again each session`} />
+                <CodeBlock language="bash" code={`# /etc/network/interfaces (persistent — DHCP + auto route)
+auto eth0
+iface eth0 inet dhcp
+    post-up ip route add 10.0.0.0/8 via 192.168.10.1 || true
+
+# Or manually per session:
+sudo dhclient eth0
+sudo ip route add 10.0.0.0/8 via 192.168.10.1`} />
               </div>
             </section>
 
@@ -448,7 +464,7 @@ TELEGRAM_CHAT_ID=your-chat-id       # your Telegram user/group ID`} />
               <h2 className="text-xl font-bold uppercase text-primary border-b border-border/50 pb-2">
                 8. Attack Test Commands
               </h2>
-              <p className="text-foreground text-sm mb-2">Run from the attacker VM after adding route: <code className="text-primary text-xs">sudo ip route add 10.0.0.0/8 via 192.168.122.2</code></p>
+              <p className="text-foreground text-sm mb-2">Run from the attacker VM after adding route: <code className="text-primary text-xs">sudo ip route add 10.0.0.0/8 via 192.168.10.1</code></p>
 
               <div className="bg-muted/20 border border-border rounded p-4 space-y-4 text-sm">
                 {[

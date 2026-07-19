@@ -4,33 +4,39 @@ Full-stack real-time SOC (Security Operations Center) dashboard for the GNS3 AEG
 
 ---
 
-## Lab Topology (Current)
+## Lab Topology (Current — v3, 2026-07-19)
 
 ```
-[Attacker]           Switch1     Router-1 (MikroTik CHR)
-(any IP)  ───────────────────── ether1: 192.168.122.2/24
-                                 ether2: DHCP (NAT internet)
-                                 ether3: 10.0.23.1/30 ──────┐
-                                                             │
-                                                      [pfSense 2.7.2]
-                                                   WAN:  10.0.23.2/30
-                                                   DMZ:  10.10.10.1/24
-                                                   INT:  10.20.20.1/24
-                                                   MGMT: 10.30.30.1/24
-                                                             │
-                                        ┌────────────────────┼──────────────┐
-                                   [DMZ Zone]          [INT Zone]      [MGMT Zone]
-                                        │                   │                │
-                                  [bank-web]          [customer-db]   [aegis-forwarder]
-                                 10.10.10.10          10.20.20.20      10.30.30.10
-                                Apache, vsftpd         PostgreSQL       Hub agent
-                                Suricata               Suricata         (SSH → VMs)
-                                Fail2ban               Fail2ban
+[Internet / NAT cloud (virbr0)]
+         │
+         │ direct cable
+         │
+[Router — MikroTik CHR]
+  ether1: 192.168.122.2/24  ← Internet side
+  ether2: 192.168.10.1/24   ← Attacker (Kali) side — DHCP server
+  ether3: 10.0.23.1/30      ← pfSense WAN link
+         │
+         │ direct cable
+         │
+[Kali / Attacker]           [pfSense 2.7.2]
+  eth0 → Router ether2        WAN:       10.0.23.2/30
+  IP: DHCP 192.168.10.x       BANK_WEB:  10.10.10.1/24
+  (no switch)                 CUSTOMER_DB: 10.20.20.1/24
+                              MGMT:      10.30.30.1/24
+                                         │
+                    ┌────────────────────┼──────────────┐
+               [DMZ Zone]          [INT Zone]       [MGMT Zone]
+                    │                   │                │
+              [bank-web]         [customer-db]   [aegis-forwarder]
+             10.10.10.10         10.20.20.20      10.30.30.10
+            Apache, vsftpd        PostgreSQL        Hub agent
+            Suricata              Suricata          (SSH → VMs)
+            Fail2ban              Fail2ban
 ```
 
-> ⚠️ **Attackers can come from any IP address** — no fixed IP range is assumed. Lab test VMs typically use the 192.168.122.0/24 virbr0 network, but any external or internal IP is valid.
+> ⚠️ **Kali IP is dynamic (DHCP 192.168.10.x)** — connected directly to Router ether2, no switch. Attacker route: `sudo ip route add 10.0.0.0/8 via 192.168.10.1`
 
-**Removed from topology:** R2 (MikroTik), bank-mail server, teller-pc workstation.
+**Removed from topology:** R2 (MikroTik), Switch1, bank-mail server, teller-pc workstation, Cowrie honeypot.
 
 ---
 
