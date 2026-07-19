@@ -144,6 +144,8 @@ export default function AttackFlowPage() {
   const [pulseNodes, setPulseNodes] = useState<Set<NodeKey>>(new Set());  // expanding ring
   const [stats, setStats]           = useState({ attacks: 0, blocked: 0 });
   const [tgToasts, setTgToasts]     = useState<{ id: string; sev: string; ts: string }[]>([]);
+  // Dynamic attacker IP — updated live from incoming security_event sourceIp
+  const [attackerIp, setAttackerIp] = useState<string>("* / any");
 
   const rafRef      = useRef<number | null>(null);
   const prevNowRef  = useRef<number>(0);
@@ -212,6 +214,9 @@ export default function AttackFlowPage() {
 
           setPackets(prev => [...prev.slice(-40), pkt]);
           setStats(s => ({ ...s, attacks: s.attacks + 1 }));
+
+          // Update live attacker IP on the node
+          if (ev.sourceIp) setAttackerIp(ev.sourceIp);
 
           // Pulse attacker
           setPulseNodes(prev => new Set([...prev, "attacker"]));
@@ -538,9 +543,29 @@ export default function AttackFlowPage() {
                   <text x={n.x} y={n.y + 56} textAnchor="middle" fontSize="7.5" fill="rgba(255,255,255,0.38)" fontFamily="monospace">
                     {n.sub}
                   </text>
-                  <text x={n.x} y={n.y + 67} textAnchor="middle" fontSize="7" fill="rgba(255,255,255,0.2)" fontFamily="monospace">
-                    {n.ip}
-                  </text>
+                  {/* Attacker node: show live Kali IP; others show static IP */}
+                  {key === "attacker" ? (
+                    <>
+                      <text x={n.x} y={n.y + 67} textAnchor="middle" fontSize="7.5"
+                        fill={attackerIp === "* / any" ? "rgba(255,255,255,0.2)" : "#ef4444"}
+                        fontFamily="monospace" fontWeight={attackerIp === "* / any" ? "normal" : "bold"}>
+                        {attackerIp}
+                      </text>
+                      {attackerIp !== "* / any" && (
+                        <>
+                          <rect x={n.x - 14} y={n.y + 71} width={28} height={9} rx={2} fill="rgba(239,68,68,0.15)" />
+                          <text x={n.x} y={n.y + 78} textAnchor="middle" fontSize="6" fill="#ef4444"
+                            fontFamily="monospace" fontWeight="bold" letterSpacing="1">
+                            LIVE
+                          </text>
+                        </>
+                      )}
+                    </>
+                  ) : (
+                    <text x={n.x} y={n.y + 67} textAnchor="middle" fontSize="7" fill="rgba(255,255,255,0.2)" fontFamily="monospace">
+                      {n.ip}
+                    </text>
+                  )}
                 </g>
               );
             })}
