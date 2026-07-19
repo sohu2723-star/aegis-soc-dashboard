@@ -2,7 +2,7 @@
 
 > **ဖတ်သူ:** ဆရာမ၊ lab partner များ၊ future AEGIS team  
 > **ရည်ရွယ်ချက်:** ဒီ document တစ်ခုဖတ်ပြီးရင် ဘာမှ မေးစရာမလိုဘဲ lab တစ်ခုလုံး operate လုပ်နိုင်ရမည်  
-> **Last Updated:** 2026-07-19
+> **Last Updated:** 2026-07-20
 
 ---
 
@@ -738,4 +738,417 @@ First request = ~50s delay (normal)
 
 ---
 
-*Document maintained by AEGIS Agent. Last updated: 2026-07-19*
+---
+
+## 14. Future Topology — v4 (Confirmed Plan — 2026-07-20)
+
+> **Status:** 📋 Planned — v3 လက်ရှိ run နေဆဲ၊ v4 ကို phase အလိုက် build မည်
+> **ဆုံးဖြတ်ချက်:** VoIP ဖြုတ်ပြီ၊ VM တစ်ခုကို service group တစ်ခု၊ SSH only manage
+
+---
+
+### 14.1 Network Diagram
+
+```
+Internet (virbr0 192.168.122.0/24)
+              │
+         [Router — MikroTik CHR]
+          ether1: 192.168.122.2   ← internet
+          ether2: 192.168.10.1    ← Kali (DHCP, direct cable)
+          ether3: 10.0.23.1       ← pfSense WAN
+              │
+         [pfSense 2.7.2]
+          WAN: 10.0.23.2/30
+              │
+    ┌─────────┼──────────────────┬──────────┐
+    │         │                  │          │
+   em1       em2               em3        em4
+  VLAN 10  VLAN 20            MGMT      VLAN 40
+  Public   Internal           direct      IoT
+10.10.10.x 10.20.20.x      10.30.30.x 10.40.40.x
+    │           │                │          │
+[Pub-SW]   [Int-SW]           aegis    cctv-server
+    │           │            10.30.30.10 10.40.40.10
+    ├─bank-web  ├─customer-db   (direct)   (direct)
+    │ .10       │ .10
+    ├─dns       ├─ad-server
+    │ .20       │ .20
+    └─mail      └─atm-server
+      .30         .30
+```
+
+---
+
+### 14.2 VLAN ခွဲချက်
+
+| Interface | VLAN | Subnet | Zone | Switch |
+|---|---|---|---|---|
+| em1 | VLAN 10 | 10.10.10.0/24 | Public (internet-facing) | Public-Switch |
+| em2 | VLAN 20 | 10.20.20.0/24 | Internal (staff/bank only) | Internal-Switch |
+| em3 | MGMT | 10.30.30.0/24 | Admin (aegis only) | direct cable |
+| em4 | VLAN 40 | 10.40.40.0/24 | IoT (CCTV) | direct cable |
+
+> **Switch ဘာကြောင့် ရွေးသုံးသလဲ:**
+> VM တစ်ခုထက်ပိုရင် switch ခံ (Public + Internal)
+> VM တစ်ခုပဲဆိုရင် direct cable (MGMT, IoT)
+
+---
+
+### 14.3 VM List — IP + Services + RAM
+
+| VM | VLAN | IP | Services | RAM | Connection |
+|---|---|---|---|---|---|
+| bank-web | 10 | 10.10.10.10 | Apache2, vsftpd, Suricata, Fail2ban | 256MB | Public-Switch |
+| dns-server | 10 | 10.10.10.20 | BIND9 | 256MB | Public-Switch |
+| mail-server | 10 | 10.10.10.30 | Postfix, Dovecot | 256MB | Public-Switch |
+| customer-db | 20 | 10.20.20.10 | PostgreSQL, Suricata, Fail2ban | 256MB | Internal-Switch |
+| ad-server | 20 | 10.20.20.20 | Samba4 (Active Directory) | 256MB | Internal-Switch |
+| atm-server | 20 | 10.20.20.30 | Python Flask ATM API | 256MB | Internal-Switch |
+| cctv-server | 40 | 10.40.40.10 | ffmpeg RTSP + status API | 256MB | direct |
+| **aegis** | MGMT | 10.30.30.10 | Hub agent, SSH jump host | **1GB** | direct |
+| pfSense | — | 10.0.23.2 | Firewall/Gateway | 1GB | — |
+| Router | — | 192.168.122.2 | MikroTik CHR | 256MB | — |
+| Kali | — | DHCP 192.168.10.x | Attack tools | 2GB | direct (Router ether2) |
+| **စုစုပေါင်း** | | | | **~5.5GB** | |
+
+> **RAM Logic:**
+> - aegis = SSH jump host → connection handle လုပ်ရလို့ 1GB
+> - ကျန် server VM = SSH only (no GUI) → 256MB လုံလောက်
+> - VM အကုန် တပြိုင်တည်း run ရင် ~5.5GB → 15.46GB host RAM ထဲ ချောမွေ့စွာ ဝင်တယ်
+
+---
+
+### 14.4 Public vs Internal Service ခွဲချက်
+
+**Public VLAN 10** — Internet ကနေ reach ရ:
+
+| Service | Port | ဘာသုံးလဲ |
+|---|---|---|
+| Apache2 (bank-web) | 80, 443 | Customer website |
+| vsftpd (bank-web) | 21 | File transfer |
+| BIND9 (dns) | 53 | External domain resolve |
+| Postfix (mail) | 25 | Internet SMTP (mail ဝင်/ထွက်) |
+
+**Internal VLAN 20** — Staff/Bank only:
+
+| Service | Port | ဘာသုံးလဲ |
+|---|---|---|
+| PostgreSQL (customer-db) | 5432 | Bank database |
+| Samba4 AD (ad-server) | 389, 88, 445 | Staff authentication |
+| ATM API (atm-server) | 5000 | ATM transaction |
+| Dovecot (mail) | 143, 587 | Staff mailbox (cross-VLAN rule) |
+| Apache admin (bank-web) | 8080 | Staff admin panel (cross-VLAN rule) |
+
+> **Public + Internal နှစ်ဘက်လိုတဲ့ service (mail, dns, web):**
+> VM က Public VLAN 10 မှာ ထားတယ်
+> pfSense firewall rule က port အလိုက် ဘယ် zone ကနေ access ရလဲ သတ်မှတ်တယ်
+> VM ကို ရွှေ့စရာမလို — rule ချင်းပဲ
+
+---
+
+### 14.5 Internal Service Connections (Real Bank Logic)
+
+Service တွေ တကယ် interconnect ဖြစ်ရမည် — install ရုံသာမဟုတ်:
+
+```
+DNS (bank.local) — အကုန်ရဲ့ အခြေခံ
+  → VM တွေအကုန် IP မဟုတ်ဘဲ hostname နဲ့ ဆက်သွယ်
+  → web.bank.local, mail.bank.local, db.bank.local ...
+
+Mail → customer-db
+  → Staff mailbox account တွေ PostgreSQL (bankmail DB) မှာ သိမ်း
+  → Postfix virtual_mailbox_maps = pgsql config
+
+Mail → ad-server
+  → Staff တွေ AD domain account နဲ့ mail login ဝင်
+  → PAM Kerberos auth
+
+ATM → customer-db
+  → Account balance, transaction history — PostgreSQL (bankdb)
+  → Real DB query — simulation မဟုတ်
+
+bank-web → ad-server
+  → Admin panel login = AD authentication
+  → mod_authnz_external
+
+CCTV → status API
+  → aegis forwarder က HTTP GET /status နဲ့ stream uptime စစ်
+  → Dashboard camera card အတွက်
+```
+
+**Internal DNS Records (bank.local):**
+
+```
+web.bank.local   → 10.10.10.10
+dns.bank.local   → 10.10.10.20
+mail.bank.local  → 10.10.10.30
+db.bank.local    → 10.20.20.10
+ad.bank.local    → 10.20.20.20
+atm.bank.local   → 10.20.20.30
+cctv.bank.local  → 10.40.40.10
+aegis.bank.local → 10.30.30.10
+```
+
+---
+
+### 14.6 pfSense Firewall Rules (v4)
+
+| Source | Destination | Port | Action |
+|---|---|---|---|
+| WAN | 10.10.10.10 (bank-web) | 80, 443, 21 | ✅ Allow |
+| WAN | 10.10.10.20 (dns) | 53 | ✅ Allow |
+| WAN | 10.10.10.30 (mail) | 25 | ✅ Allow |
+| WAN | VLAN 20 (internal) | any | ❌ Block |
+| WAN | VLAN 40 (IoT) | any | ❌ Block |
+| WAN | MGMT | any | ❌ Block |
+| VLAN 20 | 10.10.10.30 (mail) | 143, 587 | ✅ Allow (staff mailbox) |
+| VLAN 20 | 10.10.10.10 (bank-web) | 8080 | ✅ Allow (admin panel) |
+| VLAN 10 | VLAN 20 | any | ❌ Block (isolation) |
+| VLAN 40 | VLAN 20 | any | ❌ Block (IoT isolation) |
+| MGMT | any | 22 | ✅ Allow (SSH monitoring) |
+
+---
+
+### 14.7 Aegis SSH Jump Host Setup
+
+v4 မှာ aegis = **SSH jump host** — GNS3 console မဖွင့်ဘဲ laptop ကနေ VM အကုန် manage လုပ်နိုင်:
+
+**ကိုယ့် laptop ~/.ssh/config:**
+
+```
+Host aegis
+    HostName 10.30.30.10
+    User     user
+    Port     22
+
+Host bank-web
+    HostName  10.10.10.10
+    User      user
+    ProxyJump aegis
+
+Host dns-server
+    HostName  10.10.10.20
+    User      user
+    ProxyJump aegis
+
+Host mail-server
+    HostName  10.10.10.30
+    User      user
+    ProxyJump aegis
+
+Host customer-db
+    HostName  10.20.20.10
+    User      user
+    ProxyJump aegis
+
+Host ad-server
+    HostName  10.20.20.20
+    User      user
+    ProxyJump aegis
+
+Host atm-server
+    HostName  10.20.20.30
+    User      user
+    ProxyJump aegis
+
+Host cctv-server
+    HostName  10.40.40.10
+    User      user
+    ProxyJump aegis
+```
+
+**Usage:**
+```bash
+ssh bank-web       # laptop → aegis → bank-web (auto jump)
+ssh mail-server    # laptop → aegis → mail-server
+ssh atm-server     # laptop → aegis → atm-server
+```
+
+---
+
+### 14.8 VM Clone Procedure (GNS3)
+
+ရှိပြီးသား VM ကနေ clone ထုတ်ပြီး IP + service ပဲ ပြောင်းရတယ် — fresh install မလို:
+
+```
+bank-web     → clone → dns-server    (IP: 10.10.10.20)
+bank-web     → clone → mail-server   (IP: 10.10.10.30)
+bank-web     → clone → ad-server     (IP: 10.20.20.20)
+bank-web     → clone → atm-server    (IP: 10.20.20.30)
+bank-web     → clone → cctv-server   (IP: 10.40.40.10)
+customer-db  → ရှိပြီး (IP: 10.20.20.10)
+```
+
+**GNS3 Clone Steps:**
+```
+1. bank-web node → Right-click → Clone
+2. VM rename လုပ်
+3. RAM: 256 MB သတ်မှတ် (Right-click → Configure)
+4. Topology မှာ switch/pfSense port နဲ့ cable ချိတ်
+5. GNS3 console ကနေ IP + SSH setup (တစ်ကြိမ်ပဲ)
+6. ပြီးရင် SSH ကနေပဲ manage
+```
+
+**IP သတ်မှတ် (netplan):**
+```yaml
+# /etc/netplan/00-installer-config.yaml
+network:
+  ethernets:
+    eth0:
+      addresses: [10.10.10.20/24]   # ← VM IP ပြောင်း
+      gateway4: 10.10.10.1           # ← pfSense interface IP
+      nameservers:
+        addresses: [10.10.10.20]     # ← dns-server
+  version: 2
+```
+
+---
+
+### 14.9 Service Install Commands
+
+**bank-web** (ရှိပြီး — Suricata/Fail2ban ထပ် confirm):
+```bash
+sudo apt install apache2 vsftpd suricata fail2ban -y
+sudo systemctl enable apache2 vsftpd suricata fail2ban
+sudo systemctl start apache2 vsftpd suricata fail2ban
+```
+
+**dns-server:**
+```bash
+sudo apt install bind9 bind9utils -y
+# /etc/bind/named.conf.options → listen-on { any; }; allow-query { any; };
+# /etc/bind/db.bank.local → A records အကုန်ထည့်
+sudo mkdir -p /var/log/named && sudo chown bind:bind /var/log/named
+sudo systemctl enable bind9 && sudo systemctl start bind9
+```
+
+**mail-server:**
+```bash
+sudo apt install postfix dovecot-core dovecot-imapd libpam-krb5 -y
+# postfix main.cf → myhostname=mail.bank.local, pgsql virtual_mailbox_maps
+# dovecot.conf → protocols = imap, listen = *
+sudo systemctl enable postfix dovecot && sudo systemctl start postfix dovecot
+```
+
+**customer-db** (ရှိပြီး — DB tables ထပ်ဆောက်):
+```sql
+-- bankmail DB (mail server အတွက်)
+CREATE DATABASE bankmail;
+CREATE USER mailuser WITH PASSWORD 'mail@pass';
+GRANT ALL ON DATABASE bankmail TO mailuser;
+
+-- bankdb (ATM အတွက်)
+CREATE DATABASE bankdb;
+CREATE USER atmuser WITH PASSWORD 'atm@pass';
+GRANT ALL ON DATABASE bankdb TO atmuser;
+\c bankdb
+CREATE TABLE accounts (id TEXT PRIMARY KEY, name TEXT, balance NUMERIC);
+CREATE TABLE transactions (id SERIAL, account TEXT, amount NUMERIC, type TEXT, ip TEXT, ts TIMESTAMP DEFAULT NOW());
+INSERT INTO accounts VALUES ('123456','Ko Mg Mg',5000000),('789012','Ma Aye',3000000);
+```
+
+**ad-server:**
+```bash
+sudo apt install samba krb5-config winbind -y
+sudo samba-tool domain provision \
+    --use-rfc2307 --domain=BANK --realm=BANK.LOCAL \
+    --server-role=dc --dns-backend=SAMBA_INTERNAL \
+    --adminpass=Admin@12345
+sudo systemctl enable samba-ad-dc && sudo systemctl start samba-ad-dc
+# Staff users
+sudo samba-tool user create teller Pass@1234
+sudo samba-tool user create manager Pass@5678
+sudo samba-tool group add Tellers && sudo samba-tool group addmembers Tellers teller
+```
+
+**atm-server:**
+```bash
+sudo apt install python3 python3-pip python3-flask python3-psycopg2 -y
+# ~/atm/app.py → Flask API (withdraw, balance) → connects db.bank.local:5432
+sudo nano /etc/systemd/system/atm.service
+# ExecStart=/usr/bin/python3 /home/user/atm/app.py
+sudo systemctl enable atm && sudo systemctl start atm
+```
+
+**cctv-server:**
+```bash
+sudo apt install ffmpeg python3-flask -y
+# Generate test video loop
+ffmpeg -f lavfi -i testsrc=size=640x480:rate=25 -t 3600 ~/bank_cctv.mp4
+# systemd service → ffmpeg -re -stream_loop -1 -i ~/bank_cctv.mp4 -f rtsp rtsp://0.0.0.0:8554/cctv
+# status API → Flask GET /status → checks pgrep ffmpeg
+sudo systemctl enable cctv && sudo systemctl start cctv
+```
+
+---
+
+### 14.10 Log Paths — Forwarder (v4)
+
+Forwarder (aegis_forwarder.py) က SSH ကနေ ဒီ log တွေ tail ရမည်:
+
+| VM | Log Path | Event Type |
+|---|---|---|
+| bank-web | `/var/log/suricata/eve.json` | IDS alerts |
+| bank-web | `/var/log/fail2ban.log` | IP bans |
+| bank-web | `/var/log/auth.log` | SSH login |
+| bank-web | `/var/log/vsftpd.log` | FTP sessions |
+| dns-server | `/var/log/named/queries.log` | DNS queries |
+| mail-server | `/var/log/mail.log` | SMTP events |
+| customer-db | `/var/log/postgresql/*.log` | DB connections |
+| customer-db | `/var/log/suricata/eve.json` | IDS alerts |
+| ad-server | `/var/log/samba/log.samba` | Auth events |
+| atm-server | `/var/log/atm.log` | Transactions |
+| cctv-server | `HTTP GET /status` | Stream status |
+
+---
+
+### 14.11 Attack Coverage (v4)
+
+| Zone | VM | Attack Type | Tools |
+|---|---|---|---|
+| VLAN 10 | bank-web | SQLi, XSS, path traversal | sqlmap, nikto |
+| VLAN 10 | bank-web | FTP brute force | hydra |
+| VLAN 10 | dns-server | DNS amplification, zone transfer | dig, hping3 |
+| VLAN 10 | mail-server | SMTP brute, open relay, phishing | hydra, swaks |
+| VLAN 20 | customer-db | DB brute, SQL injection | hydra, sqlmap |
+| VLAN 20 | ad-server | Pass-the-Hash, Kerberoasting, LDAP enum | impacket, enum4linux |
+| VLAN 20 | atm-server | Transaction replay, MITM, logic flaw | curl, arpspoof |
+| VLAN 40 | cctv-server | RTSP hijack, stream DoS | vlc, hping3 |
+
+---
+
+### 14.12 Connection Test Checklist
+
+v4 setup ပြီးရင် ဒီ test တွေ pass ရမည်:
+
+```bash
+# aegis ကနေ run
+ping web.bank.local      # 10.10.10.10 ✅
+ping dns.bank.local      # 10.10.10.20 ✅
+ping mail.bank.local     # 10.10.10.30 ✅
+ping db.bank.local       # 10.20.20.10 ✅
+ping ad.bank.local       # 10.20.20.20 ✅
+ping atm.bank.local      # 10.20.20.30 ✅
+ping cctv.bank.local     # 10.40.40.10 ✅
+
+nc -zv web.bank.local  80      # Apache  ✅
+nc -zv dns.bank.local  53      # DNS     ✅
+nc -zv mail.bank.local 25      # SMTP    ✅
+nc -zv db.bank.local   5432    # PgSQL   ✅
+nc -zv atm.bank.local  5000    # ATM API ✅
+nc -zv cctv.bank.local 8554    # RTSP    ✅
+
+# ATM → DB connection
+curl -X POST http://atm.bank.local:5000/withdraw \
+  -H 'Content-Type: application/json' \
+  -d '{"account":"123456","amount":100}'
+# → {"success":true,"balance":4999900} ✅
+
+# CCTV status
+curl http://cctv.bank.local:8080/status
+# → {"streaming":true,...} ✅
+```
+
+---
+
+*Document maintained by AEGIS Agent. Last updated: 2026-07-20*
