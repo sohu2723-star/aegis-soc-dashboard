@@ -11,7 +11,7 @@
 
 ```
 [Kali Linux]
-192.168.122.153/24
+192.168.122.x (DHCP)/24
       │
  [Switch1]────────[Internet Cloud (virbr0)]
       │
@@ -50,7 +50,7 @@
 
 ```
 [Kali Linux]
-192.168.122.153/24
+192.168.122.x (DHCP)/24
       │
  [Switch1]────────[Internet Cloud (virbr0)]
       │
@@ -83,7 +83,7 @@
 
 | Device | Interface | IP Address | Network | Role |
 |---|---|---|---|---|
-| Kali Linux | eth0 | 192.168.122.153/24 | 192.168.122.0/24 | Attacker |
+| Kali Linux | eth0 | 192.168.122.x (DHCP)/24 | 192.168.122.0/24 | Attacker |
 | R1 | ether1 | 192.168.122.2/24 | 192.168.122.0/24 | Kali-side gateway |
 | R1 | ether2 | DHCP (~192.168.122.x) | 192.168.122.0/24 | NAT internet out |
 | R1 | ether3 | 10.0.23.1/30 | 10.0.23.0/30 | pfSense WAN link |
@@ -188,7 +188,7 @@
 ```
 Kali → bank-web (HTTP/SSH attack)
 ─────────────────────────────────────────────────────────
-Kali (192.168.122.153)
+Kali (192.168.122.x (DHCP))
   → R1 ether1 (192.168.122.2)          [L3 routing]
   → R1 ether3 (10.0.23.1)             [route: 10.0.0.0/8 via 10.0.23.2]
   → pfSense WAN (10.0.23.2)           [firewall: WAN rule pass 192.168.122.0/24]

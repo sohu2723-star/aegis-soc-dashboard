@@ -5,27 +5,26 @@ description: Confirmed IP assignments, interface mappings, internet fix, and VM 
 
 # GNS3 Network Configuration — AEGIS-SecureBank
 
-## Current Topology (2026-07-19 — Updated)
+## Current Topology (2026-07-19 — Updated, Switch+NAT node removed)
 
 ```
-Kali (192.168.122.153)     ← IP changed from .132 on 2026-07-19
-    │
-Switch1
-    │
-R1  ├─ ether1: 192.168.122.2/24   (Switch1 / Kali network, internet via virbr0)
-    └─ ether3: 10.0.23.1/30        (pfSense WAN direct link)
-                    │
-              pfSense WAN (em0): 10.0.23.2/30, GW=10.0.23.1
-              ├─ LAN      (em1): 10.10.10.1/24  → bank-web     (10.10.10.10)
-              ├─ BANK_WEB (em2): 10.20.20.1/24  → customer-db  (10.20.20.20)
-              └─ CUSTOMER_DB (em3): 10.30.30.1/24 → aegis-forwarder (10.30.30.10)
+Internet cloud (virbr0/NAT) ─── R1 ether1: 192.168.122.2/24
+        │                         └─ ether3: 10.0.23.1/30
+        │                                        │
+   Kali (DHCP, 192.168.122.x)            pfSense WAN: 10.0.23.2/30
+   [no switch, directly to Internet]     ├─ e1: 10.10.10.1/24 → bank-web (10.10.10.10)
+                                         ├─ e2: 10.20.20.1/24 → customer-db (10.20.20.20)
+                                         └─ e3: 10.30.30.1/24 → aegis (10.30.30.10)
 ```
+
+> Kali IP is dynamic (DHCP from virbr0). Internet works automatically via gateway 192.168.122.1.
+> To reach internal VMs, add: `sudo ip route add 10.0.0.0/8 via 192.168.122.2`
 
 ## IP Plan
 
 | Segment | Subnet | Devices |
 |---|---|---|
-| Attacker ↔ R1 | 192.168.122.0/24 | Kali:192.168.122.153, R1-ether1:192.168.122.2 |
+| Attacker ↔ R1 | 192.168.122.0/24 | Kali: dynamic DHCP, R1-ether1:192.168.122.2 |
 | R1 ↔ pfSense WAN | 10.0.23.0/30 | R1-ether3:10.0.23.1, pfSense-WAN:10.0.23.2 |
 | DMZ | 10.10.10.0/24 | pfSense:10.10.10.1, bank-web:10.10.10.10 |
 | Internal | 10.20.20.0/24 | pfSense:10.20.20.1, customer-db:10.20.20.20 |

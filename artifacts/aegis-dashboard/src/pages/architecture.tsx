@@ -18,7 +18,7 @@ const BLOCKS: BlockDetail[] = [
   {
     id: "attacker",
     title: "Attacker Zone",
-    subtitle: "Kali Linux VM — 192.168.122.153",
+    subtitle: "Kali Linux VM — 192.168.122.x (DHCP)",
     color: "#ef4444",
     borderColor: "border-red-500",
     bgColor: "bg-red-950/40",
@@ -37,7 +37,7 @@ const BLOCKS: BlockDetail[] = [
       { step: 6, action: "ARP Spoofing", detail: "arpspoof -i eth0 -t 10.10.10.10 192.168.122.1 — MITM positioning" },
       { step: 7, action: "FTP Attack", detail: "medusa -u admin -P wordlist.txt -h 10.10.10.10 -M ftp — FTP brute force" },
     ],
-    description: "Red Team လုပ်ဆောင်ချက်တွေ — Kali Linux (192.168.122.153) မှ attack vector အမျိုးမျိုးသုံးပြီး Ubuntu VM (10.10.10.10) ကို attack လုပ်သည်"
+    description: "Red Team လုပ်ဆောင်ချက်တွေ — Kali Linux (192.168.122.x, DHCP) မှ attack vector အမျိုးမျိုးသုံးပြီး Ubuntu VM (10.10.10.10) ကို attack လုပ်သည်"
   },
   {
     id: "defense",
