@@ -1151,4 +1151,498 @@ curl http://cctv.bank.local:8080/status
 
 ---
 
+---
+
+## 15. v4 Build Progress — GNS3 + pfSense + OVS (2026-07-20)
+
+> **Status:** 🔨 Building — VM တွေ clone ပြီး၊ pfSense config လုပ်နေဆဲ
+> **Date:** 2026-07-20 02:00+
+
+---
+
+### 15.1 Confirmed GNS3 Topology (2026-07-20 02:01)
+
+Image မှာ confirm ဖြစ်ပြီးသား topology:
+
+```
+Internet (virbr0)
+      │
+   [Router — MikroTik CHR]
+    192.168.122.2 / 10.0.23.1
+      │                │
+   [Attacker]       pfSense
+  192.168.10.99    10.0.23.2
+                    │  │  │  │
+                   e1  e2  e3  e4(ထည့်ရမည်)
+                   │   │   │   │
+          Public  Int  MGMT  CCTV
+         Switch  Switch
+           │       │         │          │
+        ┌──┴──┐  ┌─┴──┐    aegis     cctv-server
+     bank-web  │ cust-db  10.30.30.10  10.40.40.10
+    10.10.10.10 │ 10.20.20.10
+      dns-server │ ad-server
+    10.10.10.20  │ 10.20.20.20
+     mail-server │ atm-server
+    10.10.10.30  │ 10.20.20.30
+```
+
+**ရှိပြီးသား VM တွေ (2026-07-20):**
+| VM | IP | Status |
+|---|---|---|
+| bank-web | 10.10.10.10 | ✅ running |
+| DNS-Server | 10.10.10.20 | ✅ cloned |
+| Mail-Server | 10.10.10.30 | ✅ cloned |
+| customer-db | 10.20.20.10 | ✅ running |
+| AD-Server | 10.20.20.20 | ✅ cloned |
+| ATM-Server | 10.20.20.30 | ✅ cloned |
+| CCTV-Server | 10.40.40.10 | ✅ cloned |
+| aegis | 10.30.30.10 | ✅ running |
+
+---
+
+### 15.2 OpenVSwitch (OVS) Setup — အရေးကြီးသော Points
+
+v4 topology မှာ GNS3 built-in Ethernet switch မဟုတ်ဘဲ **OpenVSwitch (OVS)** သုံးတယ်။
+OVS က VLAN trunk support လုပ်တယ် — pfSense ↔ OVS ကြား trunk လိုင်းသွားတယ်။
+
+**OVS `ovs-vsctl show` output (Public-Services):**
+```
+Bridge br0
+    datapath_type: netdev
+    Port eth0
+        trunks: [10]          ← pfSense ချိတ် (trunk, VLAN 10 သာ)
+        Interface eth0
+    Port eth1
+        tag: 10               ← bank-web ချိတ် (access port)
+        Interface eth1
+    Port eth2                 ← dns-server ချိတ်မည် (tag မသတ်မှတ်ရသေး)
+    Port eth3                 ← mail-server ချိတ်မည်
+    Port eth4,5,6,7           ← အသုံးမပြုသေး
+    Port br0
+        Interface br0
+            type: internal
+```
+
+**OVS Port Mode ရှင်းလင်းချက်:**
+
+| Port Mode | ဘာဆိုလဲ | VM ဘက်မှာ |
+|---|---|---|
+| `trunks: [10]` | VLAN tagged traffic သာ ဖြတ်ရ | pfSense သုံး |
+| `tag: 10` | Access port — VLAN 10 ထဲ ထည့် | VM plain eth0 သုံးနိုင် |
+| tag မပါ | Untagged (VLAN 1) | သတ်မှတ်ရမည် |
+
+> **Key Point:** VM တွေ access port နဲ့ ချိတ်ထားတာကြောင့် VM ထဲမှာ VLAN subinterface မလို — plain `eth0` + IP ထည့်ရုံပဲ ✅
+
+---
+
+### 15.3 OVS Port Tag Command — New VM တစ်ခုထည့်တိုင်း
+
+New VM cable ချိတ်ပြီးတိုင်း OVS console ထဲဝင်ပြီး tag သတ်မှတ်ရမည်:
+
+**Public-Switch (VLAN 10):**
+```bash
+# dns-server ချိတ်ထားတဲ့ port (ဥပမာ eth2)
+ovs-vsctl set port eth2 tag=10
+
+# mail-server ချိတ်ထားတဲ့ port (ဥပမာ eth3)
+ovs-vsctl set port eth3 tag=10
+
+# confirm
+ovs-vsctl show
+# → tag: 10 ပါလာရမည်
+```
+
+**Internal-Switch (VLAN 20):**
+```bash
+# customer-db port
+ovs-vsctl set port eth1 tag=20
+
+# ad-server port
+ovs-vsctl set port eth2 tag=20
+
+# atm-server port
+ovs-vsctl set port eth3 tag=20
+```
+
+> **မမေ့နဲ့:** OVS reboot ကျရင် tag တွေ ပျောက်နိုင်တယ် — `/etc/network/interfaces` သို့ startup script ထည့်ထားရမည် (ဆက်ပြမည်)
+
+---
+
+### 15.4 pfSense Interface Assignments — မှန်ကန်သော Config
+
+**VLANs tab (Interfaces → VLANs):**
+
+| Interface | VLAN Tag | Description |
+|---|---|---|
+| em1 | 10 | PUBLIC |
+| em2 | 20 | INTERNAL |
+
+> pfSense က em1/em2 ပေါ်မှာ VLAN subinterface ဖန်တီးပြီး OVS trunk port ကို tagged traffic ပို့တယ်
+
+**Interface Assignments (မှန်ကန်သော ဖြစ်သင့်သည့် config):**
+
+| Interface Name | Network Port | IP | Purpose |
+|---|---|---|---|
+| WAN | em0 | 10.0.23.2/30 | Router ဘက် |
+| PUBLIC | VLAN 10 on em1 | **10.10.10.1/24** | Public VMs gateway |
+| INTERNAL | VLAN 20 on em2 | **10.20.20.1/24** | Internal VMs gateway |
+| MGMT | em3 | **10.30.30.1/24** | aegis gateway |
+| CCTV | em4 | **10.40.40.1/24** | cctv-server gateway |
+
+**ဟောင်းဟာ (မှားနေသည်) vs အသစ် (မှန်သည်):**
+
+| ဟောင်း Name | အသစ် Name | ပြဿနာ |
+|---|---|---|
+| LAN | PUBLIC | နာမည်မကိုက် |
+| BANK_WEB | INTERNAL | VLAN 20 ကို BANK_WEB လို့ခေါ် — မကိုက် |
+| CUSTOMER_DB | MGMT | em3 = aegis, DB မဟုတ် |
+| (မရှိ) | CCTV | em4 မဖောက်ရသေး |
+
+**Rename လုပ်နည်း:**
+```
+Interfaces → LAN → General Config → Description: PUBLIC → Save
+Interfaces → BANK_WEB → Description: INTERNAL → Save
+Interfaces → CUSTOMER_DB → Description: MGMT → Save
+→ Apply Changes
+```
+
+---
+
+### 15.5 pfSense em4 ထပ်ဖောက်နည်း (CCTV)
+
+```
+1. GNS3 → pfSense node → Right-click → Configure
+   → Network Adapters: 4 → 5 → OK
+   → pfSense VM restart
+
+2. pfSense web GUI → Interfaces → Assignments
+   → Available ports ထဲ em4 ပေါ်လာမည်
+   → + Add နှိပ်
+
+3. Interfaces → (em4 interface) → Edit
+   → Enable: ✅
+   → Description: CCTV
+   → IPv4 Config: Static
+   → IP: 10.40.40.1 / 24
+   → Save → Apply Changes
+
+4. GNS3 → pfSense em4 ↔ CCTV-Server e0 (cable ဆွဲ)
+```
+
+---
+
+### 15.6 pfSense Firewall Rules — Complete
+
+#### WAN Interface Rules (Internet ကနေ Public ဝင်ခွင့်)
+
+| # | Action | Protocol | Source | Destination | Port | Description |
+|---|---|---|---|---|---|---|
+| 1 | Pass | TCP | Any | 10.10.10.0/24 | 80 | HTTP to bank-web |
+| 2 | Pass | TCP | Any | 10.10.10.0/24 | 443 | HTTPS to bank-web |
+| 3 | Pass | TCP | Any | 10.10.10.10 | 21 | FTP to bank-web |
+| 4 | Pass | UDP | Any | 10.10.10.20 | 53 | DNS queries |
+| 5 | Pass | TCP | Any | 10.10.10.30 | 25 | SMTP inbound mail |
+| 6 | Block | Any | Any | 10.20.20.0/24 | any | Block internet→Internal |
+| 7 | Block | Any | Any | 10.40.40.0/24 | any | Block internet→CCTV |
+| 8 | Block | Any | Any | 10.30.30.0/24 | any | Block internet→MGMT |
+
+#### PUBLIC Interface Rules (Public VMs မှ ထွက်)
+
+| # | Action | Protocol | Source | Destination | Port | Description |
+|---|---|---|---|---|---|---|
+| 1 | Block | Any | 10.10.10.0/24 | 10.20.20.0/24 | any | Public→Internal block |
+| 2 | Pass | Any | 10.10.10.0/24 | Any | any | Internet access (apt update) |
+
+#### INTERNAL Interface Rules (Staff/Bank zone)
+
+| # | Action | Protocol | Source | Destination | Port | Description |
+|---|---|---|---|---|---|---|
+| 1 | Pass | TCP | 10.20.20.0/24 | 10.10.10.30 | 143 | Staff IMAP mail |
+| 2 | Pass | TCP | 10.20.20.0/24 | 10.10.10.30 | 587 | Staff SMTP submit |
+| 3 | Pass | TCP | 10.20.20.0/24 | 10.10.10.10 | 8080 | Staff admin panel |
+| 4 | Block | Any | 10.20.20.0/24 | WAN | any | No internet egress |
+
+#### MGMT Interface Rules (aegis only)
+
+| # | Action | Protocol | Source | Destination | Port | Description |
+|---|---|---|---|---|---|---|
+| 1 | Pass | TCP | 10.30.30.10 | Any | 22 | aegis SSH to all VMs |
+| 2 | Pass | TCP | 10.30.30.10 | 10.40.40.10 | 8080 | aegis → CCTV status |
+| 3 | Block | Any | Any | 10.30.30.0/24 | any | No external MGMT access |
+
+#### CCTV Interface Rules (IoT zone isolated)
+
+| # | Action | Protocol | Source | Destination | Port | Description |
+|---|---|---|---|---|---|---|
+| 1 | Block | Any | 10.40.40.0/24 | 10.20.20.0/24 | any | CCTV→Internal block |
+| 2 | Block | Any | 10.40.40.0/24 | 10.10.10.0/24 | any | CCTV→Public block |
+| 3 | Pass | TCP | 10.30.30.10 | 10.40.40.10 | 8554 | aegis RTSP monitor |
+
+**Rule ထည့်နည်း (pfSense GUI):**
+```
+Firewall → Rules → [Interface ရွေး] → + Add (↑ up arrow)
+
+Action:              Pass / Block
+Interface:           PUBLIC / INTERNAL / WAN / MGMT / CCTV
+Address Family:      IPv4
+Protocol:            TCP / UDP / Any
+Source:              Any  (သို့) Network → IP/mask
+Destination:         Network → IP/mask
+Destination Port:    ရွေးရမဲ့ port
+Description:         rule ဘာအတွက်လဲ
+
+→ Save → Apply Changes (မမေ့နဲ့)
+```
+
+---
+
+### 15.7 pfSense Firewall Rule Form — Field by Field
+
+**Firewall → Rules → WAN → Add rule တစ်ခု ဥပမာ (HTTPS):**
+
+```
+Action:                 Pass
+Disabled:               □ (uncheck)
+Interface:              WAN
+Address Family:         IPv4
+Protocol:               TCP
+
+─── Source ───
+Source:                 Any
+Invert match:           □
+
+─── Destination ───
+Destination:            Network
+Destination IP:         10.10.10.0
+Mask:                   /24
+Destination Port From:  HTTPS (443)
+Destination Port To:    (ထားခဲ့)
+
+─── Extra Options ───
+Log:                    □ (heavy traffic မဆိုရင် မဖွင့်)
+Description:            Allow HTTPS to Public
+
+→ Save
+→ Apply Changes  ← မမေ့နဲ့
+```
+
+---
+
+### 15.8 VM Netplan Config — တစ်ခုချင်းစီ
+
+OVS access port (tag=VLAN) ကြောင့် VM ထဲမှာ plain eth0 ပဲသုံးရတယ် — VLAN subinterface မလို:
+
+**dns-server:**
+```yaml
+# /etc/netplan/00-installer-config.yaml
+network:
+  ethernets:
+    eth0:
+      addresses: [10.10.10.20/24]
+      gateway4: 10.10.10.1
+      nameservers:
+        addresses: [10.10.10.1]
+  version: 2
+```
+
+**mail-server:**
+```yaml
+      addresses: [10.10.10.30/24]
+      gateway4: 10.10.10.1
+```
+
+**customer-db** *(IP ပြောင်းရမည် .20 → .10)*:
+```yaml
+      addresses: [10.20.20.10/24]
+      gateway4: 10.20.20.1
+```
+
+**ad-server:**
+```yaml
+      addresses: [10.20.20.20/24]
+      gateway4: 10.20.20.1
+```
+
+**atm-server:**
+```yaml
+      addresses: [10.20.20.30/24]
+      gateway4: 10.20.20.1
+```
+
+**cctv-server:**
+```yaml
+      addresses: [10.40.40.10/24]
+      gateway4: 10.40.40.1
+```
+
+**Apply command (VM တစ်ခုချင်းစီ):**
+```bash
+sudo netplan apply
+ping 10.10.10.1   # pfSense gateway ping စစ်
+```
+
+---
+
+### 15.9 Aegis SSH Jump Host — RAM + Config
+
+**GNS3 မှာ RAM တိုးနည်း:**
+```
+aegis node → Right-click → Configure
+→ RAM: 256 → 1024 MB
+→ OK → restart
+```
+
+**aegis VM ထဲ SSH config:**
+```bash
+sudo nano /etc/ssh/sshd_config
+# ဒါတွေ confirm ဖြစ်ရမည်:
+AllowTcpForwarding yes
+GatewayPorts yes
+
+sudo systemctl restart ssh
+```
+
+**aegis မှာ SSH key generate:**
+```bash
+ssh-keygen -t ed25519 -C "aegis-jump"
+# Enter x3 (passphrase မထည့်)
+cat ~/.ssh/id_ed25519.pub
+# ← ဒီ key ကို VM တစ်ခုချင်းစီ ~/.ssh/authorized_keys ထဲ ထည့်ရမည်
+```
+
+**Laptop ~/.ssh/config:**
+```
+Host aegis
+    HostName 10.30.30.10
+    User     user
+    Port     22
+
+Host bank-web
+    HostName  10.10.10.10
+    User      user
+    ProxyJump aegis
+
+Host dns-server
+    HostName  10.10.10.20
+    User      user
+    ProxyJump aegis
+
+Host mail-server
+    HostName  10.10.10.30
+    User      user
+    ProxyJump aegis
+
+Host customer-db
+    HostName  10.20.20.10
+    User      user
+    ProxyJump aegis
+
+Host ad-server
+    HostName  10.20.20.20
+    User      user
+    ProxyJump aegis
+
+Host atm-server
+    HostName  10.20.20.30
+    User      user
+    ProxyJump aegis
+
+Host cctv-server
+    HostName  10.40.40.10
+    User      user
+    ProxyJump aegis
+```
+
+**Test:**
+```bash
+ssh dns-server   # laptop → aegis → dns-server (auto)
+```
+
+---
+
+### 15.10 CPU + RAM Estimate
+
+**Host resource usage (VM အကုန် run ရင်):**
+
+| Component | RAM | CPU (idle) |
+|---|---|---|
+| bank-web | 256MB | ~0.5% |
+| dns-server | 256MB | ~0.2% |
+| mail-server | 256MB | ~0.3% |
+| customer-db | 256MB | ~0.5% |
+| ad-server | 256MB | ~0.5% |
+| atm-server | 256MB | ~0.2% |
+| cctv-server | 256MB | ~1% (ffmpeg) |
+| aegis | 1GB | ~0.5% |
+| pfSense | 1GB | ~2% |
+| Router | 256MB | ~0.5% |
+| Kali | 2GB | ~3% |
+| GNS3 overhead | — | ~5% |
+| **Total** | **~6GB** | **~15% idle** |
+
+> Attack tool run တဲ့အချိန် (nmap/hydra) မှသာ CPU spike ဖြစ်မည် — idle မှာ ပြဿနာမရှိ ✅
+
+---
+
+### 15.11 v4 Build Checklist
+
+```
+GNS3 Topology:
+  ✅ Router
+  ✅ pfSense
+  ✅ Attacker (Kali)
+  ✅ Public-Switch (OVS)
+  ✅ Internal-Switch (OVS)
+  ✅ aegis (10.30.30.10)
+  ✅ bank-web (10.10.10.10)
+  ✅ DNS-Server cloned
+  ✅ Mail-Server cloned
+  ✅ customer-db (10.20.20.10)
+  ✅ AD-Server cloned
+  ✅ ATM-Server cloned
+  ✅ CCTV-Server cloned
+  ⬜ pfSense em4 ဖောက် (CCTV)
+  ⬜ CCTV-Server ↔ pfSense em4 cable
+
+pfSense Config:
+  ✅ VLAN 10 (em1) = PUBLIC
+  ✅ VLAN 20 (em2) = INTERNAL
+  ⬜ Interface rename (PUBLIC/INTERNAL/MGMT)
+  ⬜ em4 add → CCTV (10.40.40.1/24)
+  ⬜ WAN firewall rules (80,443,21,53,25)
+  ⬜ INTERNAL rules (143,587,8080)
+  ⬜ MGMT rules (SSH only)
+  ⬜ CCTV rules (isolated)
+
+OVS Config:
+  ✅ eth0 trunk:10 (pfSense ↔ Public-Switch)
+  ✅ eth1 tag:10 (bank-web)
+  ⬜ dns-server port tag=10
+  ⬜ mail-server port tag=10
+  ⬜ customer-db port tag=20 (Internal-Switch)
+  ⬜ ad-server port tag=20
+  ⬜ atm-server port tag=20
+
+VM IP + SSH:
+  ⬜ DNS-Server netplan 10.10.10.20 + SSH
+  ⬜ Mail-Server netplan 10.10.10.30 + SSH
+  ⬜ customer-db IP ပြောင်း .20→.10
+  ⬜ AD-Server netplan 10.20.20.20 + SSH
+  ⬜ ATM-Server netplan 10.20.20.30 + SSH
+  ⬜ CCTV-Server netplan 10.40.40.10 + SSH
+  ⬜ aegis RAM 1GB + jump host config
+  ⬜ Laptop SSH config
+
+Services:
+  ⬜ bind9 (dns-server)
+  ⬜ postfix + dovecot (mail-server)
+  ⬜ samba4 AD (ad-server)
+  ⬜ flask ATM + psycopg2→DB (atm-server)
+  ⬜ ffmpeg RTSP + status API (cctv-server)
+  ⬜ bankdb + bankmail DB tables (customer-db)
+```
+
+---
+
 *Document maintained by AEGIS Agent. Last updated: 2026-07-20*
