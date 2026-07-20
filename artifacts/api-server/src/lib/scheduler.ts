@@ -97,7 +97,7 @@ async function runAutoReport(intervalMinutes: number): Promise<void> {
     const templateSummary =
       `AEGIS SOC Scheduled Report — ကာလ: နောက်ဆုံး ${periodLabel} (${sinceLabel} ~ ${nowLabel})\n` +
       `Events: ${eventsCount} ခု | Incidents: ${incidentsCount} ခု\n` +
-      `Suricata IDS, Fail2ban, SSH/FTP monitoring, Web attack detection, Firewall rules ပါဝင်သည်။`;
+      `Suricata IDS (pfSense), Fail2ban, SSH monitoring, Web attack detection, Firewall rules ပါဝင်သည်။`;
 
     let summary     = templateSummary;
     let aiGenerated = false;

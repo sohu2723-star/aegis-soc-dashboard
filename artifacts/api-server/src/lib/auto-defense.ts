@@ -39,10 +39,6 @@ function toTriggerType(eventType: string, eventSubtype: string): string {
   const sub = (eventSubtype ?? "").toLowerCase();
   const typ = (eventType ?? "").toLowerCase();
 
-  // FTP must be checked BEFORE the generic "brute+network_attack" check —
-  // otherwise "FTP Brute Force" with type="network_attack" would wrongly
-  // map to ssh_brute (network_attack check on line below is intentionally broad).
-  if (sub.includes("ftp"))                                  return "ftp_brute";
   if (sub.includes("brute") && (sub.includes("ssh") || typ === "network_attack")) return "ssh_brute";
   if (sub.includes("port scan") || sub.includes("nmap"))   return "port_scan";
   if (sub.includes("ddos") || sub.includes("flood"))       return "ddos";
@@ -347,8 +343,6 @@ const OBSOLETE_RULE_NAMES = [
   "DDoS → Null Route",
   "Web Attack (High) → Auto Block",
   "Port Scan → Auto Block",
-  "FTP Brute Force → Block",
-  "FTP Brute → pfSense Block",
 ];
 
 // ─── Seed default rules ───────────────────────────────────────────────────────
@@ -436,15 +430,6 @@ export async function seedDefaultRules() {
       actionType: "auto", defenseType: "block_ip",
       targetVm: "bank-web", priority: 20, isActive: true,
     },
-    // ── FTP brute force — bank-web only (vsftpd on 10.10.10.10) ─────────────
-    {
-      name: "FTP Brute Force → Block (bank-web)",
-      description: "Block any IP with ≥3 FTP auth failures in 60s on bank-web (10.10.10.10 vsftpd).",
-      triggerAttackType: "ftp_brute", triggerSeverity: "any",
-      triggerThreshold: 3, triggerWindowSecs: 60,
-      actionType: "auto", defenseType: "block_ip",
-      targetVm: "bank-web", priority: 12, isActive: true,
-    },
     // ── pfSense WAN boundary blocks (aegis_forwarder.py --vm pfsense via SSH) ─
     {
       name: "Critical Attack → pfSense Block",
@@ -461,14 +446,6 @@ export async function seedDefaultRules() {
       triggerThreshold: 1, triggerWindowSecs: 60,
       actionType: "auto", defenseType: "pfsense_block",
       targetVm: "pfsense", priority: 45, isActive: true,
-    },
-    {
-      name: "FTP Brute → pfSense Block",
-      description: "FTP brute force ≥5 events in 2 min → persistent block at pfSense WAN via SSH easyrule.",
-      triggerAttackType: "ftp_brute", triggerSeverity: "any",
-      triggerThreshold: 5, triggerWindowSecs: 120,
-      actionType: "auto", defenseType: "pfsense_block",
-      targetVm: "pfsense", priority: 32, isActive: true,
     },
   ];
 

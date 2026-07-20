@@ -26,19 +26,12 @@ const GLOBAL_COMPONENTS = [
 // The aegis_forwarder (hub mode) will update these to online/offline via POST /system/status.
 // Match component names exactly with what the forwarder POSTs to /system/status.
 const PER_HOST_SENSORS = [
-  // ── bank-web (10.10.10.10): Apache/vsftpd/Suricata/Fail2ban ─────────────────
-  {
-    component: "Suricata IDS",
-    layer: "sensor",
-    status: "unknown",
-    description: "Network intrusion detection — port scans, DDoS, SQLi, XSS, SSH brute force",
-    hostIp: "10.10.10.10",
-  },
+  // ── bank-web (10.10.10.10): Apache/Fail2ban ──────────────────────────────────
   {
     component: "Fail2ban",
     layer: "sensor",
     status: "unknown",
-    description: "Brute-force IP banning — SSH, FTP, Apache auth failures → auto-ban",
+    description: "Brute-force IP banning — SSH, Apache auth failures → auto-ban",
     hostIp: "10.10.10.10",
   },
   {
@@ -46,13 +39,6 @@ const PER_HOST_SENSORS = [
     layer: "sensor",
     status: "unknown",
     description: "SSH auth.log watcher — detects brute force, failed logins, unauthorized access",
-    hostIp: "10.10.10.10",
-  },
-  {
-    component: "FTP Monitor",
-    layer: "sensor",
-    status: "unknown",
-    description: "vsftpd log watcher — FTP sessions, file transfers, brute force attempts",
     hostIp: "10.10.10.10",
   },
   {
@@ -187,7 +173,6 @@ const ALWAYS_DELETE_COMPONENTS = [
   "PostgreSQL Monitor",        // old forwarder wrongly registered under 10.30.30.10; now seeded correctly for customer-db only
   "Suricata IDS/IPS",         // renamed → "Suricata IDS" (per-host)
   "HTTP Service (Apache2)",   // renamed → "Apache Monitor"
-  "FTP Service (vsftpd)",     // renamed → "FTP Monitor"
 ];
 
 // Old IPs that no longer exist in the topology — rows with these hostIps must be purged

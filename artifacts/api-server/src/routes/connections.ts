@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, sshSessionsTable, ftpSessionsTable, httpAttacksTable } from "@workspace/db";
+import { db, sshSessionsTable, httpAttacksTable } from "@workspace/db";
 import { desc } from "drizzle-orm";
 
 const router = Router();
@@ -15,15 +15,6 @@ router.get("/connections/ssh", async (req, res) => {
     createdAt: s.createdAt.toISOString(),
     endedAt:   s.endedAt?.toISOString() ?? null,
   })));
-});
-
-// ─── FTP ─────────────────────────────────────────────────────────────────────
-
-router.get("/connections/ftp", async (req, res) => {
-  const limit = Math.min(Number(req.query.limit) || 50, 200);
-  const sessions = await db.select().from(ftpSessionsTable)
-    .orderBy(desc(ftpSessionsTable.createdAt)).limit(limit);
-  res.json(sessions.map(s => ({ ...s, createdAt: s.createdAt.toISOString() })));
 });
 
 // ─── HTTP Attacks ─────────────────────────────────────────────────────────────

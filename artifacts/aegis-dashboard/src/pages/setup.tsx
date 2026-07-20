@@ -98,9 +98,8 @@ export default function SetupGuide() {
                      │                │                │
                [bank-web]      [customer-db]   [aegis-forwarder]
            10.10.10.10  10.10.10.20  10.20.20.10  10.20.20.20  10.30.30.10
-           Apache,FTP   BIND9        PostgreSQL   Flask ATM    Hub agent
-           Suricata     Suricata     Suricata     Fail2ban     (SSH → VMs)
-           Fail2ban     Fail2ban     Fail2ban
+           Apache       BIND9        MySQL        Flask ATM    Hub agent
+           ModSecurity  Fail2ban     Fail2ban     Fail2ban     (SSH → VMs)
 
 aegis-forwarder (hub): SSHes into all VMs → tails logs → POST to API`}</pre>
               </div>
@@ -221,10 +220,10 @@ aegis-forwarder (hub): SSHes into all VMs → tails logs → POST to API`}</pre>
                   <p>10.0.23.1     — R1 ether3 (pfSense WAN upstream)</p>
                   <p>10.0.23.2     — pfSense WAN</p>
                   <p>10.10.10.1    — pfSense PUBLIC gateway (OVS Public-Switch)</p>
-                  <p>10.10.10.10   — bank-web (Apache, vsftpd, Suricata)</p>
+                  <p>10.10.10.10   — bank-web (Apache, ModSecurity, Fail2ban)</p>
                   <p>10.10.10.20   — dns-server (BIND9)</p>
                   <p>10.20.20.1    — pfSense INTERNAL gateway (OVS Internal-Switch)</p>
-                  <p>10.20.20.10   — customer-db (PostgreSQL, Suricata)</p>
+                  <p>10.20.20.10   — customer-db (MySQL, Fail2ban)</p>
                   <p>10.20.20.20   — atm-server (Flask ATM API)</p>
                   <p>10.30.30.1    — pfSense MGMT gateway</p>
                   <p>10.30.30.10   — aegis-forwarder (hub)</p>
@@ -358,33 +357,28 @@ sudo systemctl restart aegis-forwarder`} />
               <p className="text-foreground">Install IDS/IPS tools on each bank VM. No forwarder script needed on bank VMs — the hub handles log collection via SSH.</p>
 
               <h3 className="text-sm font-bold uppercase text-primary mt-4">bank-web (10.10.10.10) — DMZ</h3>
-              <CodeBlock language="bash" code={`# IDS/IPS + web server
-sudo apt install -y suricata fail2ban apache2 vsftpd ufw iptables
+              <CodeBlock language="bash" code={`# Web server + security tools
+sudo apt install -y fail2ban apache2 ufw iptables
 
-# Suricata rules update
-sudo suricata-update
-sudo systemctl enable --now suricata fail2ban apache2 vsftpd
-
-# ModSecurity WAF (optional but recommended)
+# ModSecurity WAF
 sudo apt install -y libapache2-mod-security2
 sudo a2enmod security2
 sudo cp /etc/modsecurity/modsecurity.conf-recommended /etc/modsecurity/modsecurity.conf
 sudo sed -i 's/SecRuleEngine DetectionOnly/SecRuleEngine On/' /etc/modsecurity/modsecurity.conf
+sudo systemctl enable --now fail2ban apache2
 sudo systemctl restart apache2`} />
 
               <h3 className="text-sm font-bold uppercase text-primary mt-4">dns-server (10.10.10.20) — Public</h3>
-              <CodeBlock language="bash" code={`# DNS + IDS/IPS
-sudo apt install -y bind9 bind9utils suricata fail2ban ufw iptables
+              <CodeBlock language="bash" code={`# DNS + security tools
+sudo apt install -y bind9 bind9utils fail2ban ufw iptables
 
-sudo suricata-update
-sudo systemctl enable --now suricata fail2ban bind9`} />
+sudo systemctl enable --now fail2ban bind9`} />
 
               <h3 className="text-sm font-bold uppercase text-primary mt-4">customer-db (10.20.20.10) — Internal</h3>
-              <CodeBlock language="bash" code={`# Database + IDS/IPS
-sudo apt install -y suricata fail2ban postgresql ufw iptables
+              <CodeBlock language="bash" code={`# Database + security tools
+sudo apt install -y fail2ban mysql-server ufw iptables
 
-sudo suricata-update
-sudo systemctl enable --now suricata fail2ban postgresql`} />
+sudo systemctl enable --now fail2ban mysql`} />
 
               <h3 className="text-sm font-bold uppercase text-primary mt-4">atm-server (10.20.20.20) — Internal</h3>
               <CodeBlock language="bash" code={`# ATM API + security
@@ -486,7 +480,6 @@ TELEGRAM_CHAT_ID=your-chat-id       # your Telegram user/group ID`} />
                   <p><span className="text-green-400">POST</span> /api/ingest/suricata  — Suricata EVE JSON</p>
                   <p><span className="text-green-400">POST</span> /api/ingest/fail2ban  — Fail2ban ban action</p>
                   <p><span className="text-green-400">POST</span> /api/ingest/ssh       — SSH auth.log events</p>
-                  <p><span className="text-green-400">POST</span> /api/ingest/ftp       — vsftpd log events</p>
                   <p><span className="text-green-400">POST</span> /api/network/hosts    — Register VM as host</p>
                 </div>
                 <p className="text-muted-foreground mt-3 text-xs">Header: <code className="text-primary">X-AEGIS-Key: your-ingest-key</code></p>

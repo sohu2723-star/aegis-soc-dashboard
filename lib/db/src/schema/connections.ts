@@ -15,16 +15,6 @@ export const sshSessionsTable = pgTable("ssh_sessions", {
   endedAt:    timestamp("ended_at"),
 });
 
-export const ftpSessionsTable = pgTable("ftp_sessions", {
-  id:        integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  sourceIp:  varchar("source_ip", { length: 45 }).notNull(),
-  username:  varchar("username", { length: 64 }),
-  command:   varchar("command", { length: 16 }),
-  filePath:  varchar("file_path", { length: 512 }),
-  fileSize:  integer("file_size"),
-  status:    varchar("status", { length: 16 }).notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
 
 export const httpAttacksTable = pgTable("http_attacks", {
   id:          integer("id").primaryKey().generatedAlwaysAsIdentity(),
@@ -41,13 +31,10 @@ export const httpAttacksTable = pgTable("http_attacks", {
 });
 
 export const insertSshSessionSchema  = createInsertSchema(sshSessionsTable).omit({ createdAt: true });
-export const insertFtpSessionSchema  = createInsertSchema(ftpSessionsTable).omit({ createdAt: true });
 export const insertHttpAttackSchema  = createInsertSchema(httpAttacksTable).omit({ createdAt: true });
 
 export type SshSession  = typeof sshSessionsTable.$inferSelect;
-export type FtpSession  = typeof ftpSessionsTable.$inferSelect;
 export type HttpAttack  = typeof httpAttacksTable.$inferSelect;
 
 export type InsertSshSession  = z.infer<typeof insertSshSessionSchema>;
-export type InsertFtpSession  = z.infer<typeof insertFtpSessionSchema>;
 export type InsertHttpAttack  = z.infer<typeof insertHttpAttackSchema>;

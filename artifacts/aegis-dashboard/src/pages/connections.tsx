@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Terminal, FolderOpen, Globe, Database } from "lucide-react";
+import { Terminal, Globe, Database } from "lucide-react";
 import { format } from "date-fns";
 import { HostLabel } from "@/lib/host-utils";
 import { useDeviceContext } from "@/lib/device-context";
@@ -17,11 +17,6 @@ interface SshSession {
   status: string; authMethod: string | null; sessionId: string | null;
   failures: number; bannedBy: string | null; createdAt: string; endedAt: string | null;
 }
-interface FtpSession {
-  id: number; sourceIp: string; username: string | null;
-  command: string | null; filePath: string | null; fileSize: number | null;
-  status: string; createdAt: string;
-}
 interface HttpAttack {
   id: number; sourceIp: string; targetUrl: string; method: string;
   statusCode: number | null; attackType: string | null; payload: string | null;
@@ -31,7 +26,6 @@ interface HttpAttack {
 // ─── Fetch hooks ───────────────────────────────────────────────────────────────
 
 function useSsh()         { return useQuery<SshSession[]>({ queryKey: ["conn-ssh"],  queryFn: () => fetch(`${BASE}/api/connections/ssh?limit=100`).then(r => r.json()),  refetchInterval: 15000 }); }
-function useFtp()         { return useQuery<FtpSession[]>({ queryKey: ["conn-ftp"],  queryFn: () => fetch(`${BASE}/api/connections/ftp?limit=100`).then(r => r.json()),  refetchInterval: 15000 }); }
 function useHttpAttacks() { return useQuery<HttpAttack[]>({ queryKey: ["conn-http"], queryFn: () => fetch(`${BASE}/api/connections/http-attacks?limit=100`).then(r => r.json()), refetchInterval: 15000 }); }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -61,10 +55,9 @@ function Ip({ v }: { v: string }) {
   return <span className="font-mono text-xs text-cyan-400">{v}</span>;
 }
 
-type TabId = "ssh" | "ftp" | "http" | "db";
+type TabId = "ssh" | "http" | "db";
 const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: "ssh",  label: "SSH Sessions",  icon: <Terminal className="w-3.5 h-3.5" /> },
-  { id: "ftp",  label: "FTP Sessions",  icon: <FolderOpen className="w-3.5 h-3.5" /> },
   { id: "http", label: "HTTP Attacks",  icon: <Globe className="w-3.5 h-3.5" /> },
   { id: "db",   label: "DB Attacks",    icon: <Database className="w-3.5 h-3.5" /> },
 ];
@@ -125,60 +118,6 @@ function SshTab({ selectedIp }: { selectedIp: string | null }) {
             </TableCell>
           </TableRow>
         ))}
-      </TableBody>
-    </Table>
-  );
-}
-
-function FtpTab({ selectedIp }: { selectedIp: string | null }) {
-  const { data: raw = [], isLoading } = useFtp();
-  const data = selectedIp ? raw.filter(s => s.sourceIp === selectedIp) : raw;
-  const suspiciousExts = [".conf",".key",".pem",".shadow",".passwd",".env",".sql",".id_rsa"];
-  return (
-    <Table>
-      <TableHeader className="bg-muted/50 sticky top-0">
-        <TableRow className="border-border">
-          <TableHead>Time</TableHead>
-          <TableHead>Source IP</TableHead>
-          <TableHead>Username</TableHead>
-          <TableHead>Command</TableHead>
-          <TableHead>File Path</TableHead>
-          <TableHead className="text-right">Size</TableHead>
-          <TableHead>Status</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {isLoading ? (
-          <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Loading FTP sessions…</TableCell></TableRow>
-        ) : data.length === 0 ? (
-          <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-            {selectedIp ? `No FTP sessions from ${selectedIp}.` : "No FTP sessions recorded yet."}
-          </TableCell></TableRow>
-        ) : data.map(s => {
-          const isSuspiciousFile = s.filePath && suspiciousExts.some(e => s.filePath!.toLowerCase().endsWith(e));
-          return (
-            <TableRow key={s.id} className={`border-border hover:bg-muted/10 ${isSuspiciousFile ? "bg-red-950/20" : ""}`}>
-              <TableCell><Ts v={s.createdAt} /></TableCell>
-              <TableCell><Ip v={s.sourceIp} /></TableCell>
-              <TableCell className="font-mono text-xs text-foreground">{s.username ?? "—"}</TableCell>
-              <TableCell>
-                <Badge variant="outline" className="text-[10px] font-mono border-primary/30 text-primary/80">{s.command ?? "—"}</Badge>
-              </TableCell>
-              <TableCell className={`font-mono text-xs max-w-[200px] truncate ${isSuspiciousFile ? "text-red-400" : "text-muted-foreground"}`}>
-                {s.filePath ?? "—"}
-                {isSuspiciousFile && <span className="ml-1 text-[9px] bg-red-900/40 text-red-300 px-1 rounded">sensitive</span>}
-              </TableCell>
-              <TableCell className="text-right font-mono text-xs text-muted-foreground">
-                {s.fileSize ? `${(s.fileSize / 1024).toFixed(1)} KB` : "—"}
-              </TableCell>
-              <TableCell>
-                <Badge variant="outline" className={`text-[10px] uppercase ${sevColor[s.status] ?? "border-border text-muted-foreground"}`}>
-                  {s.status}
-                </Badge>
-              </TableCell>
-            </TableRow>
-          );
-        })}
       </TableBody>
     </Table>
   );
@@ -321,6 +260,7 @@ function DbTab({ selectedIp }: { selectedIp: string | null }) {
 
 export default function Connections() {
   const [tab, setTab] = useState<TabId>("ssh");
+
   const { selectedIp, selectedDevice } = useDeviceContext();
 
   return (
@@ -365,7 +305,6 @@ export default function Connections() {
       <Card className="bg-card border-border flex-1 overflow-hidden">
         <div className="overflow-auto h-full">
           {tab === "ssh"  && <SshTab  selectedIp={selectedIp} />}
-          {tab === "ftp"  && <FtpTab  selectedIp={selectedIp} />}
           {tab === "http" && <HttpTab selectedIp={selectedIp} />}
           {tab === "db"   && <DbTab   selectedIp={selectedIp} />}
         </div>

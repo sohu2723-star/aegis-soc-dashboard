@@ -104,7 +104,7 @@ const NOTIFY_EDGES: [NodeKey, NodeKey][] = [
 // ── Attack path routing ────────────────────────────────────────────────────────
 function getAttackPath(targetHost: string | null | undefined): NodeKey[] {
   const t = (targetHost ?? "").toLowerCase();
-  if (t.includes("bank") || t.includes("web") || t === "10.10.10.10" || t.includes("apache") || t.includes("ftp") || t.includes("dvwa")) {
+  if (t.includes("bank") || t.includes("web") || t === "10.10.10.10" || t.includes("apache") || t.includes("dvwa")) {
     return ["attacker", "r1", "pfsense", "bankweb"];
   }
   if (t.includes("dns") || t === "10.10.10.20" || t.includes("bind")) {

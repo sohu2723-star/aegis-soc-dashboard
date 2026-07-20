@@ -226,7 +226,6 @@ function RulesTab() {
                         { v: "network_attack", label: "network_attack" },
                         { v: "web_attack",     label: "web_attack (SQLi/XSS/LFI/RFI)" },
                         { v: "ssh_brute",      label: "ssh_brute" },
-                        { v: "ftp_brute",      label: "ftp_brute" },
                         { v: "ddos",           label: "ddos / SYN flood" },
                         { v: "port_scan",      label: "port_scan (nmap)" },
                       ].map(({ v, label }) => (

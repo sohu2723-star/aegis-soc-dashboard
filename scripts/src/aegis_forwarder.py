@@ -3,7 +3,7 @@
 AEGIS Forwarder — Ubuntu Blue Team Script
 ==========================================
 Runs on Ubuntu defense server. Forwards real events from:
-  Suricata, Snort, Fail2ban, SSH auth.log, FTP, ModSecurity
+  Suricata (pfSense syslog), Fail2ban, SSH auth.log, ModSecurity
 
 Usage:
     python3 aegis_forwarder.py --mode all
@@ -69,31 +69,28 @@ BANKWEB_IP     = _cfg("BANKWEB_IP",     "")
 CUSTOMERDB_IP  = _cfg("CUSTOMERDB_IP",  "")
 
 # Per-host sensor list — controls which log tailer threads are spawned per VM.
-# Sensors: suricata, snort, fail2ban, ssh, http, ftp, postgresql
+# Sensors: fail2ban, ssh, http, postgresql, mysql, bind9, slapd
 # Only include hosts whose IP is configured (non-empty).
 REMOTE_HOSTS = [h for h in [
     {
         "name": "bank-web",
         "ip":   BANKWEB_IP,
-        "sensors": ["suricata", "snort", "fail2ban", "ssh", "http", "ftp"],
+        "sensors": ["fail2ban", "ssh", "http"],
         # services to health-check via SSH systemctl on this VM
         "health_services": [
-            ("suricata",  "Suricata IDS",    "sensor"),
             ("fail2ban",  "Fail2ban",        "sensor"),
             ("ssh",       "SSH Monitor",     "sensor"),
             ("apache2",   "Apache Monitor",  "sensor"),
-            ("vsftpd",    "FTP Monitor",     "sensor"),
         ],
     } if BANKWEB_IP else None,
     {
         "name": "customer-db",
         "ip":   CUSTOMERDB_IP,
-        "sensors": ["suricata", "fail2ban", "ssh", "postgresql"],
+        "sensors": ["fail2ban", "ssh", "mysql"],
         "health_services": [
-            ("suricata",    "Suricata IDS",        "sensor"),
-            ("fail2ban",    "Fail2ban",            "sensor"),
-            ("ssh",         "SSH Monitor",         "sensor"),
-            ("postgresql",  "PostgreSQL Monitor",  "sensor"),
+            ("fail2ban",  "Fail2ban",        "sensor"),
+            ("ssh",       "SSH Monitor",     "sensor"),
+            ("mysql",     "MySQL Monitor",   "sensor"),
         ],
     } if CUSTOMERDB_IP else None,
 ] if h is not None]
@@ -824,33 +821,6 @@ def watch_ssh():
             })
 
 
-# ─── FTP (vsftpd / proftpd) ───────────────────────────────────────────────────
-FTP_LOG = "/var/log/vsftpd.log"
-
-# vsftpd: "OK UPLOAD: Client "192.168.1.5", "/etc/passwd", 1024 bytes"
-FTP_RE = re.compile(
-    r"(OK|FAIL) (UPLOAD|DOWNLOAD|LOGIN|MKDIR|DELETE): Client \"([\d.]+)\",? \"?([^\",]*)\"?,?\s*(\d+)?"
-)
-
-
-def watch_ftp():
-    print(f"[FTP] Watching {FTP_LOG}")
-    for line in tail_file(FTP_LOG):
-        m = FTP_RE.search(line)
-        if not m:
-            continue
-        status_str, cmd, ip, path, size = m.groups()
-        cmd_map = {"UPLOAD": "STOR", "DOWNLOAD": "RETR", "LOGIN": "USER",
-                   "MKDIR": "MKD", "DELETE": "DELE"}
-        post("ftp", {
-            "src_ip":    ip,
-            "command":   cmd_map.get(cmd, cmd),
-            "file_path": path or None,
-            "file_size": int(size) if size else None,
-            "status":    "success" if status_str == "OK" else "failed",
-        })
-
-
 # ─── HTTP / ModSecurity ───────────────────────────────────────────────────────
 # ModSecurity audit log: /var/log/apache2/modsec_audit.log
 # or parse Nginx access log with custom format
@@ -1141,27 +1111,6 @@ def _watch_remote_modsecurity(host_name: str, host_ip: str):
             current_ip = None
 
 
-def _watch_remote_ftp(host_name: str, host_ip: str):
-    """Tail vsftpd/proftpd log on a remote VM via SSH."""
-    print(f"[{host_name}] ftp thread started")
-    for line in _ssh_tail(host_name, host_ip, "/var/log/vsftpd.log"):
-        m = FTP_RE.search(line)
-        if not m:
-            continue
-        status_str, cmd, ip, path, size = m.groups()
-        cmd_map = {"UPLOAD": "STOR", "DOWNLOAD": "RETR", "LOGIN": "USER",
-                   "MKDIR": "MKD", "DELETE": "DELE"}
-        post("ftp", {
-            "src_ip":     ip,
-            "dest_ip":    host_ip,
-            "command":    cmd_map.get(cmd, cmd),
-            "file_path":  path or None,
-            "file_size":  int(size) if size else None,
-            "status":     "success" if status_str == "OK" else "failed",
-            "targetHost": host_name,
-        })
-
-
 # PostgreSQL log line examples:
 # 2024-01-01 12:00:00 UTC [1234]: [1-1] user=app,db=bankdb,host=192.168.1.5 ERROR: syntax error ...
 # 2024-01-01 12:00:00 UTC [1234]: [1-1] user=app,db=bankdb,host=192.168.1.5 FATAL: password auth failed
@@ -1358,7 +1307,6 @@ def run_hub_mode():
       fail2ban   — /var/log/fail2ban.log
       ssh        — /var/log/auth.log
       http       — /var/log/apache2/modsec_audit.log  (bank-web)
-      ftp        — /var/log/vsftpd.log                (bank-web)
       postgresql — /var/log/postgresql/*.log           (customer-db)
     """
     _SENSOR_FN = {
@@ -1367,7 +1315,6 @@ def run_hub_mode():
         "fail2ban":   _watch_remote_fail2ban,
         "ssh":        _watch_remote_ssh,
         "http":       _watch_remote_modsecurity,
-        "ftp":        _watch_remote_ftp,
         "postgresql": _watch_remote_postgresql,
     }
 
@@ -1439,7 +1386,6 @@ MODES = {
     "snort":       watch_snort,
     "fail2ban":    watch_fail2ban,
     "ssh":         watch_ssh,
-    "ftp":         watch_ftp,
     "http":        watch_modsecurity,
 }
 
@@ -1454,7 +1400,7 @@ Modes:
           runs the defense agent for ALL VMs.  One script, one machine, everything.
   all     Run all local sensors on THIS machine (normal forwarder mode).
   remote  Alias for hub (backward compat).
-  <name>  Run a single local sensor: suricata | snort | fail2ban | ssh | ftp | http
+  <name>  Run a single local sensor: suricata | snort | fail2ban | ssh | http
 """,
     )
     parser.add_argument("--mode", choices=list(MODES.keys()) + ["all", "remote", "hub"], default="all")

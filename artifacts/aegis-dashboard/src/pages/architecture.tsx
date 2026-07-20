@@ -26,7 +26,7 @@ const BLOCKS: BlockDetail[] = [
     subBlocks: [
       { name: "Web Attacks", tools: ["SQLi", "XSS", "CSRF", "Nikto", "SQLmap", "Dirb", "Gobuster"], color: "border-red-400/50 bg-red-900/30" },
       { name: "Network Attacks", tools: ["Port Scan (nmap)", "DDoS (hping3)", "ARP Spoof", "MITM", "Wireshark"], color: "border-red-400/50 bg-red-900/30" },
-      { name: "Credential Attacks", tools: ["Hydra", "SSH Brute Force", "FTP Brute Force", "Medusa", "Metasploit"], color: "border-red-400/50 bg-red-900/30" },
+      { name: "Credential Attacks", tools: ["Hydra", "SSH Brute Force", "LDAP Brute Force", "Medusa", "Metasploit"], color: "border-red-400/50 bg-red-900/30" },
     ],
     workflow: [
       { step: 1, action: "Reconnaissance", detail: "nmap -sV -A 10.10.10.10 — Port scan, OS detection, service version" },
@@ -35,7 +35,7 @@ const BLOCKS: BlockDetail[] = [
       { step: 4, action: "Brute Force", detail: "hydra -l root -P rockyou.txt ssh://10.10.10.10 — SSH password attack on Ubuntu VM" },
       { step: 5, action: "Network Attack", detail: "hping3 --flood -S 10.10.10.10 — SYN flood DDoS attack on Ubuntu VM" },
       { step: 6, action: "ARP Spoofing", detail: "arpspoof -i eth0 -t 10.10.10.10 192.168.122.1 — MITM positioning" },
-      { step: 7, action: "FTP Attack", detail: "medusa -u admin -P wordlist.txt -h 10.10.10.10 -M ftp — FTP brute force" },
+      { step: 7, action: "LDAP Attack", detail: "hydra -l admin -P wordlist.txt ldap://10.20.20.20 — LDAP brute force" },
     ],
     description: "Red Team လုပ်ဆောင်ချက်တွေ — Kali Linux (192.168.122.x, DHCP) မှ attack vector အမျိုးမျိုးသုံးပြီး Ubuntu VM (10.10.10.10) ကို attack လုပ်သည်"
   },

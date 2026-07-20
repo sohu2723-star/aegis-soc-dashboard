@@ -61,7 +61,6 @@ const attackTypeLabel: Record<string, string> = {
   network:    "Network Attack",
   web:        "Web Attack",
   ssh:        "SSH Attack",
-  ftp:        "FTP Attack",
   tls:        "TLS Anomaly",
   fail2ban:   "Fail2ban Ban",
   malware:    "Malware",

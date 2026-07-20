@@ -29,7 +29,7 @@ router.post("/reports/generate", async (req, res) => {
   // Fallback template summary (used if Groq is unavailable or fails)
   const templateSummary = `${body.type.charAt(0).toUpperCase() + body.type.slice(1)} security report. ` +
     `Total events: ${eventsCount}. Total incidents: ${incidentsCount}. ` +
-    `Covers Suricata IDS, Fail2ban, SSH/FTP monitoring, Web attack detection, and Firewall rules.`;
+    `Covers Suricata IDS (pfSense), Fail2ban, SSH monitoring, Web attack detection, and Firewall rules.`;
 
   let summary = templateSummary;
   let aiGenerated = false;

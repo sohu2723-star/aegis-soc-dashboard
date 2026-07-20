@@ -1,7 +1,7 @@
 /**
  * AEGIS Ingest API
  * ================
- * Receives real events from Ubuntu VM (Suricata, Fail2ban, SSH, FTP, ModSec, Cowrie)
+ * Receives real events from VMs (Fail2ban, SSH, ModSec) and pfSense Suricata (syslog)
  * and pfSense (syslog/API). Each event triggers the auto-defense engine.
  *
  * All endpoints require X-AEGIS-Key header.
@@ -11,7 +11,7 @@ import { z } from "zod";
 import { db } from "@workspace/db";
 import {
   securityEventsTable, alertsTable,
-  sshSessionsTable, ftpSessionsTable,
+  sshSessionsTable,
   httpAttacksTable,
   blockedIpsTable,
 } from "@workspace/db";
@@ -243,31 +243,6 @@ router.post("/ingest/ssh", auth, async (req, res) => {
     }
   }
 
-  res.status(201).json({ ok:true });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// FTP
-// ─────────────────────────────────────────────────────────────────────────────
-router.post("/ingest/ftp", auth, async (req, res) => {
-  const { src_ip, username, command, file_path, file_size, status: st } = req.body;
-
-  await db.insert(ftpSessionsTable).values({
-    sourceIp: src_ip ?? "unknown", username: username ?? null,
-    command: command ?? null, filePath: file_path ?? null,
-    fileSize: Number(file_size) || null, status: st ?? "success",
-  });
-
-  const suspiciousExts = [".conf",".key",".pem",".shadow",".passwd",".env",".sql",".id_rsa",".htpasswd"];
-  if (command === "RETR" && file_path && suspiciousExts.some(e => file_path.toLowerCase().endsWith(e))) {
-    const event = await insertEvent({
-      type:"network_attack", subtype:"File Exfiltration", severity:"critical",
-      sourceIp: src_ip ?? "unknown", targetHost:"ftp-server",
-      toolUsed:"ftp", description:`FTP exfil: '${file_path}' by '${username}' from ${src_ip}`,
-      status:"detected", layer:"perimeter",
-    });
-    await mkAlert(event.id, "critical", `FTP EXFIL: ${src_ip} downloaded '${file_path}'`);
-  }
   res.status(201).json({ ok:true });
 });
 

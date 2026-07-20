@@ -16,8 +16,11 @@ const router = Router();
 const SOC_SYSTEM = `သင်သည် AEGIS-AI — AEGIS SOC Dashboard ၏ built-in security analyst ဖြစ်သည်။
 
 Lab topology:
-- bank-web (10.10.10.10): Suricata, Fail2ban, Apache2, vsftpd
-- customer-db (10.20.20.20): Suricata, Fail2ban, PostgreSQL
+- bank-web (10.10.10.10): Fail2ban, Apache2/ModSecurity
+- dns-server (10.10.10.20): Fail2ban, BIND9
+- customer-db (10.20.20.10): Fail2ban, MySQL
+- ldap-server (10.20.20.20): Fail2ban, OpenLDAP
+- pfSense: Suricata IDS (network-based, monitors all traffic)
 - AEGIS VM (10.30.30.10): hub forwarder
 - pfSense (10.30.30.1): WAN firewall
 - Attacker: မည်သည့် IP မဆို — 192.168.122.x မဟုတ်ဘဲ မည်သည့် IP မဆို threat ဖြစ်နိုင်သည်
@@ -308,7 +311,7 @@ Total events: ${recentEvents.length}
 လက်ရှိ active rules: ${activeRuleNames}
 
 Valid values:
-- triggerAttackType: ssh_brute | ftp_brute | web_attack | ddos | port_scan | mitm | dns_attack | tls_suspicious | mail_attack | honeypot | any
+- triggerAttackType: ssh_brute | web_attack | ddos | port_scan | mitm | dns_attack | tls_suspicious | mail_attack | honeypot | any
 - triggerSeverity: any | medium | high | critical
 - actionType: auto | suggest
 - defenseType: block_ip | null_route | rate_limit | port_block | pfsense_block | alert_only
