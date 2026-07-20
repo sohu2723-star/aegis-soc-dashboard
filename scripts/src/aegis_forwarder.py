@@ -1456,7 +1456,7 @@ def _watch_remote_postgresql(host_name: str, host_ip: str):
                         "sourceIp":    client_ip,
                         "targetHost":  host_ip,
                         "description": f"PostgreSQL auth failure: user={user} db={db} — {msg[:120]}",
-                        "rawData":     line[:300],
+                        "signature_text": line.strip(),
                     })
                 # SQL injection patterns
                 elif _PG_SQL_RE.search(msg):
@@ -1467,7 +1467,7 @@ def _watch_remote_postgresql(host_name: str, host_ip: str):
                         "sourceIp":    client_ip,
                         "targetHost":  host_ip,
                         "description": f"PostgreSQL SQL anomaly: user={user} db={db} — {msg[:120]}",
-                        "rawData":     line[:300],
+                        "signature_text": line.strip(),
                     })
             proc.wait()
             print(f"[{host_name}] postgresql: SSH disconnected — reconnecting in 10s")
@@ -1497,7 +1497,7 @@ def _watch_remote_mysql(host_name: str, host_ip: str):
                 "sourceIp":    src_ip,
                 "targetHost":  host_ip,
                 "description": f"MySQL auth failure: user={user} from {src_ip}",
-                "rawData":     line[:300],
+                "signature_text": line.strip(),
             })
 
 
@@ -1518,7 +1518,7 @@ def _watch_remote_bind9(host_name: str, host_ip: str):
                 "sourceIp":    src_ip,
                 "targetHost":  host_ip,
                 "description": f"DNS zone transfer attempt from {src_ip}",
-                "rawData":     line[:300],
+                "signature_text": line.strip(),
             })
         # Flood / excessive queries (basic heuristic — forwarder sees repeated lines)
         elif "query" in line.lower() and ("error" in line.lower() or "refused" in line.lower()):
@@ -1531,7 +1531,7 @@ def _watch_remote_bind9(host_name: str, host_ip: str):
                 "sourceIp":    src_ip,
                 "targetHost":  host_ip,
                 "description": f"DNS query refused from {src_ip}: {line[:80]}",
-                "rawData":     line[:300],
+                "signature_text": line.strip(),
             })
 
 
@@ -1556,7 +1556,7 @@ def _watch_remote_slapd(host_name: str, host_ip: str):
                 "sourceIp":    src_ip,
                 "targetHost":  host_ip,
                 "description": f"LDAP bind failure (err=49) from {src_ip}",
-                "rawData":     line[:300],
+                "signature_text": line.strip(),
             })
 
 
