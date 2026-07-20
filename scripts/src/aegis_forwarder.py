@@ -1000,13 +1000,14 @@ def watch_modsecurity():
             else:                          atype = "HTTP Attack"
 
             post("http", {
-                "src_ip":      current_ip,
-                "url":         current_url or "/",
-                "method":      current_method or "GET",
-                "attack_type": atype,
-                "payload":     msg,
-                "rule_id":     rule_id,
-                "blocked":     severity.upper() in ("CRITICAL", "ERROR"),
+                "src_ip":         current_ip,
+                "url":            current_url or "/",
+                "method":         current_method or "GET",
+                "attack_type":    atype,
+                "payload":        msg,
+                "rule_id":        rule_id,
+                "blocked":        severity.upper() in ("CRITICAL", "ERROR"),
+                "signature_text": line.strip(),   # raw ModSecurity audit log line
             })
             current_ip = None
 
