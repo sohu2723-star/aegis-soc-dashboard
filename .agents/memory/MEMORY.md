@@ -13,3 +13,4 @@
 - [VM script update method](vm-script-update.md) — git pull မအလုပ်လုပ်ဘူး Ubuntu VM မှာ; wget + GitHub raw URL သုံးရမယ်; local.conf မထိနဲ့ (gitignored).
 - [Cowrie honeypot placement](cowrie-honeypot.md) — bank-web + customer-db ဘဲ; Aegis VM မထည့်; system.ts + forwarder + auto-defense အားလုံး ညှိရမယ်; dashboard stale check bug fixed.
 - [Bank services roadmap](bank-services-roadmap.md) — Final internship project; Email/DNS (priority 1), CCTV/VoIP (priority 2), ATM/AD (priority 3); per-service checklist + VLAN plan.
+- [Signature text feature](signature-text-feature.md) — Full rule text on dashboard; DB col + API ingest + forwarder auto-lookup (cached SSH) + UI pre block; Supabase migration already run.
