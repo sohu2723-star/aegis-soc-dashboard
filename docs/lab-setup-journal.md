@@ -664,6 +664,39 @@ ping -c 3 8.8.8.8
 
 ---
 
+## [2026-07-21] — Behavioral Analysis: Breach vs Authorized Login Classification
+
+**Status:** ✅ Done
+**What:** SSH/Web login success event တွေကို context (prior failures) ဖြင့် classify လုပ်သည် — "ဝင်ခဲ့တယ်" ဆိုတာသာမကဘဲ "ဘယ်လိုဝင်ခဲ့တာလဲ" ကို dashboard မှာပြမည်
+
+**Concept (Behavioral Analysis):**
+- `prior_failures = 0` → **Authorized Login** (low severity — ပုံမှန် login)
+- `prior_failures ≥ 3` → **Brute Force Success / Web Login Breach** (critical — attacker ဝင်သွားပြီ!)
+- SSH နှင့် Web login endpoint ၂ ခုလုံးမှာ တူညီတဲ့ logic
+
+**Layer 1 — Forwarder (`scripts/src/aegis_forwarder.py`):**
+- `watch_ssh()` — success မတိုင်မီ `prior = fail_counts.pop(ip, 0)` ကြိုယူပြီး `prior_failures` field ထည့်ပို့
+- `_watch_remote_ssh()` — same fix; `"failures": 0` → `"prior_failures": prior`
+- `watch_http_access()` — Apache `access.log` ကြည့်သည် (ModSec မဟုတ်); login URL (401/403 → 200) pattern ဖမ်း
+- `_watch_remote_http_access()` — hub mode version; SSH မှ remote access.log tail
+- Sensor registration: `_SENSOR_FN["http_access"]` + `MODES["http_access"]`
+
+**Layer 2 — API (`artifacts/api-server/src/routes/ingest.ts`):**
+- `POST /ingest/ssh` — `prior_failures` field read; `≥3` → type=`network_attack`, subtype=`Brute Force Success`, severity=`critical`, status=`breach`; `0` → type=`auth_event`, subtype=`Authorized Login`, severity=`low`, status=`allowed`
+- `POST /ingest/http_access` (NEW) — same logic for web login; `≥3` → `Web Login Breach` critical; success clean → `Web Authorized Login` low; failed attempts → `Web Login Brute Force` medium/high
+
+**Layer 3 — Dashboard (`artifacts/aegis-dashboard/src/pages/events.tsx`):**
+- Breach rows: red background `bg-red-950/40`, left red border, `Skull` icon, pulsing `BREACH` badge
+- Authorized rows: green background `bg-green-950/20`, `CheckCircle2` icon, green `allowed` badge
+- Detail sheet: Breach banner (red, "Breach Confirmed") or Authorized banner (green, "Authorized Access")
+
+**Result:** Build ✅ clean. API server ✅ built. Events page ✅ no new type errors.
+**Next:**
+- VM မှာ forwarder update: `wget` + `systemctl restart aegis-forwarder`
+- `http_access` sensor ကို bank-web REMOTE_HOSTS sensors list မှာ ထည့်ချင်ရင်: `"sensors": ["fail2ban", "ssh", "http", "http_access"]`
+
+---
+
 ## 2026-07-19 — OVS Switch VLAN Setup + pfSense VLAN Sub-Interface + Firewall Rules
 
 **Status:** ✅ Done  

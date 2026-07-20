@@ -948,13 +948,14 @@ def watch_ssh():
             auth, user, ip = m_ok.group(1), m_ok.group(2), m_ok.group(3)
             if ip in DEFENDER_IPS:
                 continue   # skip hub's own management SSH
-            fail_counts.pop(ip, None)
+            prior = fail_counts.pop(ip, 0)   # capture before clearing
             post("ssh", {
-                "src_ip":      ip,
-                "dest_ip":     OWN_IP,   # this VM is the SSH target
-                "username":    user,
-                "status":      "success",
-                "auth_method": auth,
+                "src_ip":         ip,
+                "dest_ip":        OWN_IP,
+                "username":       user,
+                "status":         "success",
+                "auth_method":    auth,
+                "prior_failures": prior,   # 0 = legit login; ≥3 = breach after brute force
             })
 
 
@@ -1007,6 +1008,70 @@ def watch_modsecurity():
             })
             current_ip = None
 
+
+
+# ─── HTTP Access Log — login breach detection ────────────────────────────────
+# Apache combined log: IP - - [date] "METHOD URL PROTO" STATUS SIZE
+HTTP_ACCESS_LOG = "/var/log/apache2/access.log"
+ACCESS_RE       = re.compile(r'^([\d.]+) \S+ \S+ \[[^\]]+\] "(\w+) ([^ ]+) HTTP[^"]*" (\d{3}) ')
+# Login-like endpoints worth watching for brute-force breach
+_LOGIN_PREFIXES = ("/login", "/admin", "/wp-login", "/phpmyadmin",
+                   "/signin", "/auth", "/console", "/manager", "/user/login")
+
+
+def _is_login_url(url: str) -> bool:
+    u = url.split("?")[0].lower()
+    return any(u == p or u.startswith(p + "/") or u.startswith(p + "?")
+               for p in _LOGIN_PREFIXES)
+
+
+def watch_http_access():
+    """
+    Watch Apache access.log for login breach pattern:
+      repeated 401/403 on login URLs → 200/302 success = brute-force success.
+    Complements ModSecurity (which detects attack payloads); this catches
+    successful authentication after brute force even when no WAF rule fires.
+    """
+    print(f"[HTTP-ACCESS] Watching {HTTP_ACCESS_LOG}")
+    login_fails: dict[str, int] = {}   # ip → failed auth count on login endpoints
+
+    OWN_IP = get_local_ip()
+
+    for line in tail_file(HTTP_ACCESS_LOG):
+        m = ACCESS_RE.match(line)
+        if not m:
+            continue
+        ip, method, url, status = m.group(1), m.group(2), m.group(3), int(m.group(4))
+
+        if not _is_login_url(url):
+            continue
+
+        if status in (401, 403):
+            login_fails[ip] = login_fails.get(ip, 0) + 1
+            # Emit a medium event so the dashboard shows the failed login attempts
+            if login_fails[ip] == 1 or login_fails[ip] % 5 == 0:
+                post("http_access", {
+                    "src_ip":         ip,
+                    "dest_ip":        OWN_IP,
+                    "url":            url,
+                    "method":         method,
+                    "status_code":    status,
+                    "prior_failures": login_fails[ip],
+                    "is_success":     False,
+                })
+
+        elif status in (200, 302) and method in ("POST", "GET"):
+            # Success after failures = breach; success with no failures = authorized
+            prior = login_fails.pop(ip, 0)
+            post("http_access", {
+                "src_ip":         ip,
+                "dest_ip":        OWN_IP,
+                "url":            url,
+                "method":         method,
+                "status_code":    status,
+                "prior_failures": prior,
+                "is_success":     True,
+            })
 
 
 # ─── REMOTE MODE (hub SSHes into bank VMs) ───────────────────────────────────
@@ -1202,12 +1267,13 @@ def _watch_remote_ssh(host_name: str, host_ip: str):
             _, user, ip = m_ok.group(1), m_ok.group(2), m_ok.group(3)
             if ip in _defender_ips:
                 continue
+            prior = fail_counts.pop(ip, 0)   # capture before clearing
             post("ssh", {
-                "src_ip":    ip,
-                "username":  user,
-                "status":    "success",
-                "failures":  0,
-                "targetHost": host_ip,
+                "src_ip":         ip,
+                "username":       user,
+                "status":         "success",
+                "prior_failures": prior,
+                "targetHost":     host_ip,
             })
 
 
@@ -1287,6 +1353,52 @@ _PG_SQL_RE = re.compile(
     r"(syntax error|invalid input|division by zero|out of range|"
     r"ERROR.*column.*does not exist|SELECT.*FROM.*WHERE.*=.*')", re.IGNORECASE
 )
+
+
+def _watch_remote_http_access(host_name: str, host_ip: str):
+    """
+    Tail Apache access.log on a remote VM (bank-web) via SSH.
+    Detects login brute-force success: repeated 401/403 → 200/302 on login URLs.
+    """
+    log_path = "/var/log/apache2/access.log"
+    print(f"[{host_name}] http_access thread started")
+    login_fails: dict[str, int] = {}
+
+    for line in _ssh_tail(host_name, host_ip, log_path):
+        m = ACCESS_RE.match(line)
+        if not m:
+            continue
+        ip, method, url, status = m.group(1), m.group(2), m.group(3), int(m.group(4))
+
+        if not _is_login_url(url):
+            continue
+
+        if status in (401, 403):
+            login_fails[ip] = login_fails.get(ip, 0) + 1
+            if login_fails[ip] == 1 or login_fails[ip] % 5 == 0:
+                post("http_access", {
+                    "src_ip":         ip,
+                    "dest_ip":        host_ip,
+                    "url":            url,
+                    "method":         method,
+                    "status_code":    status,
+                    "prior_failures": login_fails[ip],
+                    "is_success":     False,
+                    "targetHost":     host_name,
+                })
+
+        elif status in (200, 302) and method in ("POST", "GET"):
+            prior = login_fails.pop(ip, 0)
+            post("http_access", {
+                "src_ip":         ip,
+                "dest_ip":        host_ip,
+                "url":            url,
+                "method":         method,
+                "status_code":    status,
+                "prior_failures": prior,
+                "is_success":     True,
+                "targetHost":     host_name,
+            })
 
 
 def _watch_remote_postgresql(host_name: str, host_ip: str):
@@ -1561,13 +1673,14 @@ def run_hub_mode():
     that SSHes into pfSense and tails its EVE JSON log.
     """
     _SENSOR_FN = {
-        "fail2ban":   _watch_remote_fail2ban,
-        "ssh":        _watch_remote_ssh,
-        "http":       _watch_remote_modsecurity,
-        "mysql":      _watch_remote_mysql,
-        "postgresql": _watch_remote_postgresql,
-        "bind9":      _watch_remote_bind9,
-        "slapd":      _watch_remote_slapd,
+        "fail2ban":    _watch_remote_fail2ban,
+        "ssh":         _watch_remote_ssh,
+        "http":        _watch_remote_modsecurity,
+        "http_access": _watch_remote_http_access,
+        "mysql":       _watch_remote_mysql,
+        "postgresql":  _watch_remote_postgresql,
+        "bind9":       _watch_remote_bind9,
+        "slapd":       _watch_remote_slapd,
     }
 
     print(f"\n  Hub mode — remote hosts ({len(REMOTE_HOSTS)}):")
@@ -1644,6 +1757,7 @@ MODES = {
     "fail2ban":    watch_fail2ban,
     "ssh":         watch_ssh,
     "http":        watch_modsecurity,
+    "http_access": watch_http_access,
 }
 
 if __name__ == "__main__":

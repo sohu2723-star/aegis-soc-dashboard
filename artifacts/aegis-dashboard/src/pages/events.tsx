@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { format } from "date-fns";
-import { Search, Filter, ShieldAlert, ShieldCheck, Clock, Monitor, Wifi, FileText, Hash, RefreshCw, Zap, Tag } from "lucide-react";
+import { Search, Filter, ShieldAlert, ShieldCheck, Clock, Monitor, Wifi, FileText, Hash, RefreshCw, Zap, Tag, Skull, CheckCircle2 } from "lucide-react";
 import { HostLabel } from "@/lib/host-utils";
 import { useDeviceContext } from "@/lib/device-context";
 
@@ -16,6 +16,13 @@ const SEV_COLORS: Record<string, string> = {
   medium:   "border-yellow-500 text-yellow-500",
   low:      "border-green-500 text-green-500",
 };
+
+// Behavioral classification helpers
+function isBreach(event: any)  { return event.status === "breach"; }
+function isAuthorized(event: any) {
+  return event.status === "allowed" &&
+    (event.subtype === "Authorized Login" || event.subtype === "Web Authorized Login");
+}
 
 const ACTION_COLORS: Record<string, string> = {
   drop:    "bg-red-500/10 text-red-400 border-red-500/30",
@@ -162,10 +169,19 @@ export default function Events() {
                     : "No events detected."}
                 </TableCell>
               </TableRow>
-            ) : filtered.map((event: any) => (
+            ) : filtered.map((event: any) => {
+              const breach     = isBreach(event);
+              const authorized = isAuthorized(event);
+              return (
               <TableRow
                 key={event.id}
-                className="border-border hover:bg-muted/20 cursor-pointer"
+                className={`border-border cursor-pointer transition-colors ${
+                  breach
+                    ? "bg-red-950/40 hover:bg-red-950/60 border-l-2 border-l-red-500"
+                    : authorized
+                    ? "bg-green-950/20 hover:bg-green-950/30"
+                    : "hover:bg-muted/20"
+                }`}
                 onClick={() => setSelectedEvent(event)}
               >
                 <TableCell className="font-mono text-xs whitespace-nowrap">
@@ -175,17 +191,23 @@ export default function Events() {
                   <SeverityBadge severity={event.severity} />
                 </TableCell>
                 <TableCell className="font-medium text-primary text-sm">{event.type}</TableCell>
-                <TableCell className="max-w-[260px]">
+                <TableCell className="max-w-[280px]">
                   {event.subtype ? (
-                    <div>
-                      <span className="font-mono text-xs text-yellow-400 truncate block">
-                        {event.subtype}
-                      </span>
-                      {event.signatureId && (
-                        <span className="font-mono text-[10px] text-muted-foreground">
-                          SID:{event.signatureId}
+                    <div className="flex items-center gap-1.5">
+                      {breach && <Skull className="w-3 h-3 text-red-400 shrink-0" />}
+                      {authorized && <CheckCircle2 className="w-3 h-3 text-green-400 shrink-0" />}
+                      <div>
+                        <span className={`font-mono text-xs truncate block ${
+                          breach ? "text-red-400" : authorized ? "text-green-400" : "text-yellow-400"
+                        }`}>
+                          {event.subtype}
                         </span>
-                      )}
+                        {event.signatureId && (
+                          <span className="font-mono text-[10px] text-muted-foreground">
+                            SID:{event.signatureId}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   ) : (
                     <span className="text-xs text-muted-foreground">—</span>
@@ -194,12 +216,23 @@ export default function Events() {
                 <TableCell><span className="font-mono text-xs text-cyan-400">{event.sourceIp}</span></TableCell>
                 <TableCell><HostLabel ip={event.targetHost} /></TableCell>
                 <TableCell>
-                  <Badge variant="secondary" className="uppercase text-[10px] bg-muted text-muted-foreground">
-                    {event.status}
-                  </Badge>
+                  {breach ? (
+                    <Badge className="uppercase text-[10px] bg-red-600 text-white border-0 animate-pulse">
+                      BREACH
+                    </Badge>
+                  ) : authorized ? (
+                    <Badge variant="outline" className="uppercase text-[10px] border-green-500/50 text-green-400">
+                      allowed
+                    </Badge>
+                  ) : (
+                    <Badge variant="secondary" className="uppercase text-[10px] bg-muted text-muted-foreground">
+                      {event.status}
+                    </Badge>
+                  )}
                 </TableCell>
               </TableRow>
-            ))}
+              );
+            })}
           </TableBody>
         </Table>
       </div>
@@ -224,12 +257,36 @@ export default function Events() {
                 </SheetDescription>
               </SheetHeader>
 
+              {/* Breach / Authorized Login banner */}
+              {isBreach(ev) && (
+                <div className="flex items-center gap-2 bg-red-950/60 border border-red-500/60 rounded-lg px-4 py-3 mb-4">
+                  <Skull className="w-5 h-5 text-red-400 shrink-0" />
+                  <div>
+                    <p className="text-red-400 font-bold text-sm uppercase tracking-wide">Breach Confirmed</p>
+                    <p className="text-red-300/80 text-xs">Attacker successfully authenticated after brute-force attempts.</p>
+                  </div>
+                </div>
+              )}
+              {isAuthorized(ev) && (
+                <div className="flex items-center gap-2 bg-green-950/40 border border-green-500/30 rounded-lg px-4 py-3 mb-4">
+                  <CheckCircle2 className="w-5 h-5 text-green-400 shrink-0" />
+                  <div>
+                    <p className="text-green-400 font-semibold text-sm uppercase tracking-wide">Authorized Access</p>
+                    <p className="text-green-300/70 text-xs">No prior failed attempts — legitimate login.</p>
+                  </div>
+                </div>
+              )}
+
               {/* Status badges */}
               <div className="flex flex-wrap gap-2 mb-5">
                 <SeverityBadge severity={ev.severity} />
-                <Badge variant="secondary" className="uppercase text-[10px] bg-muted text-muted-foreground">
-                  {ev.status}
-                </Badge>
+                {isBreach(ev) ? (
+                  <Badge className="uppercase text-[10px] bg-red-600 text-white border-0">BREACH</Badge>
+                ) : (
+                  <Badge variant="secondary" className="uppercase text-[10px] bg-muted text-muted-foreground">
+                    {ev.status}
+                  </Badge>
+                )}
                 {ev.toolUsed && (
                   <Badge variant="outline" className="uppercase text-[10px] border-primary/40 text-primary/70">
                     {ev.toolUsed}
