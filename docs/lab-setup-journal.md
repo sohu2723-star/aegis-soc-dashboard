@@ -1272,3 +1272,46 @@ ovs-vsctl set port eth2 tag=20   # LDAP-Server
 - AEGIS lab custom rules ၈ ခု (sid:9000001–9000008): Nmap scan, SSH brute, SQLi, XSS, SYN flood, DNS amp, LDAP brute, FTP brute
 **Result:** docs push ✅ to GitHub main
 **Next:** em1 + em2 interfaces ၂ ခုလုံးမှာ custom rules paste ပြီး restart လုပ်ပြီး eve.json ထဲ AEGIS signatures ပေါ်လာတာ စစ်ရမယ်
+
+---
+
+### [2026-07-20] — pfSense Suricata Interface Setup + Custom Rules (လက်တွေ့ Lab)
+
+**Status:** ✅ Done — PUBLIC + INTERNAL Suricata run နေပြီ
+**Duration:** ~2hr troubleshooting session
+
+**ပြဿနာတွေနဲ့ ဖြေရှင်းချက်:**
+
+| ပြဿနာ | အကြောင်းရင်း | ဖြေရှင်းချက် |
+|---|---|---|
+| Rules tab မတွေ့ဘူး | Interface list row ကနေ မတွေ့ဘူး | Interface row → ✏️ edit icon ဝင်မှ tabs ပေါ်မည် |
+| Custom Rules textarea မပါဘူး | pfSense Suricata version ကွာတယ် | Diagnostics → Edit File နည်း သုံး |
+| `/var/db/suricata/suricata_em110/` မရှိဘူး | Suricata မ start ရသေးလို့ folder မတည်ဆောက်ရသေးဘူး | `mkdir -p` + `touch` command နဲ့ folder/file ကိုယ်တိုင် တည်ဆောက် |
+| Suricata Start မဖြစ်ဘူး | Categories မ enable ရသေးဘူး + Hardware Offloading | System → Advanced → Networking မှာ offloading disable; Categories tick လုပ် |
+| Alert မပေါ်ဘူး | PUBLIC/INTERNAL Suricata မ run ဘူး (WAN ပဲ run တယ်) | WAN ဖျက်၊ PUBLIC + INTERNAL အသစ် ထည့်ပြီး Start |
+
+**Final Interface Setup:**
+- WAN (em0) — ဖျက်လိုက် (optional ပဲ)
+- **PUBLIC (em1.10)** — ✅ Running; bank-web + dns-server traffic monitor
+- **INTERNAL (em2.20)** — ✅ Running; customer-db + ldap-server traffic monitor
+- Blocking Mode: **DISABLED** (lab testing အတွက် — attack ဆက်လုပ်နိုင်ဖို့)
+
+**Custom Rules (confirmed):**
+
+PUBLIC `/var/db/suricata/suricata_em110/rules/custom.rules`:
+- SSH Brute bank-web (10.10.10.10:22) sid:9000001
+- HTTP Attack bank-web (10.10.10.10:80) sid:9000002
+- DNS Attack dns-server (10.10.10.20:53) sid:9000004
+- SSH Brute dns-server (10.10.10.20:22) sid:9000005
+
+INTERNAL `/var/db/suricata/suricata_em220/rules/custom.rules`:
+- SSH Brute customer-db (10.20.20.10:22) sid:9000006
+- MySQL Brute customer-db (10.20.20.10:3306) sid:9000007
+- SSH Brute ldap-server (10.20.20.20:22) sid:9000008
+- LDAP Brute ldap-server (10.20.20.20:389) sid:9000009
+
+**Categories enabled:** emerging-scan.rules, emerging-bruteforce.rules
+
+**Test:** `nmap -sS 10.10.10.10` Kali မှာ run → Services → Suricata → Alerts tab → PUBLIC instance ရွေး → alert ပေါ်လာရမည်
+
+**Next:** Eve.json AEGIS signatures confirm + aegis_forwarder.py မှာ pfSense Suricata log path connect လုပ်ရမည်

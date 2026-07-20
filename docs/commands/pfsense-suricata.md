@@ -57,6 +57,22 @@ Services → Suricata → Updates → [Update Rules]
 
 ---
 
+## ⚠️ Interface Setup မတိုင်ခင် — Hardware Offloading Fix (မဖြစ်မနေ)
+
+Suricata start မဖြစ်ဘူးဆိုရင် ဒါကြောင့် ဖြစ်တတ်တယ်:
+
+```
+System → Advanced → Networking tab
+
+☑ Disable hardware checksum offload
+☑ Disable hardware TCP segmentation offload
+☑ Disable hardware large receive offload
+
+→ Save → pfSense Reboot
+```
+
+---
+
 ## Step 4 — Interface Setup (em1 = DMZ)
 
 ```
@@ -90,6 +106,22 @@ Logging Settings tab:
 
 em2 (INT) အတွက်လည်း Step 4 ကို ထပ်လုပ်ပါ (Interface = em2 မပြောင်းတာ)
 
+> **Lab မှာ Blocking Mode = DISABLED ထားပါ** — LEGACY MODE သုံးရင် attacker block ဖြစ်သွားပြီး attack testing ဆက်မဖြစ်တော့ဘူး
+
+---
+
+## ⚠️ Interface Name အမှန် (pfSense VLAN ဆိုရင်)
+
+pfSense မှာ interface names က GUI label နဲ့ ကွဲနိုင်တယ်:
+
+| GUI Label | Interface | Suricata folder |
+|---|---|---|
+| PUBLIC | em1.10 (VLAN 10) | `suricata_em110` |
+| INTERNAL | em2.20 (VLAN 20) | `suricata_em220` |
+| WAN | em0 | optional — မထည့်လည်းရ |
+
+> WAN interface က optional ပဲ — bank VMs traffic ဖမ်းဖို့ PUBLIC + INTERNAL ပဲ လုံလောက်တယ်
+
 ---
 
 ## Step 5 — Rules Enable (em1 / em2)
@@ -111,6 +143,58 @@ Services → Suricata → em1 → Categories tab
 
 ---
 
+## Step 5b — Custom Rules ထည့် (AEGIS Lab — လက်တွေ့ confirmed နည်းလမ်း)
+
+### Rules ဘယ် interface မှာ ထည့်ရမလဲ
+
+Attacker IP သေချာမသိ (dynamic) — ဒါကြောင့် source IP အကုန် `any` သုံးရမည်။  
+Destination (VM IP) ပေါ်မူတည်ပြီး ဘယ် interface မှာ ထည့်ရမလဲ ဆုံးဖြတ်:
+
+| Target VM | IP | ထည့်ရမည့် Interface |
+|---|---|---|
+| bank-web SSH/HTTP/FTP | 10.10.10.10 | **PUBLIC (em1.10)** |
+| dns-server SSH/DNS | 10.10.10.20 | **PUBLIC (em1.10)** |
+| customer-db SSH/MySQL | 10.20.20.10 | **INTERNAL (em2.20)** |
+| ldap-server SSH/LDAP | 10.20.20.20 | **INTERNAL (em2.20)** |
+
+---
+
+### Rules file တည်ဆောက်နည်း
+
+Suricata start မဖြစ်သေးဘဲ rules file ထည့်ဖို့ — **Diagnostics → Command Prompt** မှာ:
+
+```bash
+# PUBLIC
+mkdir -p /var/db/suricata/suricata_em110/rules
+touch /var/db/suricata/suricata_em110/rules/custom.rules
+
+# INTERNAL
+mkdir -p /var/db/suricata/suricata_em220/rules
+touch /var/db/suricata/suricata_em220/rules/custom.rules
+```
+
+ပြီးရင် **Diagnostics → Edit File** မှာ rules ရေး:
+
+```
+Path: /var/db/suricata/suricata_em110/rules/custom.rules
+→ Load → rules paste → Save
+```
+
+---
+
+### ⚠️ Rules tab မတွေ့ဘူးဆိုရင်
+
+Interface list မှာ row ကနေ မြင်မရဘူး — **✏️ Edit icon နှိပ်မှ tabs ပေါ်မည်:**
+
+```
+Services → Suricata → Interfaces
+  → PUBLIC row → ✏️ edit icon
+  → PUBLI Rules tab → scroll အောက်ဆုံး → Custom Rules textarea
+  (ဒါမပါဘူးဆိုရင် Diagnostics → Edit File နည်းသုံး)
+```
+
+---
+
 ## Step 5b — Custom Rules ထည့် (AEGIS Lab မှတ်တမ်း)
 
 > **Rules tab မတွေ့ဘူးဆိုရင်:** Interface list row ထဲ ✏️ pencil (edit) icon နှိပ်မှ tabs ပေါ်မည်
@@ -125,33 +209,26 @@ Services → Suricata → em1 → Categories tab
 
 em1 (DMZ) နဲ့ em2 (INT) ၂ ခုလုံးမှာ custom rules ထည့်ပါ:
 
+**PUBLIC (em1.10) rules** — bank-web + dns-server:
+
 ```suricata
-# ── AEGIS Custom Rules — Lab GNS3 ──────────────────────────────────────
-
-# Nmap / port scan (attacker IP မသေ — any သုံး)
-alert tcp any any -> $HOME_NET any (msg:"AEGIS Nmap Port Scan"; flags:S; threshold:type both,track by_src,count 20,seconds 3; classtype:attempted-recon; sid:9000001; rev:1;)
-
-# SSH brute force (any → all VMs port 22)
-alert tcp any any -> $HOME_NET 22 (msg:"AEGIS SSH BruteForce Custom"; flow:to_server; threshold:type both,track by_src,count 10,seconds 60; classtype:attempted-admin; sid:9000002; rev:1;)
-
-# SQL injection to bank-web (10.10.10.10:80)
-alert http any any -> 10.10.10.10 80 (msg:"AEGIS SQLi bank-web"; flow:to_server,established; http.uri; content:"' OR"; nocase; classtype:web-application-attack; sid:9000003; rev:1;)
-
-# XSS to bank-web
-alert http any any -> 10.10.10.10 80 (msg:"AEGIS XSS bank-web"; flow:to_server,established; http.uri; content:"<script"; nocase; classtype:web-application-attack; sid:9000004; rev:1;)
-
-# SYN flood / DDoS detection
-alert tcp any any -> $HOME_NET any (msg:"AEGIS SYN Flood DDoS"; flags:S,12; threshold:type both,track by_src,count 100,seconds 5; classtype:attempted-dos; sid:9000005; rev:1;)
-
-# DNS amplification (large UDP 53 responses)
-alert udp $HOME_NET 53 -> any any (msg:"AEGIS DNS Amplification Response"; dsize:>512; threshold:type both,track by_dst,count 20,seconds 10; classtype:attempted-dos; sid:9000006; rev:1;)
-
-# LDAP brute force (port 389)
-alert tcp any any -> 10.20.20.20 389 (msg:"AEGIS LDAP BruteForce"; flow:to_server; threshold:type both,track by_src,count 10,seconds 60; classtype:attempted-admin; sid:9000007; rev:1;)
-
-# FTP brute force (bank-web vsftpd port 21)
-alert tcp any any -> 10.10.10.10 21 (msg:"AEGIS FTP BruteForce bank-web"; flow:to_server; threshold:type both,track by_src,count 10,seconds 60; classtype:attempted-admin; sid:9000008; rev:1;)
+alert tcp any any -> 10.10.10.10 22 (msg:"SSH Brute bank-web"; flow:to_server; threshold:type both,track by_src,count 10,seconds 60; sid:9000001; rev:1;)
+alert tcp any any -> 10.10.10.10 80 (msg:"HTTP Attack bank-web"; flow:to_server,established; sid:9000002; rev:1;)
+alert tcp any any -> 10.10.10.10 21 (msg:"FTP Brute bank-web"; flow:to_server; threshold:type both,track by_src,count 10,seconds 60; sid:9000003; rev:1;)
+alert udp any any -> 10.10.10.20 53 (msg:"DNS Attack dns-server"; sid:9000004; rev:1;)
+alert tcp any any -> 10.10.10.20 22 (msg:"SSH Brute dns-server"; flow:to_server; threshold:type both,track by_src,count 10,seconds 60; sid:9000005; rev:1;)
 ```
+
+**INTERNAL (em2.20) rules** — customer-db + ldap-server:
+
+```suricata
+alert tcp any any -> 10.20.20.10 22 (msg:"SSH Brute customer-db"; flow:to_server; threshold:type both,track by_src,count 10,seconds 60; sid:9000006; rev:1;)
+alert tcp any any -> 10.20.20.10 3306 (msg:"MySQL Brute customer-db"; flow:to_server; threshold:type both,track by_src,count 10,seconds 60; sid:9000007; rev:1;)
+alert tcp any any -> 10.20.20.20 22 (msg:"SSH Brute ldap-server"; flow:to_server; threshold:type both,track by_src,count 10,seconds 60; sid:9000008; rev:1;)
+alert tcp any any -> 10.20.20.20 389 (msg:"LDAP Brute ldap-server"; flow:to_server; threshold:type both,track by_src,count 10,seconds 60; sid:9000009; rev:1;)
+```
+
+> **Note:** FTP rule ကို မလိုဘူးဆိုရင် ဖြုတ်နိုင်တယ် — မင်း service ပေါ်မူတည်ပြီး ရွေး
 
 Rules ထည့်ပြီးရင်:
 ```
