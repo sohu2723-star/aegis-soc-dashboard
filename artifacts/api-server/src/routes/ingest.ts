@@ -142,13 +142,28 @@ router.post("/ingest/suricata", auth, async (req, res) => {
   const a = alert ?? {};
   const s = sev(String(a.severity ?? 3));
 
+  // Pull every useful field out of the EVE JSON alert object
+  const signatureId:   number | null = typeof a.signature_id === "number" ? a.signature_id : null;
+  const alertRev:      number | null = typeof a.rev           === "number" ? a.rev           : null;
+  const alertAction:   string | null = a.action   ? String(a.action).slice(0, 32)   : null;
+  const alertCategory: string | null = a.category ? String(a.category).slice(0, 128) : null;
+
   const event = await insertEvent({
-    type:"network_attack", subtype: a.signature ?? "Suricata Alert", severity: s,
-    sourceIp: src_ip ?? "unknown", targetHost: dest_ip ?? "internal-network",
-    toolUsed:"suricata", description:`Suricata ${event_type ?? "alert"}: ${a.signature ?? "Unknown"} | ${a.category ?? ""} | ${proto ?? "TCP"}`,
-    status:"detected", layer:"perimeter",
+    type: "network_attack",
+    subtype: a.signature ?? "Suricata Alert",
+    severity: s,
+    sourceIp: src_ip ?? "unknown",
+    targetHost: dest_ip ?? "internal-network",
+    toolUsed: "suricata",
+    description: `Suricata ${event_type ?? "alert"}: ${a.signature ?? "Unknown"} | ${a.category ?? ""} | ${proto ?? "TCP"}`,
+    status: "detected",
+    layer: "perimeter",
+    signatureId,
+    alertRev,
+    alertAction,
+    alertCategory,
   });
-  if (s === "critical" || s === "high") await mkAlert(event.id, s, `SURICATA: ${a.signature} — ${src_ip} → ${dest_ip}`);
+  if (s === "critical" || s === "high") await mkAlert(event.id, s, `SURICATA: ${a.signature} (SID:${signatureId ?? "?"}) — ${src_ip} → ${dest_ip}`);
   res.status(201).json({ id: event.id });
 });
 

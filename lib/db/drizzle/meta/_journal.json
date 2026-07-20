@@ -15,6 +15,13 @@
       "when": 1783622731781,
       "tag": "0001_opposite_namorita",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784549409594,
+      "tag": "0002_add_suricata_rule_cols",
+      "breakpoints": true
     }
   ]
 }

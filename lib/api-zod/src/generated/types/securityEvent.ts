@@ -21,5 +21,13 @@ export interface SecurityEvent {
   description: string;
   status: SecurityEventStatus;
   layer: SecurityEventLayer;
+  /** @nullable Suricata rule SID */
+  signatureId?: number | null;
+  /** @nullable Suricata rule revision */
+  alertRev?: number | null;
+  /** @nullable Suricata alert action (allowed/blocked/drop) */
+  alertAction?: string | null;
+  /** @nullable Suricata alert category */
+  alertCategory?: string | null;
   createdAt: string;
 }

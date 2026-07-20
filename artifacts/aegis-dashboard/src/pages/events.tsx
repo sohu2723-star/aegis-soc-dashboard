@@ -6,31 +6,22 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { format } from "date-fns";
-import { Search, Filter, ShieldAlert, ShieldCheck, Clock, Monitor, Wifi, Tag, FileText, AlertTriangle } from "lucide-react";
+import { Search, Filter, ShieldAlert, ShieldCheck, Clock, Monitor, Wifi, FileText, Hash, RefreshCw, Zap, Tag } from "lucide-react";
 import { HostLabel } from "@/lib/host-utils";
 import { useDeviceContext } from "@/lib/device-context";
-
-// Parse "Suricata alert: ET SCAN SSH Brute | Attempted Info Leak | TCP" into parts
-function parseDescription(description: string | null | undefined) {
-  if (!description) return { prefix: null, ruleName: null, category: null, protocol: null };
-  // Format: "Suricata <action>: <rule> | <category> | <proto>"
-  const colonIdx = description.indexOf(":");
-  const prefix = colonIdx >= 0 ? description.slice(0, colonIdx).trim() : null;
-  const rest = colonIdx >= 0 ? description.slice(colonIdx + 1).trim() : description;
-  const parts = rest.split("|").map(s => s.trim());
-  return {
-    prefix,
-    ruleName: parts[0] ?? null,
-    category: parts[1] ?? null,
-    protocol: parts[2] ?? null,
-  };
-}
 
 const SEV_COLORS: Record<string, string> = {
   critical: "border-destructive text-destructive",
   high:     "border-orange-500 text-orange-500",
   medium:   "border-yellow-500 text-yellow-500",
   low:      "border-green-500 text-green-500",
+};
+
+const ACTION_COLORS: Record<string, string> = {
+  drop:    "bg-red-500/10 text-red-400 border-red-500/30",
+  blocked: "bg-red-500/10 text-red-400 border-red-500/30",
+  allowed: "bg-yellow-500/10 text-yellow-400 border-yellow-500/30",
+  alert:   "bg-blue-500/10 text-blue-400 border-blue-500/30",
 };
 
 function SeverityBadge({ severity }: { severity: string }) {
@@ -41,15 +32,16 @@ function SeverityBadge({ severity }: { severity: string }) {
   );
 }
 
-function DetailRow({ icon: Icon, label, value, mono = false }: {
+function DetailRow({ icon: Icon, label, value, mono = false, className = "" }: {
   icon: React.ElementType;
   label: string;
   value: React.ReactNode;
   mono?: boolean;
+  className?: string;
 }) {
-  if (!value) return null;
+  if (value === null || value === undefined || value === "") return null;
   return (
-    <div className="flex items-start gap-3 py-3 border-b border-border last:border-0">
+    <div className={`flex items-start gap-3 py-3 border-b border-border last:border-0 ${className}`}>
       <Icon className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
       <div className="flex-1 min-w-0">
         <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-0.5">{label}</p>
@@ -89,7 +81,7 @@ export default function Events() {
       )
     : deviceFiltered;
 
-  const parsed = parseDescription(selectedEvent?.description);
+  const ev = selectedEvent;
 
   return (
     <div className="space-y-6 h-full flex flex-col">
@@ -138,7 +130,7 @@ export default function Events() {
             <SelectItem value="low">Low</SelectItem>
           </SelectContent>
         </Select>
-        <p className="text-xs text-muted-foreground hidden sm:block">Click a row to see rule details</p>
+        <p className="text-xs text-muted-foreground hidden sm:block">Row ကို click → rule details ကြည့်ရန်</p>
       </div>
 
       {/* Table */}
@@ -185,9 +177,16 @@ export default function Events() {
                 <TableCell className="font-medium text-primary text-sm">{event.type}</TableCell>
                 <TableCell className="max-w-[260px]">
                   {event.subtype ? (
-                    <span className="font-mono text-xs text-yellow-400 truncate block">
-                      {event.subtype}
-                    </span>
+                    <div>
+                      <span className="font-mono text-xs text-yellow-400 truncate block">
+                        {event.subtype}
+                      </span>
+                      {event.signatureId && (
+                        <span className="font-mono text-[10px] text-muted-foreground">
+                          SID:{event.signatureId}
+                        </span>
+                      )}
+                    </div>
                   ) : (
                     <span className="text-xs text-muted-foreground">—</span>
                   )}
@@ -211,9 +210,9 @@ export default function Events() {
           side="right"
           className="w-full sm:max-w-md bg-card border-border overflow-y-auto"
         >
-          {selectedEvent && (
+          {ev && (
             <>
-              <SheetHeader className="mb-6">
+              <SheetHeader className="mb-5">
                 <div className="flex items-center gap-2 mb-1">
                   <ShieldAlert className="w-5 h-5 text-primary" />
                   <SheetTitle className="text-primary uppercase tracking-wide text-base">
@@ -221,87 +220,94 @@ export default function Events() {
                   </SheetTitle>
                 </div>
                 <SheetDescription className="font-mono text-xs text-muted-foreground">
-                  ID #{selectedEvent.id}
+                  Event ID #{ev.id}
                 </SheetDescription>
               </SheetHeader>
 
-              {/* Severity + Status badges */}
-              <div className="flex gap-2 mb-6">
-                <SeverityBadge severity={selectedEvent.severity} />
+              {/* Status badges */}
+              <div className="flex flex-wrap gap-2 mb-5">
+                <SeverityBadge severity={ev.severity} />
                 <Badge variant="secondary" className="uppercase text-[10px] bg-muted text-muted-foreground">
-                  {selectedEvent.status}
+                  {ev.status}
                 </Badge>
-                {selectedEvent.toolUsed && (
+                {ev.toolUsed && (
                   <Badge variant="outline" className="uppercase text-[10px] border-primary/40 text-primary/70">
-                    {selectedEvent.toolUsed}
+                    {ev.toolUsed}
+                  </Badge>
+                )}
+                {ev.alertAction && (
+                  <Badge
+                    variant="outline"
+                    className={`uppercase text-[10px] ${ACTION_COLORS[ev.alertAction.toLowerCase()] ?? "border-border text-muted-foreground"}`}
+                  >
+                    {ev.alertAction}
                   </Badge>
                 )}
               </div>
 
-              {/* Rule section — highlighted if subtype exists */}
-              {selectedEvent.subtype && (
-                <div className="bg-yellow-500/5 border border-yellow-500/20 rounded-lg p-4 mb-6 space-y-3">
-                  <p className="text-[10px] uppercase tracking-widest text-yellow-500/70 flex items-center gap-1.5">
-                    <AlertTriangle className="w-3 h-3" />
-                    Matched Rule
+              {/* ── Suricata Rule Block ── */}
+              {ev.subtype && (
+                <div className="bg-yellow-500/5 border border-yellow-500/20 rounded-lg p-4 mb-5 space-y-3">
+                  {/* Section label */}
+                  <p className="text-[10px] uppercase tracking-widest text-yellow-500/70 font-semibold">
+                    Matched Suricata Rule
                   </p>
+
+                  {/* Signature name — main hero */}
                   <p className="font-mono text-sm text-yellow-400 break-words leading-relaxed">
-                    {selectedEvent.subtype}
+                    {ev.subtype}
                   </p>
-                  {parsed.category && (
-                    <div className="flex items-center gap-2 pt-1">
-                      <Tag className="w-3 h-3 text-muted-foreground" />
-                      <span className="text-xs text-muted-foreground">{parsed.category}</span>
-                    </div>
-                  )}
-                  {parsed.protocol && (
-                    <div className="flex items-center gap-2">
-                      <Wifi className="w-3 h-3 text-muted-foreground" />
-                      <span className="text-xs font-mono text-muted-foreground">{parsed.protocol}</span>
-                    </div>
-                  )}
+
+                  {/* Rule metadata grid */}
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-2 pt-1">
+                    {ev.signatureId != null && (
+                      <div className="flex items-center gap-1.5">
+                        <Hash className="w-3 h-3 text-muted-foreground shrink-0" />
+                        <div>
+                          <p className="text-[9px] uppercase text-muted-foreground tracking-widest">SID</p>
+                          <p className="font-mono text-xs text-foreground">{ev.signatureId}</p>
+                        </div>
+                      </div>
+                    )}
+                    {ev.alertRev != null && (
+                      <div className="flex items-center gap-1.5">
+                        <RefreshCw className="w-3 h-3 text-muted-foreground shrink-0" />
+                        <div>
+                          <p className="text-[9px] uppercase text-muted-foreground tracking-widest">Rev</p>
+                          <p className="font-mono text-xs text-foreground">{ev.alertRev}</p>
+                        </div>
+                      </div>
+                    )}
+                    {ev.alertAction && (
+                      <div className="flex items-center gap-1.5">
+                        <Zap className="w-3 h-3 text-muted-foreground shrink-0" />
+                        <div>
+                          <p className="text-[9px] uppercase text-muted-foreground tracking-widest">Action</p>
+                          <p className="font-mono text-xs text-foreground capitalize">{ev.alertAction}</p>
+                        </div>
+                      </div>
+                    )}
+                    {ev.alertCategory && (
+                      <div className="flex items-center gap-1.5 col-span-2">
+                        <Tag className="w-3 h-3 text-muted-foreground shrink-0" />
+                        <div>
+                          <p className="text-[9px] uppercase text-muted-foreground tracking-widest">Category</p>
+                          <p className="text-xs text-foreground">{ev.alertCategory}</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
-              {/* Details */}
+              {/* ── Event Details ── */}
               <div className="space-y-0">
-                <DetailRow
-                  icon={Clock}
-                  label="Timestamp"
-                  value={format(new Date(selectedEvent.createdAt), "yyyy-MM-dd HH:mm:ss")}
-                  mono
-                />
-                <DetailRow
-                  icon={ShieldAlert}
-                  label="Event Type"
-                  value={selectedEvent.type}
-                />
-                <DetailRow
-                  icon={Wifi}
-                  label="Source IP"
-                  value={selectedEvent.sourceIp}
-                  mono
-                />
-                <DetailRow
-                  icon={Monitor}
-                  label="Target Host"
-                  value={selectedEvent.targetHost}
-                  mono
-                />
-                {selectedEvent.layer && (
-                  <DetailRow
-                    icon={ShieldCheck}
-                    label="Network Layer"
-                    value={selectedEvent.layer}
-                  />
-                )}
-                {selectedEvent.description && (
-                  <DetailRow
-                    icon={FileText}
-                    label="Full Description"
-                    value={selectedEvent.description}
-                  />
-                )}
+                <DetailRow icon={Clock}       label="Timestamp"     value={format(new Date(ev.createdAt), "yyyy-MM-dd HH:mm:ss")} mono />
+                <DetailRow icon={ShieldAlert} label="Event Type"    value={ev.type} />
+                <DetailRow icon={Wifi}        label="Source IP"     value={ev.sourceIp} mono />
+                <DetailRow icon={Monitor}     label="Target Host"   value={ev.targetHost} mono />
+                <DetailRow icon={ShieldCheck} label="Network Layer" value={ev.layer} />
+                <DetailRow icon={FileText}    label="Full Description" value={ev.description} />
               </div>
             </>
           )}
