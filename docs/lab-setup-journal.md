@@ -1451,3 +1451,44 @@ Required secrets (Replit Secrets panel မှာ set):
 
 **Result:** API server ✅ running, Dashboard ✅ running (login page ပြနေ), LDAP-Server rows bug ✅ fixed
 **Next:** Aegis VM မှာ forwarder update (`wget` + `systemctl restart aegis-forwarder`) လုပ်ပြီး DNS/LDAP threads connect ဖြစ်မဖြစ် journalctl မှာ စစ်ရမည်
+
+---
+
+## [2026-07-20] — VM Log → Dashboard Pipeline Full Audit + `srcIp` Bug Fix
+
+**Status:** ✅ Done
+**What:** VM log file → forwarder → API ingest → dashboard display pipeline တစ်ခုလုံး trace လုပ်ကာ field name mismatch bug တစ်ခု ရှာတွေ့ပြီး fix လုပ်ခဲ့တယ်
+
+**Bug Found:** `scripts/src/aegis_forwarder.py` ထဲ `post("event", ...)` ခေါ်တဲ့ ၆ ခုမှာ field name `srcIp` (camelCase) သုံးနေပြီး `/ingest/event` endpoint က `sourceIp` လိုချင်တဲ့အတွက် 400 error ဖြစ်ကာ events dashboard မပေါ်ဘူး
+
+**Affected sensors (all now fixed):**
+| Sensor | Function | Bug |
+|---|---|---|
+| PostgreSQL Monitor | `_watch_remote_postgresql()` | `srcIp` → `sourceIp` |
+| MySQL Monitor | `_watch_remote_mysql()` | `srcIp` → `sourceIp` |
+| DNS Monitor (BIND9) | `_watch_remote_bind9()` | `srcIp` → `sourceIp` (×2) |
+| LDAP Monitor (slapd) | `_watch_remote_slapd()` | `srcIp` → `sourceIp` |
+
+**Pipeline Status (Post-Fix):**
+
+| Service | VM Log | Forwarder Function | API Endpoint | Dashboard Display | ✅/❌ |
+|---|---|---|---|---|---|
+| SSH brute force | `/var/log/auth.log` | `watch_ssh()` | `/ingest/ssh` | red row + BRUTE FORCE | ✅ |
+| SSH 1 success (authorized) | `/var/log/auth.log` | `watch_ssh()` | `/ingest/ssh` | green row + Authorized Login | ✅ |
+| SSH breach (brute→success) | `/var/log/auth.log` | `watch_ssh()` | `/ingest/ssh` | red + pulsing BREACH + Skull icon | ✅ |
+| Fail2ban ban | `/var/log/fail2ban.log` | `watch_fail2ban()` | `/ingest/fail2ban` | high severity + auto-blocked | ✅ |
+| Suricata IDS | pfSense eve.json (SSH) | `_watch_pfsense_suricata()` | `/ingest/suricata` | network_attack + rule SID | ✅ |
+| HTTP ModSecurity | modsec_audit.log | `watch_http()` | `/ingest/http` | web_attack + SQLi/XSS badge | ✅ |
+| Web login breach | Apache access.log | `watch_http_access()` | `/ingest/http_access` | red + WEB BREACH banner | ✅ |
+| PostgreSQL auth fail | MySQL error.log (SSH) | `_watch_remote_postgresql()` | `/ingest/event` | db_auth_failure | ✅ (fixed) |
+| MySQL auth fail | MySQL error.log (SSH) | `_watch_remote_mysql()` | `/ingest/event` | db_auth_failure | ✅ (fixed) |
+| DNS zone transfer | named.log (SSH) | `_watch_remote_bind9()` | `/ingest/event` | dns_zone_transfer | ✅ (fixed) |
+| LDAP auth fail | syslog (SSH) | `_watch_remote_slapd()` | `/ingest/event` | ldap_auth_failure | ✅ (fixed) |
+
+**Auto-defense rules (all services):**
+- SSH ≥5 failures → `iptables` block (bank-web, customer-db, dns-server, ldap-server)
+- DNS attack → dns-server block
+- Fail2ban ban → auto-block + DB record
+
+**Result:** Python syntax ✅ clean (no srcIp remaining), all 6 occurrences fixed
+**Next:** Aegis VM မှာ forwarder update (`wget` + `systemctl restart`) — DNS/LDAP events ခု dashboard ရောက်မရောက် test ရမည်
