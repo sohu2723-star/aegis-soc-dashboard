@@ -7,7 +7,7 @@ Runs on Ubuntu defense server. Forwards real events from:
 
 Usage:
     python3 aegis_forwarder.py --mode all
-    python3 aegis_forwarder.py --mode suricata
+    python3 aegis_forwarder.py --mode fail2ban
     python3 aegis_forwarder.py --mode ssh
     python3 aegis_forwarder.py --mode http
 
@@ -65,11 +65,13 @@ PFSENSE_IP      = _cfg("PFSENSE_IP", "10.30.30.1")
 
 # ─── REMOTE HOST IPs — set in aegis_forwarder.local.conf, no hardcoding ───────
 # If not set in conf/env, falls back to empty string → hub mode skips that VM.
-BANKWEB_IP     = _cfg("BANKWEB_IP",     "")
-CUSTOMERDB_IP  = _cfg("CUSTOMERDB_IP",  "")
+BANKWEB_IP     = _cfg("BANKWEB_IP",     "")   # 10.10.10.10
+CUSTOMERDB_IP  = _cfg("CUSTOMERDB_IP",  "")   # 10.20.20.10
+DNSSERVER_IP   = _cfg("DNSSERVER_IP",   "")   # 10.10.10.20
+LDAPSERVER_IP  = _cfg("LDAPSERVER_IP",  "")   # 10.20.20.20
 
 # Per-host sensor list — controls which log tailer threads are spawned per VM.
-# Sensors: fail2ban, ssh, http, postgresql, mysql, bind9, slapd
+# Available sensors: fail2ban, ssh, http, mysql, postgresql, bind9, slapd
 # Only include hosts whose IP is configured (non-empty).
 REMOTE_HOSTS = [h for h in [
     {
@@ -88,11 +90,31 @@ REMOTE_HOSTS = [h for h in [
         "ip":   CUSTOMERDB_IP,
         "sensors": ["fail2ban", "ssh", "mysql"],
         "health_services": [
-            ("fail2ban",  "Fail2ban",        "sensor"),
-            ("ssh",       "SSH Monitor",     "sensor"),
-            ("mysql",     "MySQL Monitor",   "sensor"),
+            ("fail2ban",  "Fail2ban",      "sensor"),
+            ("ssh",       "SSH Monitor",   "sensor"),
+            ("mysql",     "MySQL Monitor", "sensor"),
         ],
     } if CUSTOMERDB_IP else None,
+    {
+        "name": "dns-server",
+        "ip":   DNSSERVER_IP,
+        "sensors": ["fail2ban", "ssh", "bind9"],
+        "health_services": [
+            ("fail2ban",  "Fail2ban",     "sensor"),
+            ("ssh",       "SSH Monitor",  "sensor"),
+            ("named",     "DNS Monitor",  "sensor"),
+        ],
+    } if DNSSERVER_IP else None,
+    {
+        "name": "ldap-server",
+        "ip":   LDAPSERVER_IP,
+        "sensors": ["fail2ban", "ssh", "slapd"],
+        "health_services": [
+            ("fail2ban",  "Fail2ban",      "sensor"),
+            ("ssh",       "SSH Monitor",   "sensor"),
+            ("slapd",     "LDAP Monitor",  "sensor"),
+        ],
+    } if LDAPSERVER_IP else None,
 ] if h is not None]
 
 # Hub mode: the defense agent polls for commands addressed to ALL these VMs
@@ -602,9 +624,8 @@ def get_service_status(service: str) -> str:
 # check_type "systemctl" → systemctl is-active <check_key>
 # check_type "port"      → check if TCP port <check_key> is listening (ss -tlnp)
 SERVICE_MAP = [
-    ("suricata",  "Suricata IDS",        "sensor", "systemctl"),
-    ("fail2ban",  "Fail2ban",            "sensor", "systemctl"),
-    ("ssh",       "SSH Monitor",         "sensor", "systemctl"),
+    ("fail2ban",  "Fail2ban",   "sensor", "systemctl"),
+    ("ssh",       "SSH Monitor","sensor", "systemctl"),
 ]
 
 
@@ -631,9 +652,9 @@ def service_health_loop():
     """
     Report real sensor health to AEGIS every 30s.
     Updates system_status table → triggers SSE service_status_change → real-time UI update.
-    Sensors: Suricata, Fail2ban, PostgreSQL (systemctl), Morgan HTTP Logger (port :80).
+    Sensors: Fail2ban, SSH (systemctl).
     """
-    print("[SERVICE HEALTH] Monitoring: suricata, fail2ban, postgresql, morgan(:80)")
+    print("[SERVICE HEALTH] Monitoring: fail2ban, ssh")
     own_ip = get_local_ip()
     while True:
         for check_key, component, layer, check_type in SERVICE_MAP:
@@ -697,56 +718,6 @@ def tail_file(path: str):
     except FileNotFoundError:
         print(f"[WARN] File not found: {path} — retrying in 10s")
         time.sleep(10)
-
-
-# ─── SURICATA (eve.json) ──────────────────────────────────────────────────────
-SURICATA_LOG = "/var/log/suricata/eve.json"
-
-
-def watch_suricata():
-    print(f"[SURICATA] Watching {SURICATA_LOG}")
-    for line in tail_file(SURICATA_LOG):
-        try:
-            evt = json.loads(line)
-            etype = evt.get("event_type")
-
-            if etype == "alert":
-                post("suricata", evt)
-
-            elif etype == "tls":
-                # Encrypted traffic logging
-                post("suricata/tls", {
-                    "src_ip":    evt.get("src_ip"),
-                    "dest_ip":   evt.get("dest_ip"),
-                    "dest_port": evt.get("dest_port"),
-                    "tls":       evt.get("tls", {}),
-                })
-
-        except json.JSONDecodeError:
-            pass
-
-
-# ─── SNORT (alert_fast) ───────────────────────────────────────────────────────
-SNORT_LOG = "/var/log/snort/alert"
-
-
-def watch_snort():
-    print(f"[SNORT] Watching {SNORT_LOG}")
-    for line in tail_file(SNORT_LOG):
-        if "[**]" not in line:
-            continue
-        sig_match = re.findall(r"\[\*\*\] \[\S+\] (.*?) \[\*\*\]", line)
-        prio_match = re.search(r"\[Priority: (\d+)\]", line)
-        net_match  = re.search(r"\{(\w+)\}\s+([\d.]+):\d+\s+->\s+([\d.]+)", line)
-        if not sig_match or not net_match:
-            continue
-        post("snort", {
-            "msg":      sig_match[0],
-            "priority": prio_match.group(1) if prio_match else "3",
-            "proto":    net_match.group(1),
-            "src":      net_match.group(2),
-            "dst":      net_match.group(3),
-        })
 
 
 # ─── FAIL2BAN ─────────────────────────────────────────────────────────────────
@@ -974,46 +945,59 @@ def _remote_register_host(host_name: str, host_ip: str):
         print(f"  WARN Remote host registration {host_name} failed: {e}")
 
 
-def _watch_remote_suricata(host_name: str, host_ip: str):
-    """Tail Suricata eve.json on a remote VM via SSH and forward events."""
-    print(f"[{host_name}] suricata thread started")
-    for line in _ssh_tail(host_name, host_ip, "/var/log/suricata/eve.json"):
+def _watch_pfsense_suricata():
+    """
+    SSH into pfSense (PFSENSE_IP) and tail Suricata EVE JSON log.
+    pfSense Suricata writes EVE JSON to /var/log/suricata/<iface>/eve.json.
+    Set PFSENSE_SURICATA_LOG in aegis_forwarder.local.conf if your path differs.
+    Default: /var/log/suricata/suricata_em0/eve.json  (em0 = WAN on typical pfSense)
+
+    aegis_forwarder.local.conf example:
+        PFSENSE_SURICATA_LOG = /var/log/suricata/suricata_em0/eve.json
+    """
+    log_path = _cfg("PFSENSE_SURICATA_LOG", "/var/log/suricata/suricata_em0/eve.json")
+    ssh_key  = os.path.expanduser(PFSENSE_SSH_KEY)
+    ssh_cmd  = [
+        "ssh", "-T",
+        "-i", ssh_key,
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "ConnectTimeout=10",
+        "-o", "ServerAliveInterval=15",
+        "-o", "ServerAliveCountMax=3",
+        "-o", "BatchMode=yes",
+        f"{PFSENSE_SSH_USER}@{PFSENSE_IP}",
+        f"tail -F {log_path} 2>/dev/null",
+    ]
+    print(f"[pfSense-suricata] Starting — {PFSENSE_SSH_USER}@{PFSENSE_IP}:{log_path}")
+    while True:
         try:
-            evt = json.loads(line)
-            etype = evt.get("event_type")
-            # Stamp the source VM so the dashboard knows which host triggered it
-            evt.setdefault("src_ip", host_ip)
-            if etype == "alert":
-                post("suricata", evt)
-            elif etype == "tls":
-                post("suricata/tls", {
-                    "src_ip":    evt.get("src_ip", host_ip),
-                    "dest_ip":   evt.get("dest_ip"),
-                    "dest_port": evt.get("dest_port"),
-                    "tls":       evt.get("tls", {}),
-                })
-        except json.JSONDecodeError:
-            pass
-
-
-def _watch_remote_snort(host_name: str, host_ip: str):
-    """Tail Snort alert_fast on a remote VM via SSH and forward events."""
-    print(f"[{host_name}] snort thread started")
-    for line in _ssh_tail(host_name, host_ip, "/var/log/snort/alert"):
-        if "[**]" not in line:
-            continue
-        sig_match = re.findall(r"\[\*\*\] \[\S+\] (.*?) \[\*\*\]", line)
-        prio_match = re.search(r"\[Priority: (\d+)\]", line)
-        net_match  = re.search(r"\{(\w+)\}\s+([\d.]+):\d+\s+->\s+([\d.]+)", line)
-        if not sig_match or not net_match:
-            continue
-        post("snort", {
-            "msg":      sig_match[0],
-            "priority": prio_match.group(1) if prio_match else "3",
-            "proto":    net_match.group(1),
-            "src":      net_match.group(2),
-            "dst":      net_match.group(3),
-        })
+            proc = subprocess.Popen(ssh_cmd, stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE, text=True)
+            print(f"[pfSense-suricata] Connected")
+            for line in proc.stdout:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    evt = json.loads(line)
+                    etype = evt.get("event_type")
+                    evt["targetHost"] = "pfsense"   # stamp source for dashboard
+                    if etype == "alert":
+                        post("suricata", evt)
+                    elif etype == "tls":
+                        post("suricata/tls", {
+                            "src_ip":    evt.get("src_ip"),
+                            "dest_ip":   evt.get("dest_ip"),
+                            "dest_port": evt.get("dest_port"),
+                            "tls":       evt.get("tls", {}),
+                        })
+                except json.JSONDecodeError:
+                    pass
+            proc.wait()
+            print("[pfSense-suricata] SSH disconnected — reconnecting in 15s")
+        except Exception as e:
+            print(f"[pfSense-suricata] Error: {e} — retrying in 15s")
+        time.sleep(15)
 
 
 def _watch_remote_ssh(host_name: str, host_ip: str):
@@ -1188,6 +1172,90 @@ def _watch_remote_postgresql(host_name: str, host_ip: str):
         time.sleep(10)
 
 
+def _watch_remote_mysql(host_name: str, host_ip: str):
+    """Tail MySQL error log on customer-db via SSH and forward auth failures."""
+    log_path = "/var/log/mysql/error.log"
+    _defender_ips = {h["ip"] for h in REMOTE_HOSTS} | {"10.30.30.10"}
+    print(f"[{host_name}] mysql thread started")
+    for line in _ssh_tail(host_name, host_ip, log_path):
+        # MySQL auth failure: Access denied for user 'root'@'192.168.x.x'
+        if "Access denied" in line or "authentication fail" in line.lower():
+            m = re.search(r"'([^']+)'@'([\d.]+)'", line)
+            if not m:
+                continue
+            user, src_ip = m.group(1), m.group(2)
+            if src_ip in _defender_ips:
+                continue
+            post("event", {
+                "source":      "mysql",
+                "type":        "db_auth_failure",
+                "severity":    "high",
+                "srcIp":       src_ip,
+                "targetHost":  host_ip,
+                "description": f"MySQL auth failure: user={user} from {src_ip}",
+                "rawData":     line[:300],
+            })
+
+
+def _watch_remote_bind9(host_name: str, host_ip: str):
+    """Tail BIND9 query log on dns-server via SSH and detect DNS attacks."""
+    # BIND9 query log path (needs logging category queries { file } in named.conf)
+    log_path = "/var/log/named/named.log"
+    print(f"[{host_name}] bind9 thread started")
+    for line in _ssh_tail(host_name, host_ip, log_path):
+        # Zone transfer attempt: "AXFR" or "IXFR"
+        if "AXFR" in line or "IXFR" in line:
+            m = re.search(r"([\d.]+)#\d+", line)
+            src_ip = m.group(1) if m else "unknown"
+            post("event", {
+                "source":      "bind9",
+                "type":        "dns_zone_transfer",
+                "severity":    "high",
+                "srcIp":       src_ip,
+                "targetHost":  host_ip,
+                "description": f"DNS zone transfer attempt from {src_ip}",
+                "rawData":     line[:300],
+            })
+        # Flood / excessive queries (basic heuristic — forwarder sees repeated lines)
+        elif "query" in line.lower() and ("error" in line.lower() or "refused" in line.lower()):
+            m = re.search(r"([\d.]+)#\d+", line)
+            src_ip = m.group(1) if m else "unknown"
+            post("event", {
+                "source":      "bind9",
+                "type":        "dns_query_refused",
+                "severity":    "medium",
+                "srcIp":       src_ip,
+                "targetHost":  host_ip,
+                "description": f"DNS query refused from {src_ip}: {line[:80]}",
+                "rawData":     line[:300],
+            })
+
+
+def _watch_remote_slapd(host_name: str, host_ip: str):
+    """Tail syslog filtered for slapd (OpenLDAP) on ldap-server via SSH."""
+    # slapd logs to syslog on Ubuntu — filter with grep
+    _defender_ips = {h["ip"] for h in REMOTE_HOSTS} | {"10.30.30.10"}
+    print(f"[{host_name}] slapd thread started")
+    for line in _ssh_tail(host_name, host_ip, "/var/log/syslog"):
+        if "slapd" not in line:
+            continue
+        # Auth failure: "conn=X op=Y BIND dn="..." method=128 RESULT tag=97 err=49"
+        if "err=49" in line or "Invalid credentials" in line:
+            m = re.search(r"([\d.]+)(?::\d+)?", line)
+            src_ip = m.group(1) if m else "unknown"
+            if src_ip in _defender_ips:
+                continue
+            post("event", {
+                "source":      "slapd",
+                "type":        "ldap_auth_failure",
+                "severity":    "high",
+                "srcIp":       src_ip,
+                "targetHost":  host_ip,
+                "description": f"LDAP bind failure (err=49) from {src_ip}",
+                "rawData":     line[:300],
+            })
+
+
 def _remote_heartbeat_loop(hosts: list):
     """Send online heartbeat for every remote bank VM every 15s.
     Without this they time out (server marks offline after 45s / 3 missed beats).
@@ -1301,21 +1369,26 @@ def run_hub_mode():
     'sensors' key in REMOTE_HOSTS. Defense commands are routed to the right
     executor (local iptables / pfSense API / SSH iptables on bank VMs).
 
-    Supported sensors per host:
-      suricata   — /var/log/suricata/eve.json
-      snort      — /var/log/snort/alert
+    Supported sensors per host (via SSH log tail):
       fail2ban   — /var/log/fail2ban.log
       ssh        — /var/log/auth.log
       http       — /var/log/apache2/modsec_audit.log  (bank-web)
-      postgresql — /var/log/postgresql/*.log           (customer-db)
+      mysql      — /var/log/mysql/error.log            (customer-db)
+      postgresql — /var/log/postgresql/*.log           (customer-db, if used)
+      bind9      — /var/log/named/                     (dns-server)
+      slapd      — /var/log/syslog (filtered)          (ldap-server)
+
+    pfSense Suricata IDS is handled by a dedicated thread (_watch_pfsense_suricata)
+    that SSHes into pfSense and tails its EVE JSON log.
     """
     _SENSOR_FN = {
-        "suricata":   _watch_remote_suricata,
-        "snort":      _watch_remote_snort,
         "fail2ban":   _watch_remote_fail2ban,
         "ssh":        _watch_remote_ssh,
         "http":       _watch_remote_modsecurity,
+        "mysql":      _watch_remote_mysql,
         "postgresql": _watch_remote_postgresql,
+        "bind9":      _watch_remote_bind9,
+        "slapd":      _watch_remote_slapd,
     }
 
     print(f"\n  Hub mode — remote hosts ({len(REMOTE_HOSTS)}):")
@@ -1367,6 +1440,13 @@ def run_hub_mode():
             threads.append(t)
             print(f"  ► {h['name']}/{sensor} thread started")
 
+    # pfSense Suricata IDS — dedicated thread, uses pfSense SSH key
+    pf_sur = threading.Thread(target=_watch_pfsense_suricata, daemon=True,
+                              name="pfsense-suricata")
+    pf_sur.start()
+    threads.append(pf_sur)
+    print("  ► pfSense Suricata IDS thread started")
+
     print()
     try:
         while True:
@@ -1382,8 +1462,6 @@ def run_remote_mode():
 
 # ─── MAIN ────────────────────────────────────────────────────────────────────
 MODES = {
-    "suricata":    watch_suricata,
-    "snort":       watch_snort,
     "fail2ban":    watch_fail2ban,
     "ssh":         watch_ssh,
     "http":        watch_modsecurity,
@@ -1400,7 +1478,7 @@ Modes:
           runs the defense agent for ALL VMs.  One script, one machine, everything.
   all     Run all local sensors on THIS machine (normal forwarder mode).
   remote  Alias for hub (backward compat).
-  <name>  Run a single local sensor: suricata | snort | fail2ban | ssh | http
+  <name>  Run a single local sensor: fail2ban | ssh | http
 """,
     )
     parser.add_argument("--mode", choices=list(MODES.keys()) + ["all", "remote", "hub"], default="all")
@@ -1440,11 +1518,9 @@ Modes:
     hb.start()
 
     # Local service health:
-    #   NON-hub mode → run full SERVICE_MAP checks (suricata/fail2ban/etc on THIS VM)
+    #   NON-hub mode → run SERVICE_MAP checks (fail2ban/ssh) on THIS VM
     #   Hub mode     → skip local checks; _remote_service_health_loop() covers bank VMs
-    #                  via SSH.  Running both causes UP/DOWN flapping: local suricata
-    #                  is NOT installed on AEGIS VM → posts OFFLINE, remote loop
-    #                  sees suricata ONLINE on bank-web → posts ONLINE, seconds apart.
+    #                  via SSH. Running both would cause UP/DOWN flapping.
     if not _is_hub:
         sh = threading.Thread(target=service_health_loop, daemon=True, name="service_health")
         sh.start()

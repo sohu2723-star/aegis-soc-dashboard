@@ -3,7 +3,6 @@ import { Link, useLocation } from "wouter";
 import { 
   ShieldAlert, 
   Activity, 
-  ListTodo, 
   Siren, 
   Server, 
   FileText, 
@@ -37,7 +36,6 @@ import { DeviceSelector } from "@/components/device-selector";
 const opsItems = [
   { title: "Command Center", url: "/", icon: Activity },
   { title: "Security Events", url: "/events", icon: ShieldAlert },
-  { title: "Incidents", url: "/incidents", icon: ListTodo },
   { title: "Active Alerts", url: "/alerts", icon: Siren },
   { title: "Connection Logs", url: "/connections", icon: Cable },
 ];

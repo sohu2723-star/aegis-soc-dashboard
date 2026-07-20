@@ -191,7 +191,6 @@ export default function Reports() {
                     <SelectContent>
                       <SelectItem value="daily">Daily Summary</SelectItem>
                       <SelectItem value="weekly">Weekly Analysis</SelectItem>
-                      <SelectItem value="incident">Incident Post-Mortem</SelectItem>
                       <SelectItem value="custom">Custom Range</SelectItem>
                     </SelectContent>
                   </Select>
@@ -293,13 +292,6 @@ export default function Reports() {
                     </div>
                   </div>
                   <div className="bg-background border border-border rounded p-3 text-center lg:text-left flex lg:flex-row items-center gap-2">
-                    <AlertTriangle className="w-4 h-4 text-orange-400 flex-shrink-0" />
-                    <div>
-                      <div className="text-xs text-muted-foreground uppercase">Open Incidents</div>
-                      <div className="font-mono text-lg font-bold">{aiData.dataPoints.openIncidents}</div>
-                    </div>
-                  </div>
-                  <div className="bg-background border border-border rounded p-3 text-center lg:text-left flex lg:flex-row items-center gap-2">
                     <ShieldCheck className="w-4 h-4 text-red-400 flex-shrink-0" />
                     <div>
                       <div className="text-xs text-muted-foreground uppercase">Unacked Alerts</div>
@@ -378,14 +370,10 @@ export default function Reports() {
                   {report.summary}
                 </p>
 
-                <div className="grid grid-cols-2 gap-2 py-2 border-y border-border/50">
+                <div className="py-2 border-y border-border/50">
                   <div className="text-center">
                     <div className="text-xs uppercase text-muted-foreground tracking-wider mb-1">Events</div>
                     <div className="font-mono text-lg font-bold text-foreground">{report.eventsCount}</div>
-                  </div>
-                  <div className="text-center border-l border-border/50">
-                    <div className="text-xs uppercase text-muted-foreground tracking-wider mb-1">Incidents</div>
-                    <div className="font-mono text-lg font-bold text-foreground">{report.incidentsCount}</div>
                   </div>
                 </div>
 

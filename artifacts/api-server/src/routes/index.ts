@@ -1,7 +1,6 @@
 import { Router, type IRouter } from "express";
 import healthRouter from "./health";
 import eventsRouter from "./events";
-import incidentsRouter from "./incidents";
 import alertsRouter from "./alerts";
 import systemRouter from "./system";
 import reportsRouter from "./reports";
@@ -24,7 +23,6 @@ router.use(dashboardRouter);
 router.use(streamRouter);
 router.use(ingestRouter);
 router.use(eventsRouter);
-router.use(incidentsRouter);
 router.use(alertsRouter);
 router.use(systemRouter);
 router.use(reportsRouter);

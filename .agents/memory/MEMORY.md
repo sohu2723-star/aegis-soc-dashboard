@@ -4,7 +4,9 @@
 - [GNS3 network config](gns3-network-config.md) — Confirmed IPs for all nodes; GNS3 NAT cloud uses 192.168.122.0/24 (DHCP only, no static); R1/R2 full MikroTik commands included.
 - [Ingest targetHost identity](ingest-targethost-identity.md) — targetHost is a mix of real dest IPs and generic labels ("mail-server" etc); device filters must match on IP and accept some events won't scope to a device yet.
 - [Host label display](host-label-display.md) — HostLabel component in lib/host-utils.tsx; static map + live network_hosts; color by role (defender=green, attacker=red, infra=purple).
-- [UI for Orphaned APIs](ui-orphaned-apis.md) — connections/defense-rules pages built; ui-rules.ts proxy pattern for admin-key-protected endpoints; dashboard openIncidents+blockedIPs cards added.
+- [UI for Orphaned APIs](ui-orphaned-apis.md) — connections/defense-rules pages built; ui-rules.ts proxy pattern for admin-key-protected endpoints; dashboard Blocked Events + Systems Online KPI cards.
+- [pfSense Suricata IDS setup](pfsense-suricata.md) — Network IDS on pfSense only (not on VMs); _watch_pfsense_suricata() SSHes into pfSense using PFSENSE_SSH_KEY; PFSENSE_SURICATA_LOG configurable; in GLOBAL_COMPONENTS (no hostIp).
+- [Sensor topology final](sensor-topology-final.md) — VM sensors: fail2ban+ssh+http (bank-web), fail2ban+ssh+mysql (customer-db), fail2ban+ssh+bind9 (dns-server), fail2ban+ssh+slapd (ldap-server); pfSense=Suricata IDS only; no VM-level Suricata; Incidents page removed.
 - [Groq AI features](groq-ai-features.md) — Groq llama-3.3-70b; groq-client.ts wrapper; routes/ai.ts has 4 endpoints; reports AI-summary in `summary` text col (fallback template); Burmese+English mixed output.
 - [Auth system](auth-system.md) — JWT+Google SSO; ADMIN_EMAIL env var (not hardcoded); error messages generic (no email leak); SESSION_SECRET must be set on Render; Google Console needs Vercel URL in authorized origins.
 - [Threat Map topology](threat-map-topology.md) — Telegram node added at x:930,y:420; NOTIFY_EDGES aegis→telegram; alert SSE spawns blue isTg packet; keep-alive pings /api/healthz every 4 min; Architecture page removed.

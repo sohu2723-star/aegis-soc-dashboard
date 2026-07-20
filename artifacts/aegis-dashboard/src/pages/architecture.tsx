@@ -42,24 +42,24 @@ const BLOCKS: BlockDetail[] = [
   {
     id: "defense",
     title: "AEGIS Defense Perimeter",
-    subtitle: "Ubuntu VM (10.10.10.10) — IDS/IPS/Honeypot Layer",
+    subtitle: "pfSense + Bank VMs — IDS/IPS & Application-level sensors",
     color: "#22c55e",
     borderColor: "border-green-500",
     bgColor: "bg-green-950/40",
     textColor: "text-green-400",
     subBlocks: [
-      { name: "IDS/IPS", tools: ["Snort", "Suricata", "Auto Block IP", "iptables DROP", "Rule-based Detection"], color: "border-green-400/50 bg-green-900/30" },
-      { name: "Encryption", tools: ["AES-256", "RSA-2048", "PKI", "TLS/SSL", "Data Protection"], color: "border-green-400/50 bg-green-900/30" },
+      { name: "pfSense Suricata IDS", tools: ["30,000+ ET Rules", "Network-level Detection", "EVE JSON log", "WAN Monitoring", "All-zone Coverage"], color: "border-green-400/50 bg-green-900/30" },
+      { name: "VM Sensors", tools: ["Fail2ban (all VMs)", "SSH Monitor", "Apache/ModSecurity", "MySQL Monitor", "DNS/LDAP Monitor"], color: "border-green-400/50 bg-green-900/30" },
     ],
     workflow: [
-      { step: 1, action: "Packet Capture", detail: "Suricata monitors network interface — captures all incoming/outgoing packets" },
-      { step: 2, action: "Signature Match", detail: "Compare packet against 30,000+ Suricata rules — ET Open ruleset" },
-      { step: 3, action: "Alert Generate", detail: "Match found → write to /var/log/suricata/eve.json — EVE JSON format" },
-      { step: 4, action: "Auto Block", detail: "Fail2ban reads auth.log → 5 failed SSH attempts → iptables -A INPUT -s ATTACKER_IP -j DROP" },
-      { step: 5, action: "Forwarder Sends", detail: "aegis_forwarder.py reads logs → POST /api/ingest/suricata with X-AEGIS-Key header" },
+      { step: 1, action: "Network Capture", detail: "pfSense Suricata monitors WAN interface — all traffic passes through pfSense gateway" },
+      { step: 2, action: "Signature Match", detail: "Compare against 30,000+ ET Open rules — detects port scans, DDoS, SQLi, XSS, brute force" },
+      { step: 3, action: "Alert Generate", detail: "Match found → /var/log/suricata/suricata_em0/eve.json — EVE JSON format" },
+      { step: 4, action: "VM Sensors", detail: "Fail2ban on each VM reads auth.log → 5 SSH failures → iptables DROP on that VM" },
+      { step: 5, action: "Forwarder Sends", detail: "aegis_forwarder (hub) SSHes into pfSense → tails eve.json → POST /api/ingest/suricata" },
       { step: 6, action: "Dashboard Update", detail: "API stores to PostgreSQL → SSE broadcasts → Dashboard live update" },
     ],
-    description: "Blue Team defense layer — Attack ဝင်လာတာကို detect, block, trap လုပ်ပြီး AEGIS Brain ဆီ log ပို့သည်"
+    description: "Blue Team defense layer — pfSense Suricata IDS (network) + VM-level sensors detect, block, log attacks"
   },
   {
     id: "brain",
@@ -70,13 +70,13 @@ const BLOCKS: BlockDetail[] = [
     bgColor: "bg-indigo-950/40",
     textColor: "text-indigo-400",
     subBlocks: [
-      { name: "PostgreSQL Database", tools: ["security_events", "network_hosts", "defense_actions", "incidents", "alerts", "Drizzle ORM"], color: "border-indigo-400/50 bg-indigo-900/30" },
-      { name: "Auto-Defense Engine", tools: ["Rule Matching", "IP Block", "iptables command", "pfSense API", "Severity Scoring", "Auto Incident"], color: "border-indigo-400/50 bg-indigo-900/30" },
-      { name: "Incident Response", tools: ["Incident Creation", "Severity Classification", "Alert Generation", "SSE Broadcast", "Admin Review"], color: "border-indigo-400/50 bg-indigo-900/30" },
+      { name: "PostgreSQL Database", tools: ["security_events", "network_hosts", "defense_actions", "alerts", "blocked_ips", "Drizzle ORM"], color: "border-indigo-400/50 bg-indigo-900/30" },
+      { name: "Auto-Defense Engine", tools: ["Rule Matching", "IP Block", "iptables command", "pfSense SSH easyrule", "Severity Scoring"], color: "border-indigo-400/50 bg-indigo-900/30" },
+      { name: "Alert Response", tools: ["Alert Creation", "Severity Classification", "SSE Broadcast", "Telegram Notify", "Admin Review"], color: "border-indigo-400/50 bg-indigo-900/30" },
     ],
     workflow: [
       { step: 1, action: "Log Ingest", detail: "Events arrive via POST /api/ingest/* — authenticated with X-AEGIS-Key header" },
-      { step: 2, action: "Parse & Normalize", detail: "API parses Snort/Suricata/Fail2ban formats → normalized SecurityEvent object" },
+      { step: 2, action: "Parse & Normalize", detail: "API parses Suricata/Fail2ban/SSH/MySQL formats → normalized SecurityEvent object" },
       { step: 3, action: "Store to DB", detail: "INSERT INTO security_events → Supabase PostgreSQL via connection pooler (port 6543)" },
       { step: 4, action: "Auto-Defense Check", detail: "Event matches defense rule? → queue iptables/pfSense command → defense_agent.py picks up within 5s" },
       { step: 5, action: "Severity Score", detail: "Auto-classify: critical (exploit) / high (brute-force) / medium (scan) / low (probe)" },
@@ -97,16 +97,16 @@ const BLOCKS: BlockDetail[] = [
     subBlocks: [
       { name: "Live Dashboard", tools: ["Command Center", "Security Events", "Network Map", "Defense Center", "Real-time SSE"], color: "border-slate-400/50 bg-slate-800/30" },
       { name: "Telegram Alerts", tools: ["Bot Notifications", "Attack Alerts", "IP Block Alerts", "Admin Commands", "Real-time Push"], color: "border-slate-400/50 bg-slate-800/30" },
-      { name: "Auto Reports", tools: ["PDF Export", "HTML Summary", "Event Statistics", "Incident Timeline", "Scheduled Reports"], color: "border-slate-400/50 bg-slate-800/30" },
+      { name: "Auto Reports", tools: ["PDF Export", "HTML Summary", "Event Statistics", "Attack Summary", "Scheduled Reports"], color: "border-slate-400/50 bg-slate-800/30" },
     ],
     workflow: [
       { step: 1, action: "Live Dashboard", detail: "Browser connects to /api/events/stream via SSE → auto-refresh every 5-8s" },
       { step: 2, action: "Command Center", detail: "Total Events, Critical Threats, Active Alerts, Systems Online counters update live" },
       { step: 3, action: "Network Monitor", detail: "Network topology map, traffic chart (12h), connected hosts from VMs" },
-      { step: 4, action: "Defense Center", detail: "Auto-block log (Fail2ban/Suricata) + Manual admin block/unblock IP form" },
+      { step: 4, action: "Defense Center", detail: "Auto-block log (pfSense Suricata + Fail2ban) + Manual admin block/unblock IP form" },
       { step: 5, action: "Telegram Alert", detail: "Attack detected → Telegram Bot sends: 🚨 ALERT: SQLi from 192.168.122.153 → bank-web" },
       { step: 6, action: "Admin Commands", detail: "Admin replies to Telegram Bot: /block 192.168.122.153 → API auto-blocks IP" },
-      { step: 7, action: "Report Generate", detail: "Reports page → Generate → PDF/HTML with event summary, incident count, top attackers" },
+      { step: 7, action: "Report Generate", detail: "Reports page → Generate → PDF/HTML with event summary, attack breakdown, top attacker IPs" },
     ],
     description: "Security team ကို real-time visibility, instant alerts, detailed reports ပေးသည်"
   },
@@ -277,12 +277,12 @@ export default function Architecture() {
             {[
               { label: "Kali Linux", sub: "Attack tools", color: "#ef4444", icon: "💀", steps: ["nmap scan", "hydra brute", "sqlmap inject", "hping3 flood"] },
               { label: "Network", sub: "TCP/IP packets", color: "#f97316", icon: "📡", steps: ["SYN packets", "HTTP requests", "SSH attempts", "ICMP flood"] },
-              { label: "Suricata / Snort", sub: "IDS detection", color: "#22c55e", icon: "🛡", steps: ["Signature match", "Alert generate", "eve.json write", "Rule triggered"] },
+              { label: "pfSense Suricata", sub: "Network IDS", color: "#22c55e", icon: "🛡", steps: ["Packet capture", "Signature match", "eve.json write", "Alert generate"] },
               { label: "Fail2ban", sub: "Auto block", color: "#22c55e", icon: "🔒", steps: ["auth.log watch", "5 fails = ban", "iptables DROP", "Jail activated"] },
-              { label: "Forwarder", sub: "aegis_forwarder.py", color: "#22d3ee", icon: "🔄", steps: ["Read eve.json", "Parse format", "POST /api/ingest", "Auth with key"] },
+              { label: "Forwarder", sub: "aegis_forwarder.py", color: "#22d3ee", icon: "🔄", steps: ["SSH into pfSense", "Tail eve.json", "POST /api/ingest", "Auth with key"] },
               { label: "AEGIS API", sub: "Express server", color: "#818cf8", icon: "⚡", steps: ["Validate input", "Store to DB", "Score severity", "Create alert"] },
               { label: "Dashboard", sub: "React frontend", color: "#94a3b8", icon: "📊", steps: ["SSE receives", "UI updates", "Charts refresh", "Alert badge"] },
-              { label: "Admin", sub: "SOC Analyst", color: "#f59e0b", icon: "👤", steps: ["Reviews alert", "Block IP", "Create report", "Close incident"] },
+              { label: "Admin", sub: "SOC Analyst", color: "#f59e0b", icon: "👤", steps: ["Reviews alert", "Block IP", "Create report", "Acknowledge"] },
             ].map((node, i, arr) => (
               <div key={node.label} className="flex items-start">
                 <div className="flex flex-col items-center w-32">

@@ -12,7 +12,13 @@ const GLOBAL_COMPONENTS = [
     component: "pfSense Firewall",
     layer: "perimeter",
     status: "unknown",
-    description: "Edge firewall & router — enforces pf rules, blocks attacker IPs at network boundary",
+    description: "Edge firewall & router — enforces pf rules, blocks attacker IPs at network boundary. Host: 10.30.30.1",
+  },
+  {
+    component: "pfSense Suricata IDS",
+    layer: "sensor",
+    status: "unknown",
+    description: "Network-level IDS on pfSense WAN — detects port scans, DDoS, SQLi, XSS, SSH brute across all zones",
   },
   {
     component: "AEGIS API Server",
@@ -72,14 +78,7 @@ const PER_HOST_SENSORS = [
     hostIp: "10.30.30.10",
   },
 
-  // ── customer-db (10.20.20.10): PostgreSQL/Suricata/Fail2ban ─────────────────
-  {
-    component: "Suricata IDS",
-    layer: "sensor",
-    status: "unknown",
-    description: "Network intrusion detection — port scans, DDoS, SQL injection attempts",
-    hostIp: "10.20.20.10",
-  },
+  // ── customer-db (10.20.20.10): MySQL/Fail2ban ────────────────────────────────
   {
     component: "Fail2ban",
     layer: "sensor",
@@ -95,25 +94,18 @@ const PER_HOST_SENSORS = [
     hostIp: "10.20.20.10",
   },
   {
-    component: "PostgreSQL Monitor",
+    component: "MySQL Monitor",
     layer: "sensor",
     status: "unknown",
-    description: "PostgreSQL log watcher — auth failures, suspicious queries, connection anomalies",
+    description: "MySQL log watcher — auth failures, suspicious queries, connection anomalies",
     hostIp: "10.20.20.10",
   },
-  // ── dns-server (10.10.10.20): BIND9/Suricata/Fail2ban ──────────────────────
+  // ── dns-server (10.10.10.20): BIND9/Fail2ban ─────────────────────────────────
   {
     component: "DNS Monitor",
     layer: "sensor",
     status: "unknown",
     description: "BIND9 query log watcher — DNS amplification, zone transfer attempts, suspicious queries",
-    hostIp: "10.10.10.20",
-  },
-  {
-    component: "Suricata IDS",
-    layer: "sensor",
-    status: "unknown",
-    description: "Network intrusion detection — DNS flood, amplification, port scans",
     hostIp: "10.10.10.20",
   },
   {
@@ -130,26 +122,26 @@ const PER_HOST_SENSORS = [
     description: "SSH auth.log watcher — unauthorized access attempts on dns-server",
     hostIp: "10.10.10.20",
   },
-  // ── atm-server (10.20.20.20): Flask ATM API/Fail2ban ───────────────────────
+  // ── ldap-server (10.20.20.20): OpenLDAP/Fail2ban ────────────────────────────
   {
-    component: "ATM API Monitor",
+    component: "LDAP Monitor",
     layer: "sensor",
     status: "unknown",
-    description: "Flask ATM API log watcher — transaction replay, invalid requests, logic flaw attempts",
+    description: "OpenLDAP (slapd) log watcher — auth failures, bind attempts, directory enumeration",
     hostIp: "10.20.20.20",
   },
   {
     component: "Fail2ban",
     layer: "sensor",
     status: "unknown",
-    description: "Brute-force IP banning — SSH auth failures on atm-server",
+    description: "Brute-force IP banning — SSH and LDAP auth failures on ldap-server",
     hostIp: "10.20.20.20",
   },
   {
     component: "SSH Monitor",
     layer: "sensor",
     status: "unknown",
-    description: "SSH auth.log watcher — unauthorized access attempts on atm-server",
+    description: "SSH auth.log watcher — unauthorized access attempts on ldap-server",
     hostIp: "10.20.20.20",
   },
 ];
@@ -169,10 +161,13 @@ const GLOBAL_OBSOLETE_COMPONENTS = [
 // Components that are ALWAYS wrong regardless of hostIp (old broken forwarder versions).
 // These never belonged to any host and are safe to delete unconditionally.
 const ALWAYS_DELETE_COMPONENTS = [
-  "Morgan HTTP Logger",        // old forwarder wrongly registered under aegis-forwarder
-  "PostgreSQL Monitor",        // old forwarder wrongly registered under 10.30.30.10; now seeded correctly for customer-db only
-  "Suricata IDS/IPS",         // renamed → "Suricata IDS" (per-host)
-  "HTTP Service (Apache2)",   // renamed → "Apache Monitor"
+  "Morgan HTTP Logger",        // old forwarder wrongly registered
+  "PostgreSQL Monitor",        // old entry — replaced by MySQL Monitor for customer-db
+  "Suricata IDS/IPS",         // old name
+  "Suricata IDS",              // VM-level Suricata removed; pfSense Suricata is in GLOBAL_COMPONENTS
+  "HTTP Service (Apache2)",   // renamed → Apache Monitor
+  "ATM API Monitor",           // atm-server replaced by ldap-server at 10.20.20.20
+  "FTP Monitor",               // FTP removed
 ];
 
 // Old IPs that no longer exist in the topology — rows with these hostIps must be purged

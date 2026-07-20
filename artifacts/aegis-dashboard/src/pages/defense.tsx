@@ -429,7 +429,7 @@ export default function Defense() {
               justChanged={changedServices.has("fail2ban")}
             />
             <ServiceCard
-              label="Suricata IDS"
+              label="pfSense Suricata IDS"
               active={status?.suricataActive}
               icon={<Shield className="w-8 h-8 text-primary" />}
               justChanged={changedServices.has("suricata")}

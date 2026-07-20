@@ -13,8 +13,6 @@ import { DeviceProvider } from "@/lib/device-context";
 
 import Dashboard from "@/pages/dashboard";
 import Events from "@/pages/events";
-import Incidents from "@/pages/incidents";
-import IncidentDetail from "@/pages/incident-detail";
 import Alerts from "@/pages/alerts";
 import SystemStatus from "@/pages/system";
 import Reports from "@/pages/reports";
@@ -46,8 +44,6 @@ function ProtectedRouter() {
         <Switch>
           <Route path="/" component={Dashboard} />
           <Route path="/events" component={Events} />
-          <Route path="/incidents" component={Incidents} />
-          <Route path="/incidents/:id" component={IncidentDetail} />
           <Route path="/alerts" component={Alerts} />
           <Route path="/system" component={SystemStatus} />
           <Route path="/network" component={Network} />

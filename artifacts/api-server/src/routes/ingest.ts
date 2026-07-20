@@ -117,25 +117,7 @@ router.post("/ingest/event", auth, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Snort
-// ─────────────────────────────────────────────────────────────────────────────
-router.post("/ingest/snort", auth, async (req, res) => {
-  const { priority, msg, src, dst, proto } = req.body;
-  const sevMap: Record<string,"critical"|"high"|"medium"|"low"> = {"1":"critical","2":"high","3":"medium","4":"low"};
-  const s = sevMap[String(priority)] ?? "medium";
-
-  const event = await insertEvent({
-    type:"network_attack", subtype: msg ?? "Snort Alert", severity: s,
-    sourceIp: src ?? "unknown", targetHost: dst ?? "internal-network",
-    toolUsed:"snort", description:`Snort IDS: ${msg} | ${proto ?? "TCP"} | ${src} → ${dst}`,
-    status:"detected", layer:"perimeter",
-  });
-  if (s === "critical" || s === "high") await mkAlert(event.id, s, `SNORT: ${msg} — ${src} → ${dst}`);
-  res.status(201).json({ id: event.id });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Suricata alert (EVE JSON)
+// Suricata alert (EVE JSON) — from pfSense Suricata via aegis_forwarder hub
 // ─────────────────────────────────────────────────────────────────────────────
 router.post("/ingest/suricata", auth, async (req, res) => {
   const { alert, src_ip, dest_ip, proto, event_type } = req.body;
