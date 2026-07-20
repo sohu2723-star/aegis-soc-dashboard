@@ -1260,3 +1260,15 @@ ovs-vsctl set port eth2 tag=20   # LDAP-Server
 - `routes/health.ts` — `/api/healthz` မှာ real DB ping (`SELECT 1`) ထည့်; DB down ဆိုရင် 503 + `{ status: "degraded", db: "error" }` return
 **Result:** API server build ✅, both workflows running; health endpoint DB-aware ဖြစ်သွား
 **Next:** aegis_forwarder.py မှာ ldap-server (slapd) log watcher ထည့်ရမယ်
+
+---
+
+### [2026-07-20] — pfSense Suricata Custom Rules + Rules Tab Guide
+
+**Status:** ✅ Done
+**What:** pfSense Suricata "Rules tab မတွေ့" ပြဿနာ ဖြေရှင်း; complete custom rules ထည့်
+**How:** `docs/commands/pfsense-suricata.md` Step 5b အသစ် ထည့် —
+- Rules tab navigation: Interfaces → em1 row → ✏️ Edit icon → Rules tab → Custom Rules textarea
+- AEGIS lab custom rules ၈ ခု (sid:9000001–9000008): Nmap scan, SSH brute, SQLi, XSS, SYN flood, DNS amp, LDAP brute, FTP brute
+**Result:** docs push ✅ to GitHub main
+**Next:** em1 + em2 interfaces ၂ ခုလုံးမှာ custom rules paste ပြီး restart လုပ်ပြီး eve.json ထဲ AEGIS signatures ပေါ်လာတာ စစ်ရမယ်

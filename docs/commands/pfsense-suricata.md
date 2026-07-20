@@ -111,6 +111,57 @@ Services → Suricata → em1 → Categories tab
 
 ---
 
+## Step 5b — Custom Rules ထည့် (AEGIS Lab မှတ်တမ်း)
+
+> **Rules tab မတွေ့ဘူးဆိုရင်:** Interface list row ထဲ ✏️ pencil (edit) icon နှိပ်မှ tabs ပေါ်မည်
+>
+> ```
+> Services → Suricata → Interfaces
+>   → em1 row → ✏️ Edit icon နှိပ်
+>   → tabs: General | Categories | Rules | Variables | Logs | ...
+>   → "Rules" tab နှိပ် → page အောက်ဆုံး scroll
+>   → "Custom Rules" text area ရှိမည် — ဒီထဲ paste
+> ```
+
+em1 (DMZ) နဲ့ em2 (INT) ၂ ခုလုံးမှာ custom rules ထည့်ပါ:
+
+```suricata
+# ── AEGIS Custom Rules — Lab GNS3 ──────────────────────────────────────
+
+# Nmap port scan from Kali (192.168.10.0/24)
+alert tcp 192.168.10.0/24 any -> $HOME_NET any (msg:"AEGIS Nmap Scan from Kali"; flags:S; threshold:type both,track by_src,count 20,seconds 3; classtype:attempted-recon; sid:9000001; rev:1;)
+
+# SSH brute force (any → all VMs port 22)
+alert tcp any any -> $HOME_NET 22 (msg:"AEGIS SSH BruteForce Custom"; flow:to_server; threshold:type both,track by_src,count 10,seconds 60; classtype:attempted-admin; sid:9000002; rev:1;)
+
+# SQL injection to bank-web (10.10.10.10:80)
+alert http any any -> 10.10.10.10 80 (msg:"AEGIS SQLi bank-web"; flow:to_server,established; http.uri; content:"' OR"; nocase; classtype:web-application-attack; sid:9000003; rev:1;)
+
+# XSS to bank-web
+alert http any any -> 10.10.10.10 80 (msg:"AEGIS XSS bank-web"; flow:to_server,established; http.uri; content:"<script"; nocase; classtype:web-application-attack; sid:9000004; rev:1;)
+
+# SYN flood / DDoS detection
+alert tcp any any -> $HOME_NET any (msg:"AEGIS SYN Flood DDoS"; flags:S,12; threshold:type both,track by_src,count 100,seconds 5; classtype:attempted-dos; sid:9000005; rev:1;)
+
+# DNS amplification (large UDP 53 responses)
+alert udp $HOME_NET 53 -> any any (msg:"AEGIS DNS Amplification Response"; dsize:>512; threshold:type both,track by_dst,count 20,seconds 10; classtype:attempted-dos; sid:9000006; rev:1;)
+
+# LDAP brute force (port 389)
+alert tcp any any -> 10.20.20.20 389 (msg:"AEGIS LDAP BruteForce"; flow:to_server; threshold:type both,track by_src,count 10,seconds 60; classtype:attempted-admin; sid:9000007; rev:1;)
+
+# FTP brute force (bank-web vsftpd port 21)
+alert tcp any any -> 10.10.10.10 21 (msg:"AEGIS FTP BruteForce bank-web"; flow:to_server; threshold:type both,track by_src,count 10,seconds 60; classtype:attempted-admin; sid:9000008; rev:1;)
+```
+
+Rules ထည့်ပြီးရင်:
+```
+→ Save
+→ Interface list ပြန်ရောက်တော့ ▶ Restart (em1) နှိပ်
+→ em2 မှာလည်း ထပ်ထည့် (SSH, SYN flood, LDAP rules အဓိက)
+```
+
+---
+
 ## Step 6 — Suricata Start
 
 ```
