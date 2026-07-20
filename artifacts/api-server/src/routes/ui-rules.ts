@@ -5,7 +5,7 @@
  * access when no admin key is configured (dev / local lab).
  */
 import { Router } from "express";
-import { db, defenseRulesTable, defenseCommandsTable, firewallRulesTable, defenseActionsTable } from "@workspace/db";
+import { db, defenseRulesTable, defenseCommandsTable, firewallRulesTable, defenseActionsTable, securityEventsTable } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
 import { z } from "zod";
 import { getHotIps } from "../lib/attack-tracker";
@@ -106,9 +106,70 @@ router.delete("/ui/defense/rules/:id", maybeAdmin, async (req, res) => {
 
 // ─── Command history + hot IPs ─────────────────────────────────────────────────
 
+// Enhanced history — LEFT JOIN defense_rules (rule name) + security_events (attack info)
+// so the dashboard can show the full Attack → Rule → Command chain.
 router.get("/ui/defense/commands/history", async (_req, res) => {
-  const commands = await db.select().from(defenseCommandsTable)
-    .orderBy(desc(defenseCommandsTable.createdAt)).limit(100);
+  const commands = await db
+    .select({
+      id:          defenseCommandsTable.id,
+      ruleId:      defenseCommandsTable.ruleId,
+      eventId:     defenseCommandsTable.eventId,
+      targetVm:    defenseCommandsTable.targetVm,
+      commandType: defenseCommandsTable.commandType,
+      commandText: defenseCommandsTable.commandText,
+      undoCommand: defenseCommandsTable.undoCommand,
+      targetIp:    defenseCommandsTable.targetIp,
+      status:      defenseCommandsTable.status,
+      errorMsg:    defenseCommandsTable.errorMsg,
+      createdAt:   defenseCommandsTable.createdAt,
+      executedAt:  defenseCommandsTable.executedAt,
+      // Joined: rule metadata
+      ruleName:    defenseRulesTable.name,
+      // Joined: triggering event metadata
+      eventSourceIp:    securityEventsTable.sourceIp,
+      eventSubtype:     securityEventsTable.subtype,
+      eventType:        securityEventsTable.type,
+      eventDescription: securityEventsTable.description,
+    })
+    .from(defenseCommandsTable)
+    .leftJoin(defenseRulesTable,    eq(defenseCommandsTable.ruleId,  defenseRulesTable.id))
+    .leftJoin(securityEventsTable,  eq(defenseCommandsTable.eventId, securityEventsTable.id))
+    .orderBy(desc(defenseCommandsTable.createdAt))
+    .limit(100);
+
+  res.json(commands.map(c => ({
+    ...c,
+    createdAt:  c.createdAt.toISOString(),
+    executedAt: c.executedAt?.toISOString() ?? null,
+  })));
+});
+
+// Event → Commands: return all defense commands triggered by a specific security event.
+// Used by the Events detail panel to show "what happened after this alert".
+router.get("/ui/events/:id/commands", async (req, res) => {
+  const eventId = Number(req.params.id);
+  if (!Number.isFinite(eventId)) { res.status(400).json({ error: "Invalid event id" }); return; }
+
+  const commands = await db
+    .select({
+      id:          defenseCommandsTable.id,
+      ruleId:      defenseCommandsTable.ruleId,
+      targetVm:    defenseCommandsTable.targetVm,
+      commandType: defenseCommandsTable.commandType,
+      commandText: defenseCommandsTable.commandText,
+      undoCommand: defenseCommandsTable.undoCommand,
+      targetIp:    defenseCommandsTable.targetIp,
+      status:      defenseCommandsTable.status,
+      errorMsg:    defenseCommandsTable.errorMsg,
+      createdAt:   defenseCommandsTable.createdAt,
+      executedAt:  defenseCommandsTable.executedAt,
+      ruleName:    defenseRulesTable.name,
+    })
+    .from(defenseCommandsTable)
+    .leftJoin(defenseRulesTable, eq(defenseCommandsTable.ruleId, defenseRulesTable.id))
+    .where(eq(defenseCommandsTable.eventId, eventId))
+    .orderBy(desc(defenseCommandsTable.createdAt));
+
   res.json(commands.map(c => ({
     ...c,
     createdAt:  c.createdAt.toISOString(),

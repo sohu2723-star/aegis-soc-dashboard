@@ -664,6 +664,34 @@ ping -c 3 8.8.8.8
 
 ---
 
+## [2026-07-20] — Attack → Rule → Command Chain: Full Transparency in Dashboard
+
+**Status:** ✅ Done
+**What:** Dashboard မှာ "VM ထဲမှာ actual လုပ်ဆောင်တဲ့ command/rule ကို exact mirror ပြ" feature — 3 layer:
+1. **Event detail panel** → "Defense Actions Triggered" section — ဒီ attack ကြောင့် ဘာ command run သွားသလဲ ပြ
+2. **Defense Rules History tab** → Attack → Rule → Command chain card view, expandable commandText
+3. **API join** → `/ui/defense/commands/history` + `/ui/events/:id/commands` new endpoint
+
+**Code changes:**
+- `artifacts/api-server/src/routes/ui-rules.ts`
+  - `/ui/defense/commands/history` — LEFT JOIN `defense_rules` (rule name) + `security_events` (attack info) ထည့်
+  - `GET /ui/events/:id/commands` — new endpoint: event တစ်ခုကြောင့် trigger ဖြစ်တဲ့ commands လုံးဝ ပြ
+- `artifacts/aegis-dashboard/src/pages/events.tsx`
+  - `useEventCommands(eventId)` hook ထည့် (fetch `/ui/events/:id/commands`)
+  - `DefenseActionsPanel` component — event detail sheet ထဲမှာ `Rule → commandType → commandText` chain + execution status ပြ (cyan border block)
+- `artifacts/aegis-dashboard/src/pages/defense-rules.tsx`
+  - `DefenseCommand` interface — `ruleName`, `eventSourceIp`, `eventSubtype`, `eventType`, `eventDescription` joined fields ထည့်
+  - `HistoryTab` — table မှ card view သို့ ပြောင်း; orange Attack → cyan Rule → badge command chain header; commandText click-to-expand; timestamp + status display
+
+**UI behavior:**
+- Event detail sheet → scroll down → cyan "Defense Actions Triggered" block → rule name + actual `iptables -I INPUT...` / `easyrule block WAN ...` command ပေါ်မယ်
+- Defense Rules → History tab → card တစ်ခုစီ → header = `[attack subtype] → [rule name] → [commandType]`; command text click → expand full
+
+**Result:** API build ✅, TypeScript errors (pre-existing reports.tsx ဘဲ) — ours clean
+**Next:** Aegis VM forwarder update + real attack test ပြုလုပ်ပြီး Events detail panel မှာ defense commands ပေါ်မပေါ် confirm ရမည်
+
+---
+
 ## [2026-07-20] — Forwarder: bank-web http_access Sensor + pfSense Suricata Dual-Interface
 
 **Status:** ✅ Done

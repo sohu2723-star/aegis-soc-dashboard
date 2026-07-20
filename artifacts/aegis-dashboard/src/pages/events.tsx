@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useListEvents, getListEventsQueryKey } from "@workspace/api-client-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
@@ -6,9 +7,44 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { format } from "date-fns";
-import { Search, Filter, ShieldAlert, ShieldCheck, Clock, Monitor, Wifi, FileText, Hash, RefreshCw, Zap, Tag, Skull, CheckCircle2 } from "lucide-react";
+import { Search, Filter, ShieldAlert, ShieldCheck, Clock, Monitor, Wifi, FileText, Hash, RefreshCw, Zap, Tag, Skull, CheckCircle2, Terminal, Shield, ChevronRight, Loader2 } from "lucide-react";
 import { HostLabel } from "@/lib/host-utils";
 import { useDeviceContext } from "@/lib/device-context";
+
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+// ─── Defense command types ──────────────────────────────────────────────────
+interface EventCommand {
+  id: number;
+  ruleId: number | null;
+  ruleName: string | null;
+  targetVm: string;
+  commandType: string;
+  commandText: string;
+  undoCommand: string | null;
+  targetIp: string | null;
+  status: string;
+  errorMsg: string | null;
+  createdAt: string;
+  executedAt: string | null;
+}
+
+const CMD_STATUS_COLORS: Record<string, string> = {
+  done:      "border-green-500/40 text-green-400 bg-green-500/10",
+  pending:   "border-yellow-500/40 text-yellow-400 bg-yellow-500/10",
+  running:   "border-blue-500/40 text-blue-400 bg-blue-500/10",
+  failed:    "border-red-500/40 text-red-400 bg-red-500/10",
+  cancelled: "border-border text-muted-foreground",
+};
+
+function useEventCommands(eventId: number | null) {
+  return useQuery<EventCommand[]>({
+    queryKey: ["event-commands", eventId],
+    queryFn: () => fetch(`${BASE}/api/ui/events/${eventId}/commands`).then(r => r.json()),
+    enabled: eventId != null,
+    staleTime: 30_000,
+  });
+}
 
 const SEV_COLORS: Record<string, string> = {
   critical: "border-destructive text-destructive",
@@ -53,6 +89,85 @@ function DetailRow({ icon: Icon, label, value, mono = false, className = "" }: {
       <div className="flex-1 min-w-0">
         <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-0.5">{label}</p>
         <p className={`text-sm text-foreground break-words ${mono ? "font-mono text-xs" : ""}`}>{value}</p>
+      </div>
+    </div>
+  );
+}
+
+// ─── Defense Actions Panel ──────────────────────────────────────────────────
+// Shown in the Event detail sheet — lists every defense command triggered by
+// this event so the analyst can see the full Attack → Rule → Command chain.
+
+function DefenseActionsPanel({ eventId }: { eventId: number }) {
+  const { data: cmds, isLoading } = useEventCommands(eventId);
+
+  if (isLoading) {
+    return (
+      <div className="mt-5 border border-border rounded-lg p-4 bg-muted/10">
+        <p className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground mb-3 flex items-center gap-2">
+          <Terminal className="w-3.5 h-3.5" /> Defense Actions Triggered
+        </p>
+        <div className="flex items-center gap-2 text-muted-foreground text-xs py-2">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" /> Checking for defense responses…
+        </div>
+      </div>
+    );
+  }
+
+  if (!cmds || cmds.length === 0) return null;
+
+  return (
+    <div className="mt-5 border border-cyan-500/20 rounded-lg bg-cyan-500/5">
+      {/* Section header */}
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-cyan-500/15">
+        <Shield className="w-4 h-4 text-cyan-400 shrink-0" />
+        <p className="text-[10px] uppercase tracking-widest font-semibold text-cyan-400/80">
+          Defense Actions Triggered
+        </p>
+        <Badge className="ml-auto text-[9px] bg-cyan-500/20 text-cyan-400 border-cyan-500/30">
+          {cmds.length} command{cmds.length !== 1 ? "s" : ""}
+        </Badge>
+      </div>
+
+      <div className="divide-y divide-border/50">
+        {cmds.map((cmd) => (
+          <div key={cmd.id} className="px-4 py-3 space-y-2">
+            {/* Chain: Rule → VM */}
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {cmd.ruleName ? (
+                <>
+                  <span className="text-[10px] text-muted-foreground uppercase tracking-widest">Rule</span>
+                  <ChevronRight className="w-3 h-3 text-muted-foreground" />
+                  <span className="text-xs font-semibold text-cyan-300/90">{cmd.ruleName}</span>
+                  <ChevronRight className="w-3 h-3 text-muted-foreground" />
+                </>
+              ) : null}
+              <Badge variant="outline" className="text-[10px] border-primary/30 text-primary/80">{cmd.commandType}</Badge>
+              <span className="text-[10px] text-muted-foreground">on</span>
+              <span className="font-mono text-[10px] text-foreground/70">{cmd.targetVm}</span>
+              <Badge className={`ml-auto text-[9px] ${CMD_STATUS_COLORS[cmd.status] ?? "border-border text-muted-foreground"}`}>
+                {cmd.status}
+              </Badge>
+            </div>
+
+            {/* Actual VM command — exact text that ran on the machine */}
+            <pre className="font-mono text-[11px] bg-black/40 border border-cyan-500/10 rounded px-3 py-2 text-cyan-200/80 overflow-x-auto whitespace-pre-wrap break-all leading-relaxed">
+              {cmd.commandText}
+            </pre>
+
+            {/* Execution time */}
+            {cmd.executedAt && (
+              <p className="text-[10px] text-muted-foreground font-mono">
+                Executed: {format(new Date(cmd.executedAt), "yyyy-MM-dd HH:mm:ss")}
+              </p>
+            )}
+
+            {/* Error if any */}
+            {cmd.errorMsg && (
+              <p className="text-[10px] text-red-400 font-mono break-all">{cmd.errorMsg}</p>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -404,6 +519,9 @@ export default function Events() {
                 <DetailRow icon={ShieldCheck} label="Network Layer" value={ev.layer} />
                 <DetailRow icon={FileText}    label="Full Description" value={ev.description} />
               </div>
+
+              {/* ── Defense Actions Triggered ── */}
+              <DefenseActionsPanel eventId={ev.id} />
             </>
           )}
         </SheetContent>

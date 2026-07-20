@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { Trash2, Plus, Download, Flame, Terminal, BookOpen, Shield } from "lucide-react";
+import { Trash2, Plus, Download, Flame, Terminal, BookOpen, Shield, ChevronRight } from "lucide-react";
 import { format } from "date-fns";
 import { HostLabel } from "@/lib/host-utils";
 import { useToast } from "@/hooks/use-toast";
@@ -41,6 +41,11 @@ interface DefenseCommand {
   targetIp: string | null; targetVm: string;
   status: string; errorMsg: string | null;
   createdAt: string; executedAt: string | null;
+  // Joined fields from defense_rules + security_events
+  ruleId: number | null; ruleName: string | null;
+  eventId: number | null;
+  eventSourceIp: string | null; eventSubtype: string | null;
+  eventType: string | null; eventDescription: string | null;
 }
 
 interface HotIp { ip: string; count: number; }
@@ -118,7 +123,7 @@ function RulesTab() {
   const [targetVm, setTargetVm]                 = useState("bank-web");
   const [priority, setPriority]                 = useState(100);
 
-  const authHeaders = () => {
+  const authHeaders = (): Record<string, string> => {
     const tok = getToken();
     return tok ? { "Content-Type": "application/json", "Authorization": `Bearer ${tok}` }
                : { "Content-Type": "application/json" };
@@ -393,7 +398,7 @@ function FirewallTab() {
   const [destPort, setDstPort]  = useState("");
   const [iface, setIface]       = useState("");
 
-  const fwAuthHeaders = () => {
+  const fwAuthHeaders = (): Record<string, string> => {
     const tok = getToken();
     return tok ? { "Content-Type": "application/json", "Authorization": `Bearer ${tok}` }
                : { "Content-Type": "application/json" };
@@ -586,59 +591,89 @@ function FirewallTab() {
 }
 
 // ─── Command History Tab ───────────────────────────────────────────────────────
+// Shows the full Attack → Rule → Command chain for every defense action.
+// commandText is expandable so analysts can see the exact VM command.
 
 function HistoryTab() {
   const { data: cmds = [], isLoading } = useCmdHist();
+  const [expandedId, setExpandedId] = useState<number | null>(null);
 
   return (
-    <div className="p-4">
-      <div className="rounded-lg border border-border overflow-hidden">
-        <Table>
-          <TableHeader className="bg-muted/50">
-            <TableRow className="border-border">
-              <TableHead>Created</TableHead>
-              <TableHead>Executed</TableHead>
-              <TableHead>Target IP</TableHead>
-              <TableHead>VM</TableHead>
-              <TableHead>Type</TableHead>
-              <TableHead>Command</TableHead>
-              <TableHead>Status</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {isLoading ? (
-              <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Loading command history…</TableCell></TableRow>
-            ) : cmds.length === 0 ? (
-              <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No defense commands executed yet.</TableCell></TableRow>
-            ) : cmds.map(c => (
-              <TableRow key={c.id} className="border-border hover:bg-muted/10">
-                <TableCell><span className="font-mono text-xs text-muted-foreground">{format(new Date(c.createdAt), "MM/dd HH:mm:ss")}</span></TableCell>
-                <TableCell>
-                  {c.executedAt
-                    ? <span className="font-mono text-xs text-green-400/80">{format(new Date(c.executedAt), "HH:mm:ss")}</span>
-                    : <span className="text-xs text-muted-foreground">—</span>}
-                </TableCell>
-                <TableCell className="font-mono text-xs text-cyan-400">{c.targetIp ?? "—"}</TableCell>
-                <TableCell><HostLabel ip={c.targetVm} /></TableCell>
-                <TableCell>
-                  <Badge variant="outline" className="text-[10px] border-primary/30 text-primary/80">{c.commandType}</Badge>
-                </TableCell>
-                <TableCell className="font-mono text-xs text-muted-foreground max-w-[260px] truncate" title={c.commandText}>
+    <div className="p-4 space-y-3">
+      {isLoading ? (
+        <p className="text-center py-8 text-muted-foreground text-sm">Loading command history…</p>
+      ) : cmds.length === 0 ? (
+        <p className="text-center py-8 text-muted-foreground text-sm">No defense commands executed yet.</p>
+      ) : cmds.map(c => {
+        const isExpanded = expandedId === c.id;
+        return (
+          <div key={c.id} className="rounded-lg border border-border bg-card overflow-hidden">
+            {/* ── Chain header: Attack → Rule → Command ── */}
+            {(c.eventSubtype || c.ruleName) && (
+              <div className="flex items-center gap-1.5 flex-wrap px-4 py-2.5 bg-muted/30 border-b border-border text-xs">
+                {c.eventSubtype && (
+                  <>
+                    <Terminal className="w-3 h-3 text-orange-400 shrink-0" />
+                    <span className="text-orange-300/90 font-medium">{c.eventSubtype}</span>
+                  </>
+                )}
+                {c.ruleName && (
+                  <>
+                    <ChevronRight className="w-3 h-3 text-muted-foreground" />
+                    <Shield className="w-3 h-3 text-cyan-400 shrink-0" />
+                    <span className="text-cyan-300/90 font-medium">{c.ruleName}</span>
+                  </>
+                )}
+                <ChevronRight className="w-3 h-3 text-muted-foreground" />
+                <Badge variant="outline" className="text-[10px] border-primary/30 text-primary/80">{c.commandType}</Badge>
+                {c.eventSourceIp && (
+                  <span className="ml-auto font-mono text-[10px] text-muted-foreground">src: {c.eventSourceIp}</span>
+                )}
+              </div>
+            )}
+
+            {/* ── Command body ── */}
+            <div className="px-4 py-3 space-y-2">
+              {/* Row: IP / VM / status / timestamps */}
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                {c.targetIp && (
+                  <span className="font-mono text-xs text-cyan-400">{c.targetIp}</span>
+                )}
+                <HostLabel ip={c.targetVm} />
+                <Badge variant="outline" className={`text-[10px] ${statusColors[c.status] ?? "border-border text-muted-foreground"}`}>
+                  {c.status}
+                </Badge>
+                <span className="ml-auto font-mono text-[10px] text-muted-foreground">
+                  {format(new Date(c.createdAt), "MM/dd HH:mm:ss")}
+                  {c.executedAt && (
+                    <> → <span className="text-green-400/80">{format(new Date(c.executedAt), "HH:mm:ss")}</span></>
+                  )}
+                </span>
+              </div>
+
+              {/* Actual VM command — click to expand full text */}
+              <button
+                className="w-full text-left group"
+                onClick={() => setExpandedId(isExpanded ? null : c.id)}
+              >
+                <pre className={`font-mono text-[11px] bg-black/30 border border-border rounded px-3 py-2 text-cyan-200/80 overflow-x-auto leading-relaxed whitespace-pre-wrap break-all transition-all ${isExpanded ? "" : "max-h-[3.4rem] overflow-hidden"}`}>
                   {c.commandText}
-                </TableCell>
-                <TableCell>
-                  <div className="space-y-0.5">
-                    <Badge variant="outline" className={`text-[10px] ${statusColors[c.status] ?? "border-border text-muted-foreground"}`}>
-                      {c.status}
-                    </Badge>
-                    {c.errorMsg && <p className="text-[10px] text-red-400 max-w-[140px] truncate" title={c.errorMsg}>{c.errorMsg}</p>}
-                  </div>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
+                </pre>
+                {!isExpanded && c.commandText.length > 80 && (
+                  <p className="text-[10px] text-muted-foreground mt-0.5 group-hover:text-primary/60 transition-colors">
+                    Click to expand full command ↓
+                  </p>
+                )}
+              </button>
+
+              {/* Error */}
+              {c.errorMsg && (
+                <p className="text-[10px] text-red-400 font-mono break-all">{c.errorMsg}</p>
+              )}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
