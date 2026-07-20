@@ -1,6 +1,6 @@
 # AEGIS-SecureBank — GNS3 Setup Guide
-> Last updated: 2026-07-19
-> Topology v3 — Switch1 ဖြုတ်ပြီ, R2 ဖြုတ်ပြီ, Kali ↔ Router ether2 direct, Kali subnet = 192.168.10.0/24
+> Last updated: 2026-07-20
+> Topology v4 (Final) — OVS Switch x2, DNS-Server + LDAP-Server added, customer-db IP = 10.20.20.10
 
 ---
 
