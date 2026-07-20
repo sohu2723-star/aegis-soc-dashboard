@@ -1,7 +1,7 @@
 # AEGIS-SecureBank IP Address Plan
 
-> **Last Updated:** 2026-07-19
-> **Topology Version:** v3 (ဆရာမ ညွှန်ကြားချက်အတိုင်း — Switch1 ဖြုတ်ပြီ, Kali subnet ပြောင်းပြီ)
+> **Last Updated:** 2026-07-20
+> **Topology Version:** v4 (Final — OVS switches, DNS-Server, LDAP-Server, customer-db IP ပြောင်း)
 
 ---
 
@@ -12,9 +12,9 @@
 | Internet (virbr0) | 192.168.122.0/24 | GNS3 NAT cloud — Router internet egress |
 | Attacker network | 192.168.10.0/24 | Kali DHCP subnet (Router ether2 ↔ Kali direct) |
 | Router ↔ pfSense WAN | 10.0.23.0/30 | Direct link (R2 ဖြုတ်ပြီ) |
-| DMZ (BANK_WEB) | 10.10.10.0/24 | Public-facing services — bank-web |
-| Internal (CUSTOMER_DB) | 10.20.20.0/24 | Internal systems — customer-db |
-| MGMT | 10.30.30.0/24 | Monitoring segment — aegis-forwarder |
+| DMZ (Public Services) | 10.10.10.0/24 | bank-web, DNS-Server |
+| Internal (Internal Services) | 10.20.20.0/24 | customer-db, LDAP-Server |
+| MGMT | 10.30.30.0/24 | Monitoring segment — aegis-ADMIN |
 
 > ⚠️ **Kali IP က dynamic** (DHCP 192.168.10.2–100)။ Attack events မှာ any IP in 192.168.10.0/24 range က attacker ဖြစ်နိုင်တယ်။
 
@@ -26,9 +26,9 @@
 
 | Interface | IP | Connected To |
 |---|---|---|
-| ether1 | 192.168.122.2/24 | Internet/NAT cloud (virbr0) — direct cable |
-| ether2 | 192.168.10.1/24 | Kali/Attacker e0 — direct cable, DHCP server here |
-| ether3 | 10.0.23.1/30 | pfSense WAN — direct cable |
+| ether1 (e0) | 192.168.122.2/24 | Internet/NAT cloud (virbr0) — direct cable |
+| ether2 (e1) | 192.168.10.1/24 | Kali/Attacker — direct cable, DHCP server here |
+| ether3 (e2) | 10.0.23.1/30 | pfSense WAN — direct cable |
 
 ### Router DHCP Server (ether2 — Kali pool)
 
@@ -37,7 +37,7 @@
 | Pool name | kali-pool |
 | Range | 192.168.10.2 – 192.168.10.100 |
 | Gateway | 192.168.10.1 |
-| DNS | 8.8.8.8 |
+| DNS | 10.10.10.20 (lab DNS), 8.8.8.8 (fallback) |
 | Interface | ether2 |
 
 ### Kali / Attacker
@@ -48,22 +48,22 @@
 | IP | Dynamic DHCP (192.168.10.x) |
 | Gateway | 192.168.10.1 (Router ether2) |
 | Internet | via Router → virbr0 |
-| Lab route | 10.0.0.0/8 via 192.168.10.1 (post-up in /etc/network/interfaces) |
+| Lab route | 10.0.0.0/8 via 192.168.10.1 |
 
 ### pfSense 2.7.2 (Firewall / Gateway)
 
 | Interface | GNS3 | IP | Role |
 |---|---|---|---|
-| e0 | em0/vtnet0 | 10.0.23.2/30 | WAN — GW=10.0.23.1 |
-| e1 | em1/vtnet1 | 10.10.10.1/24 | BANK_WEB — DMZ gateway |
-| e2 | em2/vtnet2 | 10.20.20.1/24 | CUSTOMER_DB — Internal gateway |
-| e3 | em3/vtnet3 | 10.30.30.1/24 | MGMT — Management gateway |
+| e0 | vtnet0 | 10.0.23.2/30 | WAN — GW=10.0.23.1 |
+| e1 | vtnet1 | 10.10.10.1/24 | DMZ — Public Services gateway |
+| e2 | vtnet2 | 10.20.20.1/24 | INT — Internal Services gateway |
+| e3 | vtnet3 | 10.30.30.1/24 | MGMT — Management gateway |
 
 ### pfSense Static Route (required for Kali return path)
 
 | Network | Gateway | Purpose |
 |---|---|---|
-| 192.168.10.0/24 | 10.0.23.1 | Return packets to Kali subnet |
+| 192.168.10.0/24 | 10.0.23.1 | Return packets to Kali/Attacker subnet |
 
 ### pfSense WAN Firewall Rule
 
@@ -74,13 +74,22 @@
 | Destination | any |
 | Description | Allow attacker subnet |
 
-### Bank VMs (Ubuntu Server)
+### OVS Switches
+
+| Switch | Connected to pfSense | VMs |
+|---|---|---|
+| Public-Services (OVS) | e1 (DMZ 10.10.10.1) | bank-web, DNS-Server |
+| Internal-Services (OVS) | e2 (INT 10.20.20.1) | customer-db, LDAP-Server |
+
+### Bank VMs (Ubuntu Server 22.04)
 
 | VM | IP | Gateway | Zone | Services |
 |---|---|---|---|---|
-| bank-web | 10.10.10.10/24 | 10.10.10.1 | DMZ | Apache2, vsftpd, Suricata, Fail2ban, SSH |
-| customer-db | 10.20.20.20/24 | 10.20.20.1 | Internal | PostgreSQL, Suricata, Fail2ban, SSH |
-| aegis-forwarder | 10.30.30.10/24 | 10.30.30.1 | MGMT | aegis_forwarder.py hub agent |
+| bank-web | 10.10.10.10/24 | 10.10.10.1 | DMZ | Apache2, ModSecurity, vsftpd, Suricata, Fail2ban, SSH |
+| DNS-Server | 10.10.10.20/24 | 10.10.10.1 | DMZ | BIND9 DNS, Fail2ban, SSH |
+| customer-db | 10.20.20.10/24 | 10.20.20.1 | Internal | MySQL, Suricata, Fail2ban, SSH |
+| LDAP-Server | 10.20.20.20/24 | 10.20.20.1 | Internal | OpenLDAP (slapd), Fail2ban, SSH |
+| aegis-ADMIN | 10.30.30.10/24 | 10.30.30.1 | MGMT | aegis_forwarder.py (hub mode), SSH |
 
 ---
 
@@ -91,9 +100,20 @@
 | Router | 192.168.122.1 (virbr0 host bridge) |
 | Kali | 192.168.10.1 (Router ether2) |
 | pfSense | 10.0.23.1 (WANGW — Router ether3) |
-| bank-web | 10.10.10.1 (pfSense BANK_WEB) |
-| customer-db | 10.20.20.1 (pfSense CUSTOMER_DB) |
-| aegis-forwarder | 10.30.30.1 (pfSense MGMT) |
+| bank-web | 10.10.10.1 (pfSense DMZ) |
+| DNS-Server | 10.10.10.1 (pfSense DMZ) |
+| customer-db | 10.20.20.1 (pfSense INT) |
+| LDAP-Server | 10.20.20.1 (pfSense INT) |
+| aegis-ADMIN | 10.30.30.1 (pfSense MGMT) |
+
+---
+
+## VLAN Assignment (OVS Switches)
+
+| VLAN ID | Segment | Switch | VMs |
+|---|---|---|---|
+| 10 | DMZ | Public-Services | bank-web (eth1), DNS-Server (eth2) |
+| 20 | Internal | Internal-Services | customer-db (eth1), LDAP-Server (eth2) |
 
 ---
 
@@ -101,7 +121,7 @@
 
 | Node | Was | Reason |
 |---|---|---|
-| Switch1 | NAT+R1+Kali ကြား switch | 2026-07-19 ဖြုတ်ပြီ |
 | Router-2 (R2) | MikroTik CHR, 10.0.12.x/10.0.23.1 | 2026-07-16 ဖြုတ်ပြီ |
-| bank-mail | 10.10.10.20 DMZ | 2026-07-16 ဖြုတ်ပြီ |
-| teller-pc | 10.20.20.10 Internal | 2026-07-16 ဖြုတ်ပြီ |
+| Switch1 | NAT+R1+Kali ကြား switch | 2026-07-19 ဖြုတ်ပြီ |
+| bank-mail | 10.10.10.20 DMZ (v3) | 2026-07-16 ဖြုတ်ပြီ — DNS-Server အဖြစ် replace |
+| teller-pc | 10.20.20.10 Internal (v3) | 2026-07-16 ဖြုတ်ပြီ — customer-db .10 IP ယူ |

@@ -27,10 +27,10 @@ ifconfig -a | grep "flags\|inet "
 
 | GNS3 port | pfSense iface | Role | Connected to | IP |
 |---|---|---|---|---|
-| e0 | em0 | WAN | Router-2 ether2 | 10.0.23.2/30, GW=10.0.23.1 |
-| e1 | em1 | LAN (DMZ) | DMZ-Switch | 10.10.10.1/24 |
-| e2 | em2 | OPT1 (Internal) | INT-Switch | 10.20.20.1/24 |
-| e3 | em3 | OPT2 (MGMT) | aegis-forwarder | 10.30.30.1/24 |
+| e0 | em0 | WAN | Router ether3 (direct) | 10.0.23.2/30, GW=10.0.23.1 |
+| e1 | em1 | DMZ | Public-Services OVS Switch | 10.10.10.1/24 |
+| e2 | em2 | INT | Internal-Services OVS Switch | 10.20.20.1/24 |
+| e3 | em3 | MGMT | aegis-ADMIN | 10.30.30.1/24 |
 
 ---
 
@@ -141,7 +141,7 @@ End:   10.30.30.200
 pfSense console **Option 7: Ping host**
 
 ```
-ping 10.0.23.1   → ✅ 0% loss  (Router-2 WAN link)
+ping 10.0.23.1   → ✅ 0% loss  (Router WAN link)
 ping 10.0.12.1   → ✅ 0% loss, ttl=63  (Router-1 — full routing chain)
 ping 8.8.8.8     → (test pending)
 ```
@@ -166,7 +166,7 @@ pfSense WebGUI ကို Internal subnet မှ access:
 ```
 URL:  https://10.20.20.1   (OPT1/Internal side)
       သို့မဟုတ်
-      https://10.0.23.2    (WAN side — Router-2 မှ)
+      https://10.0.23.2    (WAN side — Router မှ)
 User: admin
 Pass: pfsense  ← ချက်ချင်း ပြောင်းပါ
 ```

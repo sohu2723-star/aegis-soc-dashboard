@@ -1,96 +1,104 @@
 # AEGIS-SecureBank — System Architecture
-> Last updated: 2026-07-17
-> Topology version: v3 — R2 removed, bank-mail removed, teller-pc removed, hub mode active
-> IP source of truth: `docs/ip-plan.md` and `docs/network-architecture.md`
+> Last updated: 2026-07-20
+> Topology version: v4 (Final) — OVS switches, DNS-Server, LDAP-Server, customer-db=10.20.20.10
+> IP source of truth: `docs/ip-plan.md`
 
 ---
 
-## 1. Lab Topology — GNS3 AEGIS-SecureBank (v3 Current)
+## 1. Lab Topology — GNS3 AEGIS-SecureBank (v4 Final)
 
 ```
-  [Attacker VM]                                                                    │
-  (any IP)                                                                         │
-       │                                                                            │
-  [Switch1] ──→ [Router-1 / MikroTik CHR]                                         │
-  [GNS3 NAT]     ether1: 192.168.122.2/24   ← attacker/Switch1 side               │
-                 ether2: DHCP               ← NAT internet egress (masquerade)     │
-                 ether3: 10.0.23.1/30       ← pfSense WAN (R2 removed — direct)   │
-                                │                                                   │
-                         [pfSense 2.7.2]                                            │
-                      WAN  (em0): 10.0.23.2/30                                     │
-                      DMZ  (em1): 10.10.10.1/24                                    │
-                      INT  (em2): 10.20.20.1/24                                    │
-                      MGMT (em3): 10.30.30.1/24                                    │
-                                │                                                   │
-             ┌──────────────────┼──────────────────┐                               │
-        [DMZ-Switch]       [INT-Switch]         [MGMT]                             │
-             │                  │                   │                               │
-        [bank-web]        [customer-db]    [aegis-forwarder]                        │
-        10.10.10.10        10.20.20.20      10.30.30.10                             │
-       Apache, vsftpd       PostgreSQL       Hub agent (--mode hub)                │
-       Suricata             Suricata         SSHes → bank-web + customer-db         │
-       Fail2ban             Fail2ban         POSTs events to Render API             │
+  [Attacker — Kali]
+  DHCP 192.168.10.x
+        │
+  [Router / MikroTik CHR]
+    ether1: 192.168.122.2/24   ← Internet (virbr0 NAT)
+    ether2: 192.168.10.1/24    ← Attacker DHCP gateway
+    ether3: 10.0.23.1/30       ← pfSense WAN (direct)
+                │
+        [pfSense 2.7.2]
+     WAN  (em0): 10.0.23.2/30
+     DMZ  (em1): 10.10.10.1/24
+     INT  (em2): 10.20.20.1/24
+     MGMT (em3): 10.30.30.1/24
+                │
+   ┌────────────┼─────────────────────┬──────────────┐
+   │            │                     │              │
+[Public-Services  ]           [Internal-Services]  [MGMT]
+[ OVS Switch      ]           [ OVS Switch       ]   │
+[eth0←pfSense DMZ ]           [eth0←pfSense INT  ] [aegis-ADMIN]
+[eth1→bank-web    ]           [eth1→customer-db  ] [10.30.30.10]
+[eth2→DNS-Server  ]           [eth2→LDAP-Server  ] [Hub agent  ]
+   │         │                    │          │
+[bank-web] [DNS-Server]     [customer-db] [LDAP-Server]
+10.10.10.10 10.10.10.20     10.20.20.10   10.20.20.20
+Apache2     BIND9            MySQL         OpenLDAP
+vsftpd      Fail2ban         Suricata      Fail2ban
+Suricata                     Fail2ban
+Fail2ban
 ```
 
-**Removed nodes (v3):** Router-2, bank-mail (10.10.10.20), teller-pc (10.20.20.10)
+**Removed nodes (v3→v4):** Router-2, Switch1, bank-mail, teller-pc
 
-> **Attacker note:** Attackers can come from **any IP address** — not just 192.168.122.x.
+> **Attacker note:** Attackers can come from **any IP address** — not just 192.168.10.x.
 > Any external, internal, or VPN IP should be treated as a potential threat source.
 
-> **Forwarder model (hub mode):** A single `aegis_forwarder.py --mode hub` runs on the AEGIS VM
-> (10.30.30.10). It SSHes into bank-web and customer-db every 15 seconds to tail their Suricata,
-> Fail2ban, SSH, and FTP logs, then POSTs all events directly to the API server.
+> **Forwarder model (hub mode):** A single `aegis_forwarder.py --mode hub` runs on aegis-ADMIN
+> (10.30.30.10). It SSHes into bank-web, DNS-Server, customer-db, LDAP-Server to tail their logs,
+> then POSTs all events directly to the API server.
 > Bank VMs do NOT run the forwarder script themselves — hub handles all collection.
 
 ---
 
-## 2. Network Segments & IP Plan (v3 Current)
+## 2. Network Segments & IP Plan (v4 Final)
 
 | Segment | Subnet | pfSense Interface | Purpose |
 |---|---|---|---|
-| Attacker path (virbr0) | 192.168.122.0/24 | — | GNS3 NAT — attacker VM side (any IP valid) |
-| R1 ↔ pfSense WAN | 10.0.23.0/30 | vtnet0 / em0 | Edge uplink (direct, R2 removed) |
-| DMZ | 10.10.10.0/24 | vtnet1 / em1 | Public-facing bank services |
-| Internal | 10.20.20.0/24 | vtnet2 / em2 | Internal bank systems |
-| Management | 10.30.30.0/24 | vtnet3 / em3 | AEGIS monitoring segment |
+| Attacker network | 192.168.10.0/24 | — | Kali DHCP subnet (Router ether2) |
+| Internet (virbr0) | 192.168.122.0/24 | — | GNS3 NAT cloud |
+| R1 ↔ pfSense WAN | 10.0.23.0/30 | em0 | Edge uplink (direct) |
+| DMZ (Public) | 10.10.10.0/24 | em1 | bank-web, DNS-Server |
+| Internal | 10.20.20.0/24 | em2 | customer-db, LDAP-Server |
+| Management | 10.30.30.0/24 | em3 | aegis-ADMIN |
 
 ### Node IP Reference (canonical)
 
 | Node | IP | Subnet | Role |
 |---|---|---|---|
-| Attacker VM | any (192.168.122.x typical) | virbr0 | Red team — any IP possible |
-| Router-1 ether1 | 192.168.122.2/24 | virbr0 | Switch1/attacker side |
-| Router-1 ether2 | DHCP auto | NAT cloud | Internet egress (masquerade) |
-| Router-1 ether3 | 10.0.23.1/30 | R1↔pfSense | Direct to pfSense WAN (R2 removed) |
+| Attacker (Kali) | DHCP 192.168.10.x | Attacker | Red team |
+| Router ether1 | 192.168.122.2/24 | virbr0 | Internet side |
+| Router ether2 | 192.168.10.1/24 | Attacker | Kali DHCP gateway |
+| Router ether3 | 10.0.23.1/30 | R1↔pfSense | Direct to pfSense WAN |
 | pfSense WAN (em0) | 10.0.23.2/30 | R1↔pfSense | Firewall WAN |
-| pfSense DMZ (em1) | 10.10.10.1/24 | DMZ | DMZ gateway |
-| pfSense INT (em2) | 10.20.20.1/24 | Internal | Internal gateway |
+| pfSense DMZ (em1) | 10.10.10.1/24 | DMZ | Public Services gateway |
+| pfSense INT (em2) | 10.20.20.1/24 | Internal | Internal Services gateway |
 | pfSense MGMT (em3) | 10.30.30.1/24 | Management | MGMT gateway |
-| bank-web | 10.10.10.10/24 | DMZ | Apache2, vsftpd, Suricata, Fail2ban |
-| customer-db | 10.20.20.20/24 | Internal | PostgreSQL, Suricata, Fail2ban |
-| aegis-forwarder | 10.30.30.10/24 | Management | Hub agent — SSHes into bank VMs |
-
-**Removed nodes:** Router-2, bank-mail (10.10.10.20), teller-pc (10.20.20.10)
+| bank-web | **10.10.10.10**/24 | DMZ | Apache2, vsftpd, Suricata, Fail2ban |
+| DNS-Server | **10.10.10.20**/24 | DMZ | BIND9 DNS |
+| customer-db | **10.20.20.10**/24 | Internal | MySQL, Suricata, Fail2ban |
+| LDAP-Server | **10.20.20.20**/24 | Internal | OpenLDAP |
+| aegis-ADMIN | **10.30.30.10**/24 | Management | Hub agent — SSHes into all bank VMs |
 
 ---
 
-## 3. Component Roles (v3 Current)
+## 3. Component Roles (v4 Final)
 
 ### Network Infrastructure
 | Component | Type | Config |
 |---|---|---|
-| Switch1 | GNS3 Ethernet switch | L2 — connects attacker VM + virbr0 cloud to R1 |
-| Router-1 (R1) | MikroTik CHR | ether1=virbr0 side, ether2=NAT DHCP, ether3=10.0.23.1 (pfSense direct) |
+| Router (R1) | MikroTik CHR | ether1=virbr0, ether2=Kali DHCP (192.168.10.1), ether3=10.0.23.1 (pfSense WAN) |
 | pfSense | pfSense CE 2.7.x | Stateful FW — 4 zones: WAN/DMZ/INT/MGMT |
-| DMZ-Switch | GNS3 Ethernet switch | bank-web only |
-| INT-Switch | GNS3 Ethernet switch | customer-db + aegis-forwarder |
+| Public-Services | OVS Switch | bank-web (VLAN10/eth1), DNS-Server (VLAN10/eth2) |
+| Internal-Services | OVS Switch | customer-db (VLAN20/eth1), LDAP-Server (VLAN20/eth2) |
 
 ### Security Tools per VM
 | VM | IP | Tools | Log Files (tailed by hub) |
 |---|---|---|---|
 | bank-web | 10.10.10.10 | Apache2, vsftpd, ModSecurity WAF, Suricata, Fail2ban | `/var/log/suricata/eve.json`, `/var/log/fail2ban.log`, `/var/log/auth.log`, `/var/log/vsftpd.log` |
-| customer-db | 10.20.20.20 | PostgreSQL, Suricata, Fail2ban | `/var/log/suricata/eve.json`, `/var/log/fail2ban.log`, `/var/log/auth.log` |
-| aegis-forwarder | 10.30.30.10 | `aegis_forwarder.py --mode hub` | SSHes into bank-web + customer-db every 15s, tails their logs, POSTs to API |
+| DNS-Server | 10.10.10.20 | BIND9, Fail2ban | `/var/log/fail2ban.log`, `/var/log/auth.log` |
+| customer-db | 10.20.20.10 | MySQL, Suricata, Fail2ban | `/var/log/suricata/eve.json`, `/var/log/fail2ban.log`, `/var/log/auth.log` |
+| LDAP-Server | 10.20.20.20 | OpenLDAP (slapd), Fail2ban | `/var/log/fail2ban.log`, `/var/log/auth.log` |
+| aegis-ADMIN | 10.30.30.10 | `aegis_forwarder.py --mode hub` | SSHes into all bank VMs every 15s, tails their logs, POSTs to API |
 
 ### AEGIS Platform
 | Component | Host | URL |
@@ -107,7 +115,7 @@
 ┌──────────────────────────────────────────────────────────────────────┐
 │              ATTACK PHASE (Red Team — any IP)                        │
 │                                                                       │
-│  Attacker (any IP) → Switch1 → R1 → pfSense WAN → DMZ/INT          │
+│  Attacker (192.168.10.x) → Router → pfSense WAN → DMZ/INT          │
 │  ├── nmap -sV -p- 10.10.10.10           ← port scan → Suricata      │
 │  ├── hydra ssh://10.10.10.10            ← SSH brute → Fail2ban       │
 │  ├── sqlmap -u http://10.10.10.10       ← SQLi → ModSecurity WAF     │
