@@ -100,7 +100,7 @@ async function mkAlert(eventId: number, severity: "critical"|"high", message: st
 // Generic
 // ─────────────────────────────────────────────────────────────────────────────
 router.post("/ingest/event", auth, async (req, res) => {
-  const { source, type, subtype, severity: s, sourceIp, targetHost, toolUsed, description, layer, blocked = false } = req.body;
+  const { source, type, subtype, severity: s, sourceIp, targetHost, toolUsed, description, layer, blocked = false, signature_text } = req.body;
   if (!sourceIp || !description) { res.status(400).json({ error: "sourceIp and description required" }); return; }
 
   const event = await insertEvent({
@@ -108,6 +108,7 @@ router.post("/ingest/event", auth, async (req, res) => {
     severity: sev(s), sourceIp, targetHost: targetHost ?? "internal-network",
     toolUsed: toolUsed ?? source ?? null, description,
     status: blocked ? "blocked" : "detected", layer: layer ?? "perimeter",
+    signatureText: signature_text ? String(signature_text).slice(0, 2000) : null,
   });
   const severity = sev(s);
   if (severity === "critical" || severity === "high")
@@ -130,6 +131,12 @@ router.post("/ingest/suricata", auth, async (req, res) => {
   const alertAction:   string | null = a.action   ? String(a.action).slice(0, 32)   : null;
   const alertCategory: string | null = a.category ? String(a.category).slice(0, 128) : null;
 
+  // Full rule text: Suricata EVE JSON can include `alert.rule` when rule logging is enabled,
+  // or the forwarder can pass it as a top-level `signature_text` field.
+  const signatureText: string | null =
+    (a.rule ? String(a.rule).slice(0, 2000) : null) ??
+    (req.body.signature_text ? String(req.body.signature_text).slice(0, 2000) : null);
+
   const event = await insertEvent({
     type: "network_attack",
     subtype: a.signature ?? "Suricata Alert",
@@ -144,6 +151,7 @@ router.post("/ingest/suricata", auth, async (req, res) => {
     alertRev,
     alertAction,
     alertCategory,
+    signatureText,
   });
   if (s === "critical" || s === "high") await mkAlert(event.id, s, `SURICATA: ${a.signature} (SID:${signatureId ?? "?"}) — ${src_ip} → ${dest_ip}`);
   res.status(201).json({ id: event.id });
@@ -154,7 +162,9 @@ router.post("/ingest/suricata", auth, async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 router.post("/ingest/fail2ban", auth, async (req, res) => {
   // target_ip: IP of the machine running Fail2ban (the defender being attacked)
-  const { ip, jail, failures, target_ip } = req.body;
+  // filter_regex: optional Fail2ban filter failregex pattern
+  // maxretry / findtime / bantime: optional jail config for rule display
+  const { ip, jail, failures, target_ip, filter_regex, maxretry, findtime, bantime } = req.body;
 
   await db.insert(sshSessionsTable).values({
     sourceIp: ip ?? "unknown", status:"failed",
@@ -170,12 +180,25 @@ router.post("/ingest/fail2ban", auth, async (req, res) => {
     });
   }
 
+  // Build a human-readable rule text for the dashboard.
+  // If forwarder sends filter_regex, prefer that; otherwise summarise jail config.
+  const signatureText: string = filter_regex
+    ? `failregex = ${filter_regex}`
+    : [
+        `jail = ${jail ?? "sshd"}`,
+        maxretry  != null ? `maxretry = ${maxretry}`         : null,
+        findtime  != null ? `findtime = ${findtime}s`        : null,
+        bantime   != null ? `bantime  = ${bantime}s`         : null,
+        `action   = iptables-multiport`,
+      ].filter(Boolean).join("\n");
+
   const event = await insertEvent({
     type:"network_attack", subtype:"Brute Force", severity:"high",
     sourceIp: ip ?? "unknown",
     targetHost: target_ip ?? "bank-web",
     toolUsed:"fail2ban", description:`Fail2ban banned ${ip} from [${jail ?? "sshd"}] after ${failures ?? "?"} failures. Auto-block applied.`,
     status:"blocked", layer:"perimeter",
+    signatureText,
   });
   await mkAlert(event.id, "high", `FAIL2BAN: ${ip} auto-banned — jail: ${jail ?? "sshd"}`);
   res.status(201).json({ id: event.id });

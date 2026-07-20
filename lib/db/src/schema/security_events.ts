@@ -18,6 +18,7 @@ export const securityEventsTable = pgTable("security_events", {
   alertRev:      integer("alert_rev"),
   alertAction:   varchar("alert_action", { length: 32 }),
   alertCategory: varchar("alert_category", { length: 128 }),
+  signatureText: text("signature_text"),   // full matched rule text (Suricata rule string / Fail2ban filter info)
   createdAt:     timestamp("created_at").defaultNow().notNull(),
 });
 

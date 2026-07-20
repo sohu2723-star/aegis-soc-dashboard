@@ -660,7 +660,7 @@ ping -c 3 8.8.8.8
 
 ---
 
-*Last updated: 2026-07-19*
+*Last updated: 2026-07-21*
 
 ---
 
@@ -1315,3 +1315,19 @@ INTERNAL `/var/db/suricata/suricata_em220/rules/custom.rules`:
 **Test:** `nmap -sS 10.10.10.10` Kali မှာ run → Services → Suricata → Alerts tab → PUBLIC instance ရွေး → alert ပေါ်လာရမည်
 
 **Next:** Eve.json AEGIS signatures confirm + aegis_forwarder.py မှာ pfSense Suricata log path connect လုပ်ရမည်
+
+---
+
+## [2026-07-21] — Signature Text (Full Rule) Display in Security Events
+
+**Status:** ✅ Done
+**What:** Security event တစ်ခု click ဖြင့် ကြည့်ရင် ဘယ် rule နဲ့ match ဖြစ်တာလဲ ဆိုတဲ့ rule text အပြည့်အစုံ dashboard မှာ ပေါ်လာအောင် implement လုပ်ခဲ့တယ်
+**How:**
+- `lib/db/src/schema/security_events.ts` — `signature_text text` column ထည့်
+- `artifacts/api-server/src/routes/ingest.ts`:
+  - Suricata: `alert.rule` (EVE JSON) or `signature_text` top-level field accept + store
+  - Fail2ban: `filter_regex` field accept; fallback = jail config string (`jail=sshd | maxretry=5 | ...`)
+  - Generic `/ingest/event`: optional `signature_text` field accept + store
+- `artifacts/aegis-dashboard/src/pages/events.tsx` — "Matched Detection Rule" block ထဲ "Full Rule Text" pre block ထည့် (font-mono, dark bg, yellow text)
+**Result:** Build clean ✅. API server restart ✅. Supabase column migration ကျန်တယ် (user run ရမည်).
+**Next:** Supabase SQL editor မှာ `ALTER TABLE security_events ADD COLUMN IF NOT EXISTS signature_text text;` run ပြီး forwarder က `signature_text` field ထည့်ပို့ရမည်

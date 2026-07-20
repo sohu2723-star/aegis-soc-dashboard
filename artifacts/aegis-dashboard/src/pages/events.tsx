@@ -245,12 +245,12 @@ export default function Events() {
                 )}
               </div>
 
-              {/* ── Suricata Rule Block ── */}
+              {/* ── Matched Detection Rule Block ── */}
               {ev.subtype && (
                 <div className="bg-yellow-500/5 border border-yellow-500/20 rounded-lg p-4 mb-5 space-y-3">
                   {/* Section label */}
                   <p className="text-[10px] uppercase tracking-widest text-yellow-500/70 font-semibold">
-                    Matched Suricata Rule
+                    Matched Detection Rule
                   </p>
 
                   {/* Signature name — main hero */}
@@ -297,6 +297,18 @@ export default function Events() {
                       </div>
                     )}
                   </div>
+
+                  {/* Full rule text — shown when available */}
+                  {ev.signatureText && (
+                    <div className="pt-2 border-t border-yellow-500/15">
+                      <p className="text-[9px] uppercase text-muted-foreground tracking-widest mb-2">
+                        Full Rule Text
+                      </p>
+                      <pre className="font-mono text-[11px] text-yellow-300/90 bg-black/30 rounded p-3 overflow-x-auto whitespace-pre-wrap break-all leading-relaxed border border-yellow-500/10">
+                        {ev.signatureText}
+                      </pre>
+                    </div>
+                  )}
                 </div>
               )}
 
