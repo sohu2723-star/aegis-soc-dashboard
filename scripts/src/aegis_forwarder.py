@@ -146,6 +146,170 @@ PFSENSE_API_KEY = _cfg("PFSENSE_API_KEY", "")
 
 DEFENSE_POLL_SECS = int(_cfg("DEFENSE_POLL_SECS", "5"))
 
+# ─── SIGNATURE TEXT HELPERS ───────────────────────────────────────────────────
+# Cache per (host:jail) or sid so we SSH/read once, not once per ban event.
+_FAIL2BAN_SIG_CACHE: dict = {}   # "local:jail" or "ip:jail" → signature text
+_SURICATA_RULE_CACHE: dict = {}  # sid (int) → full rule string or None
+
+
+def _local_fail2ban_signature(jail: str) -> str:
+    """
+    Read the Fail2ban filter failregex + jail maxretry/findtime/bantime
+    from the LOCAL filesystem (runs on the VM that has Fail2ban installed).
+    Returns a multi-line string suitable for `signature_text`.
+    """
+    cache_key = f"local:{jail}"
+    if cache_key in _FAIL2BAN_SIG_CACHE:
+        return _FAIL2BAN_SIG_CACHE[cache_key]
+
+    # ── failregex ──────────────────────────────────────────────────────────
+    regex_lines = []
+    for path in (
+        f"/etc/fail2ban/filter.d/{jail}.conf",
+        f"/etc/fail2ban/filter.d/{jail}.local",
+    ):
+        try:
+            in_regex = False
+            with open(path) as fh:
+                for raw in fh:
+                    stripped = raw.strip()
+                    if stripped.startswith("failregex"):
+                        in_regex = True
+                        regex_lines.append(stripped)
+                    elif in_regex and raw.startswith((" ", "\t")):
+                        regex_lines.append(stripped)
+                    elif in_regex and stripped and not raw.startswith((" ", "\t")):
+                        break
+            if regex_lines:
+                break
+        except FileNotFoundError:
+            continue
+
+    # ── jail params (maxretry / findtime / bantime) ─────────────────────────
+    params: dict = {}
+    search_paths = [
+        "/etc/fail2ban/jail.conf",
+        "/etc/fail2ban/jail.local",
+        f"/etc/fail2ban/jail.d/{jail}.conf",
+        f"/etc/fail2ban/jail.d/{jail}.local",
+    ]
+    for path in search_paths:
+        in_section = False
+        try:
+            with open(path) as fh:
+                for raw in fh:
+                    line = raw.strip()
+                    if line == f"[{jail}]":
+                        in_section = True
+                        continue
+                    if in_section:
+                        if line.startswith("[") and line != f"[{jail}]":
+                            break
+                        for key in ("maxretry", "findtime", "bantime"):
+                            if line.startswith(key + " ") or line.startswith(key + "="):
+                                val = line.split("=", 1)[-1].strip()
+                                try:
+                                    params[key] = int(val)
+                                except ValueError:
+                                    pass
+        except FileNotFoundError:
+            continue
+
+    # ── assemble ────────────────────────────────────────────────────────────
+    parts = regex_lines if regex_lines else [f"jail = {jail}"]
+    if params.get("maxretry"):
+        parts.append(f"maxretry = {params['maxretry']}")
+    if params.get("findtime"):
+        parts.append(f"findtime = {params['findtime']}s")
+    if params.get("bantime"):
+        parts.append(f"bantime  = {params['bantime']}s")
+    parts.append("action   = iptables-multiport")
+
+    sig = "\n".join(parts)
+    _FAIL2BAN_SIG_CACHE[cache_key] = sig
+    return sig
+
+
+def _remote_fail2ban_signature(host_ip: str, jail: str) -> str:
+    """
+    SSH into a remote bank VM and read its Fail2ban filter + jail config.
+    Called from hub mode once per (host, jail) pair — result is cached.
+    """
+    cache_key = f"{host_ip}:{jail}"
+    if cache_key in _FAIL2BAN_SIG_CACHE:
+        return _FAIL2BAN_SIG_CACHE[cache_key]
+
+    # Single SSH call: grep failregex, then grep jail params
+    remote_cmd = (
+        f"REGEX=$(grep -A4 'failregex' /etc/fail2ban/filter.d/{jail}.conf 2>/dev/null | head -6 | tr '\\n' '~'); "
+        f"PARAMS=$(grep -h -A15 '\\[{jail}\\]' "
+        f"  /etc/fail2ban/jail.conf /etc/fail2ban/jail.local "
+        f"  /etc/fail2ban/jail.d/*.conf 2>/dev/null "
+        f"  | grep -E '^(maxretry|findtime|bantime)' | head -3 | tr '\\n' '|'); "
+        f"printf '%s|||%s' \"$REGEX\" \"$PARAMS\""
+    )
+    ssh_cmd = [
+        "ssh", "-T",
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "ConnectTimeout=8",
+        "-o", "BatchMode=yes",
+        f"{REMOTE_SSH_USER}@{host_ip}",
+        remote_cmd,
+    ]
+    try:
+        out = subprocess.check_output(
+            ssh_cmd, stderr=subprocess.DEVNULL, timeout=12, text=True
+        ).strip()
+        raw_regex, raw_params = (out.split("|||") + ["", ""])[:2]
+        regex_part = raw_regex.replace("~", "\n").strip()
+        param_lines = [p.strip() for p in raw_params.split("|") if p.strip()]
+    except Exception as e:
+        print(f"[WARN] fail2ban sig lookup {host_ip}/{jail}: {e}")
+        regex_part = ""
+        param_lines = []
+
+    parts = [regex_part] if regex_part else [f"jail = {jail}"]
+    parts.extend(param_lines)
+    parts.append("action = iptables-multiport")
+    sig = "\n".join(parts)
+    _FAIL2BAN_SIG_CACHE[cache_key] = sig
+    return sig
+
+
+def _lookup_pfsense_rule(sid: int) -> str | None:
+    """
+    SSH into pfSense and grep Suricata rule files for the given SID.
+    Returns the full rule line (e.g. 'alert tcp ...  sid:9000001; rev:1;)')
+    or None if not found. Result is cached per SID.
+    """
+    if sid in _SURICATA_RULE_CACHE:
+        return _SURICATA_RULE_CACHE[sid]
+
+    ssh_key = os.path.expanduser(PFSENSE_SSH_KEY)
+    grep_cmd = (
+        f"grep -rh 'sid:{sid};' "
+        f"/var/db/suricata/ /usr/local/etc/suricata/rules/ 2>/dev/null | head -1"
+    )
+    ssh_cmd = [
+        "ssh", "-T",
+        "-i", ssh_key,
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "ConnectTimeout=8",
+        "-o", "BatchMode=yes",
+        f"{PFSENSE_SSH_USER}@{PFSENSE_IP}",
+        grep_cmd,
+    ]
+    try:
+        out = subprocess.check_output(
+            ssh_cmd, stderr=subprocess.DEVNULL, timeout=12, text=True
+        ).strip()
+        result: str | None = out if out else None
+    except Exception:
+        result = None
+
+    _SURICATA_RULE_CACHE[sid] = result
+    return result
+
 
 def get_local_ip() -> str:
     try:
@@ -732,11 +896,13 @@ def watch_fail2ban():
         m = FAIL2BAN_RE.search(line)
         if not m:
             continue
+        jail = m.group(1)
         post("fail2ban", {
-            "jail":      m.group(1),
-            "ip":        m.group(2),
-            "failures":  5,
-            "target_ip": _own_ip,   # this VM is the target being protected
+            "jail":         jail,
+            "ip":           m.group(2),
+            "failures":     5,
+            "target_ip":    _own_ip,
+            "filter_regex": _local_fail2ban_signature(jail),  # full rule text
         })
 
 
@@ -983,6 +1149,17 @@ def _watch_pfsense_suricata():
                     etype = evt.get("event_type")
                     evt["targetHost"] = "pfsense"   # stamp source for dashboard
                     if etype == "alert":
+                        # Attach full rule text so dashboard can show it.
+                        # Priority: 1) EVE JSON already has alert.rule field (Suricata ≥7 with rule logging)
+                        #           2) grep the rules files on pfSense by SID
+                        alert_obj = evt.get("alert", {})
+                        if not alert_obj.get("rule"):
+                            sid = alert_obj.get("signature_id")
+                            if sid:
+                                rule_text = _lookup_pfsense_rule(int(sid))
+                                if rule_text:
+                                    alert_obj["rule"] = rule_text
+                                    evt["alert"] = alert_obj
                         post("suricata", evt)
                     elif etype == "tls":
                         post("suricata/tls", {
@@ -1048,11 +1225,13 @@ def _watch_remote_fail2ban(host_name: str, host_ip: str):
         if banned_ip in _defender_ips:
             print(f"[{host_name}] fail2ban: skipped defender IP {banned_ip}")
             continue
+        jail = m.group(1)
         post("fail2ban", {
-            "jail":      m.group(1),
-            "ip":        banned_ip,
-            "failures":  5,
-            "target_ip": host_ip,
+            "jail":         jail,
+            "ip":           banned_ip,
+            "failures":     5,
+            "target_ip":    host_ip,
+            "filter_regex": _remote_fail2ban_signature(host_ip, jail),  # full rule text
         })
 
 
