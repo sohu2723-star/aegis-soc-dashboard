@@ -1,0 +1,7 @@
+## INTERNAL interface (em2.20) — customer-db + ldap-server
+## Services > Suricata > INTERNAL edit > Rules tab > Custom Rules > paste
+
+alert tcp any any -> 10.20.20.10 22 (msg:"SSH Brute customer-db"; flow:to_server; threshold:type both,track by_src,count 10,seconds 60; sid:9000006; rev:1;)
+alert tcp any any -> 10.20.20.10 3306 (msg:"MySQL Brute customer-db"; flow:to_server; threshold:type both,track by_src,count 10,seconds 60; sid:9000007; rev:1;)
+alert tcp any any -> 10.20.20.20 22 (msg:"SSH Brute ldap-server"; flow:to_server; threshold:type both,track by_src,count 10,seconds 60; sid:9000008; rev:1;)
+alert tcp any any -> 10.20.20.20 389 (msg:"LDAP Brute ldap-server"; flow:to_server; threshold:type both,track by_src,count 10,seconds 60; sid:9000009; rev:1;)
