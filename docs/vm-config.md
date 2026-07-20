@@ -1,7 +1,7 @@
 # VM Configuration Guide
 
-> **Last Updated:** 2026-07-19
-> **Topology:** v3 — Switch1 ဖြုတ်ပြီ, R2 ဖြုတ်ပြီ, bank-mail ဖြုတ်ပြီ, teller-pc ဖြုတ်ပြီ
+> **Last Updated:** 2026-07-20
+> **Topology:** v4 Final — OVS switches, DNS-Server (10.10.10.20), LDAP-Server (10.20.20.20), customer-db=10.20.20.10
 
 ---
 
@@ -9,10 +9,10 @@
 
 ### Interface Assignment (Console — Option 1)
 ```
-WAN  → vtnet0 (e0)   IP: 10.0.23.2/30     GW: 10.0.23.1
-BANK_WEB    → vtnet1 (e1)   IP: 10.10.10.1/24
-CUSTOMER_DB → vtnet2 (e2)   IP: 10.20.20.1/24
-MGMT        → vtnet3 (e3)   IP: 10.30.30.1/24
+WAN  → em0   IP: 10.0.23.2/30     GW: 10.0.23.1
+DMZ  → em1   IP: 10.10.10.1/24    (Public Services — bank-web, DNS-Server)
+INT  → em2   IP: 10.20.20.1/24    (Internal Services — customer-db, LDAP-Server)
+MGMT → em3   IP: 10.30.30.1/24    (aegis-ADMIN)
 ```
 
 WebGUI: `https://10.0.23.2` (from Router) — admin / pfsense
@@ -22,14 +22,14 @@ WebGUI: `https://10.0.23.2` (from Router) — admin / pfsense
 **WAN Rules:**
 - Source: `192.168.10.0/24` → Destination: any → Action: **Pass** (allow attacker subnet)
 
-**BANK_WEB (DMZ):**
-- Allow all from DMZ → Internet (HTTP/HTTPS)
+**DMZ (em1):**
+- Allow all from DMZ → Internet (HTTP/HTTPS/DNS)
 
-**CUSTOMER_DB (Internal):**
-- Allow internal → Internet (for updates only)
+**INT (em2):**
+- Allow Internal → Internet (for updates only)
 
-**MGMT:**
-- Allow aegis-forwarder outbound HTTPS to api server
+**MGMT (em3):**
+- Allow aegis-ADMIN outbound HTTPS to API server
 
 ### Static Route (Required — Kali return path)
 ```
@@ -61,17 +61,39 @@ network:
         - to: default
           via: 10.10.10.1
       nameservers:
-        addresses: [8.8.8.8]
+        addresses: [10.10.10.20, 8.8.8.8]
   version: 2
 ```
-```bash
-sudo netplan apply
-# Verify
-ip route show
-ping -c 2 8.8.8.8
+
+### DNS-Server (10.10.10.20)
+```yaml
+network:
+  ethernets:
+    ens3:
+      addresses: [10.10.10.20/24]
+      routes:
+        - to: default
+          via: 10.10.10.1
+      nameservers:
+        addresses: [127.0.0.1, 8.8.8.8]
+  version: 2
 ```
 
-### customer-db (10.20.20.20)
+### customer-db (10.20.20.10)
+```yaml
+network:
+  ethernets:
+    ens3:
+      addresses: [10.20.20.10/24]
+      routes:
+        - to: default
+          via: 10.20.20.1
+      nameservers:
+        addresses: [10.10.10.20, 8.8.8.8]
+  version: 2
+```
+
+### LDAP-Server (10.20.20.20)
 ```yaml
 network:
   ethernets:
@@ -81,11 +103,11 @@ network:
         - to: default
           via: 10.20.20.1
       nameservers:
-        addresses: [8.8.8.8]
+        addresses: [10.10.10.20, 8.8.8.8]
   version: 2
 ```
 
-### aegis-forwarder (10.30.30.10)
+### aegis-ADMIN (10.30.30.10)
 ```yaml
 network:
   ethernets:
@@ -95,7 +117,7 @@ network:
         - to: default
           via: 10.30.30.1
       nameservers:
-        addresses: [8.8.8.8]
+        addresses: [10.10.10.20, 8.8.8.8]
   version: 2
 ```
 
@@ -128,16 +150,28 @@ ping -c 2 10.10.10.10 # bank-web ✅
 ```bash
 sudo apt update
 sudo apt install -y apache2 php libapache2-mod-php php-mysql \
-    vsftpd suricata fail2ban openssh-server
+    vsftpd suricata fail2ban openssh-server libapache2-mod-security2
 ```
 
-### customer-db (10.20.20.20)
+### DNS-Server (10.10.10.20)
 ```bash
 sudo apt update
-sudo apt install -y postgresql suricata fail2ban openssh-server
+sudo apt install -y bind9 bind9utils fail2ban openssh-server
 ```
 
-### aegis-forwarder (10.30.30.10)
+### customer-db (10.20.20.10)
+```bash
+sudo apt update
+sudo apt install -y mysql-server suricata fail2ban openssh-server
+```
+
+### LDAP-Server (10.20.20.20)
+```bash
+sudo apt update
+sudo apt install -y slapd ldap-utils fail2ban openssh-server
+```
+
+### aegis-ADMIN (10.30.30.10)
 ```bash
 sudo apt update
 sudo apt install -y python3 python3-pip python3-requests openssh-client

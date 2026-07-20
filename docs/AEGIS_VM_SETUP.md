@@ -1,7 +1,7 @@
-# AEGIS VM Setup Guide — aegis-forwarder (10.30.30.10)
+# AEGIS VM Setup Guide — aegis-ADMIN (10.30.30.10)
 
-> Script တစ်ခုတည်း (`aegis_forwarder.py --mode hub`) ကို AEGIS VM မှာ run ပြီး
-> bank-web, customer-db, pfSense အကုန် cover လုပ်တယ်။
+> Script တစ်ခုတည်း (`aegis_forwarder.py --mode hub`) ကို aegis-ADMIN VM မှာ run ပြီး
+> bank-web, DNS-Server, customer-db, LDAP-Server, pfSense အကုန် cover လုပ်တယ်။
 
 ---
 
@@ -74,7 +74,7 @@ VM_NAME=ubuntu
 
 ---
 
-## အဆင့် 5 — SSH Key setup (bank-web + customer-db)
+## အဆင့် 5 — SSH Key setup (bank-web + DNS-Server + customer-db + LDAP-Server)
 
 Hub mode က bank VMs တွေထဲ SSH ဝင်ပြီး log tail တယ် — password မပါဘဲ ဝင်နိုင်ဖို့:
 
@@ -85,28 +85,35 @@ ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N ""
 # bank-web ထဲ key ကူး
 ssh-copy-id sithu@10.10.10.10
 
+# DNS-Server ထဲ key ကူး
+ssh-copy-id sithu@10.10.10.20
+
 # customer-db ထဲ key ကူး
+ssh-copy-id sithu@10.20.20.10
+
+# LDAP-Server ထဲ key ကူး (optional — sensors ထည့်ပြီးမှ)
 ssh-copy-id sithu@10.20.20.20
 
 # test
 ssh -o BatchMode=yes sithu@10.10.10.10 echo "OK"
-ssh -o BatchMode=yes sithu@10.20.20.20 echo "OK"
+ssh -o BatchMode=yes sithu@10.10.10.20 echo "OK"
+ssh -o BatchMode=yes sithu@10.20.20.10 echo "OK"
 ```
 
 ---
 
-## အဆင့် 6 — bank-web / customer-db မှာ sudo iptables ခွင့်ပြု
+## အဆင့် 6 — bank VMs မှာ sudo iptables ခွင့်ပြု
 
 Defense command (IP block) တွေ execute နိုင်ဖို့ bank VMs မှာ ဒါ လုပ်ပေး:
 
 ```bash
-# bank-web မှာ SSH ဝင်ပြီး run (OR bank-web ကို SSH ဝင်ပြီး run)
+# bank-web မှာ
 ssh sithu@10.10.10.10
 echo "sithu ALL=(root) NOPASSWD: /sbin/iptables" | sudo tee -a /etc/sudoers.d/aegis
 exit
 
-# customer-db မှာလည်း
-ssh sithu@10.20.20.20
+# customer-db မှာ
+ssh sithu@10.20.20.10
 echo "sithu ALL=(root) NOPASSWD: /sbin/iptables" | sudo tee -a /etc/sudoers.d/aegis
 exit
 ```
@@ -129,15 +136,17 @@ python3 aegis_forwarder.py --mode hub
 ║            AEGIS Forwarder — Blue Team v3                        ║
 ╚══════════════════════════════════════════════════════════════════╝
   Target  : https://aegis-api-server-jp3b.onrender.com/api
-  Mode    : hub  ← hub: covers bank-web, customer-db, pfSense
+  Mode    : hub  ← hub: covers bank-web, DNS-Server, customer-db, LDAP-Server, pfSense
 
   [*] Registering host with AEGIS...
-  ✓ Host registered: aegis-forwarder (10.30.30.10)
-  ► defense_agent thread started (hub — covering [aegis, pfsense, bank-web, customer-db])
+  ✓ Host registered: aegis-ADMIN (10.30.30.10)
+  ► defense_agent thread started (hub — covering [aegis, pfsense, bank-web, dns-server, customer-db, ldap-server])
 
-  Hub mode — remote hosts (2):
-    bank-web        10.10.10.10  sensors=[suricata, snort, fail2ban, ssh, http, ftp]
-    customer-db     10.20.20.20  sensors=[suricata, fail2ban, ssh, postgresql]
+  Hub mode — remote hosts (4):
+    bank-web        10.10.10.10  sensors=[suricata, fail2ban, ssh, http, ftp]
+    dns-server      10.10.10.20  sensors=[fail2ban, ssh]
+    customer-db     10.20.20.10  sensors=[suricata, fail2ban, ssh, mysql]
+    ldap-server     10.20.20.20  sensors=[fail2ban, ssh]
   pfSense API  : 10.30.30.1
 
   ► bank-web/suricata thread started

@@ -133,7 +133,7 @@ Fail2ban
 │  ├── SSH auth     → /var/log/auth.log                                │
 │  └── vsftpd       → /var/log/vsftpd.log                              │
 │                                                                       │
-│  customer-db (10.20.20.20)                                            │
+│  customer-db (10.20.20.10)                                            │
 │  ├── Suricata     → /var/log/suricata/eve.json                       │
 │  ├── Fail2ban     → /var/log/fail2ban.log                            │
 │  └── SSH auth     → /var/log/auth.log                                │
