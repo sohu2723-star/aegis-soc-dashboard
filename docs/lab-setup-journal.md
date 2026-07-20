@@ -1245,3 +1245,18 @@ ovs-vsctl set port eth2 tag=20   # LDAP-Server
 | `docs/GNS3_SETUP.md` | Full v4 rewrite — v3 content အကုန် ဖျက်၊ OVS/DNS/LDAP sections ထည့်၊ Router-2 section ဖျက် |
 | `docs/PROJECT_LOG.md` | v4 topology diagram + platform table + Phase 4 update |
 | `docs/PROJECT_BOOK.md` | v4 topology (ခုနကအဆက်ကတည်းကပြီး) |
+
+---
+
+### [2026-07-20] — v4 Topology Code Sync + DB Health Endpoint
+
+**Status:** ✅ Done
+**What:** atm-server → ldap-server ပြောင်းထားတဲ့ v4 topology ကို code တွေမှာ sync လုပ်ပြီး DB health check ထည့်
+**How:**
+- `attack-flow.tsx` — `atmserver` node → `ldapserver` (OpenLDAP · slapd, 10.20.20.20); EDGES + getAttackPath routing update
+- `setup.tsx` — atm-server ရှိသမျှ → ldap-server; slapd install commands ထည့်
+- `host-utils.tsx` — GENERIC_LABELS မှာ `ldap-server` ထည့်
+- `auto-defense.ts` — SSH brute force rule `atm-server` → `ldap-server` (targetVm ပါ)
+- `routes/health.ts` — `/api/healthz` မှာ real DB ping (`SELECT 1`) ထည့်; DB down ဆိုရင် 503 + `{ status: "degraded", db: "error" }` return
+**Result:** API server build ✅, both workflows running; health endpoint DB-aware ဖြစ်သွား
+**Next:** aegis_forwarder.py မှာ ldap-server (slapd) log watcher ထည့်ရမယ်

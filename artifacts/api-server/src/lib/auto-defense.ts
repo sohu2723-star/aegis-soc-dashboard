@@ -361,7 +361,7 @@ export async function seedDefaultRules() {
   const existingNames = new Set(existing.map(r => r.name));
 
   const defaults: Array<typeof defenseRulesTable.$inferInsert> = [
-    // ── SSH brute force — bank-web (10.10.10.10), customer-db (10.20.20.10), dns-server (10.10.10.20), atm-server (10.20.20.20) ──
+    // ── SSH brute force — bank-web (10.10.10.10), customer-db (10.20.20.10), dns-server (10.10.10.20), ldap-server (10.20.20.20) ──
     {
       name: "SSH Brute Force → Auto Block (bank-web)",
       description: "Block any IP with ≥5 SSH failures in 60s on bank-web (10.10.10.10). Executed by forwarder via iptables.",
@@ -387,12 +387,12 @@ export async function seedDefaultRules() {
       targetVm: "dns-server", priority: 13, isActive: true,
     },
     {
-      name: "SSH Brute Force → Auto Block (atm-server)",
-      description: "Block any IP with ≥5 SSH failures in 60s on atm-server (10.20.20.20). Executed by forwarder via iptables.",
+      name: "SSH Brute Force → Auto Block (ldap-server)",
+      description: "Block any IP with ≥5 SSH failures in 60s on ldap-server (10.20.20.20). Executed by forwarder via iptables.",
       triggerAttackType: "ssh_brute", triggerSeverity: "any",
       triggerThreshold: 5, triggerWindowSecs: 60,
       actionType: "auto", defenseType: "block_ip",
-      targetVm: "atm-server", priority: 14, isActive: true,
+      targetVm: "ldap-server", priority: 14, isActive: true,
     },
     // ── DNS attack — dns-server (BIND9 on 10.10.10.20) ─────────────────────
     {

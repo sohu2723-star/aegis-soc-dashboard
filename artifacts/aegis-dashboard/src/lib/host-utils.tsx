@@ -23,6 +23,7 @@ const GENERIC_LABELS: Record<string, { label: string; role: "defender" | "attack
   "bank-web":         { label: "bank-web",        role: "defender" },
   "customer-db":      { label: "customer-db",     role: "defender" },
   "dns-server":       { label: "dns-server",      role: "defender" },
+  "ldap-server":      { label: "ldap-server",      role: "defender" },
   "atm-server":       { label: "atm-server",      role: "defender" },
   "aegis-forwarder":  { label: "aegis-forwarder", role: "defender" },
   "aegis":            { label: "aegis-forwarder", role: "defender" },

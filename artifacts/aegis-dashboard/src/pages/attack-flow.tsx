@@ -7,7 +7,7 @@ const VW = 960;
 const VH = 520;
 
 // ── Node definitions — real lab topology (v4 simplified) ─────────────────────
-// Path: Attacker → R1 → pfSense (OVS switches) → bank-web / dns-server / customer-db / atm-server
+// Path: Attacker → R1 → pfSense (OVS switches) → bank-web / dns-server / customer-db / ldap-server
 //       → MGMT: aegis-forwarder (10.30.30.10) → AEGIS Dashboard
 const NODES = {
   attacker: {
@@ -59,12 +59,12 @@ const NODES = {
     color: "#22c55e", glow: "rgba(34,197,94,0.3)",
     icon: "🗄",
   },
-  atmserver: {
+  ldapserver: {
     x: 570, y: 490,
-    label: "atm-server", sub: "Flask ATM API",
+    label: "ldap-server", sub: "OpenLDAP · slapd",
     ip: "10.20.20.20 (Internal)",
     color: "#22c55e", glow: "rgba(34,197,94,0.3)",
-    icon: "🏧",
+    icon: "📂",
   },
   aegis: {
     x: 790, y: 300,
@@ -92,7 +92,7 @@ const EDGES: [NodeKey, NodeKey][] = [
   ["pfsense",   "dnsserver"],  // pfSense → Public-Switch → dns-server (10.10.10.20)
   ["pfsense",   "forwarder"],  // pfSense MGMT → aegis-forwarder (10.30.30.10)
   ["pfsense",   "customerdb"], // pfSense → Internal-Switch → customer-db (10.20.20.10)
-  ["pfsense",   "atmserver"],  // pfSense → Internal-Switch → atm-server (10.20.20.20)
+  ["pfsense",   "ldapserver"],  // pfSense → Internal-Switch → ldap-server (10.20.20.20)
   ["forwarder", "aegis"],      // aegis-forwarder → AEGIS Dashboard (via Render API)
 ];
 
@@ -110,8 +110,8 @@ function getAttackPath(targetHost: string | null | undefined): NodeKey[] {
   if (t.includes("dns") || t === "10.10.10.20" || t.includes("bind")) {
     return ["attacker", "r1", "pfsense", "dnsserver"];
   }
-  if (t.includes("atm") || t === "10.20.20.20" || t.includes("flask")) {
-    return ["attacker", "r1", "pfsense", "atmserver"];
+  if (t.includes("ldap") || t === "10.20.20.20" || t.includes("slapd") || t.includes("openldap")) {
+    return ["attacker", "r1", "pfsense", "ldapserver"];
   }
   if (t.includes("db") || t.includes("customer") || t === "10.20.20.10" || t.includes("postgres") || t.includes("sql")) {
     return ["attacker", "r1", "pfsense", "customerdb"];

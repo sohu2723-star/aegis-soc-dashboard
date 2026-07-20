@@ -98,7 +98,7 @@ export default function SetupGuide() {
                      │                │                │
                [bank-web]      [customer-db]   [aegis-forwarder]
            10.10.10.10  10.10.10.20  10.20.20.10  10.20.20.20  10.30.30.10
-           Apache       BIND9        MySQL        Flask ATM    Hub agent
+           Apache       BIND9        MySQL        OpenLDAP     Hub agent
            ModSecurity  Fail2ban     Fail2ban     Fail2ban     (SSH → VMs)
 
 aegis-forwarder (hub): SSHes into all VMs → tails logs → POST to API`}</pre>
@@ -173,8 +173,8 @@ aegis-forwarder (hub): SSHes into all VMs → tails logs → POST to API`}</pre>
                     <TableCell className="font-mono text-muted-foreground text-xs">Ubuntu 24.04</TableCell>
                   </TableRow>
                   <TableRow className="border-border">
-                    <TableCell className="font-medium text-cyan-400">atm-server</TableCell>
-                    <TableCell>ATM API (Internal)</TableCell>
+                    <TableCell className="font-medium text-cyan-400">ldap-server</TableCell>
+                    <TableCell>LDAP Directory (Internal)</TableCell>
                     <TableCell className="font-mono text-muted-foreground text-xs">10.20.20.20/24</TableCell>
                     <TableCell className="font-mono text-muted-foreground text-xs">Ubuntu 24.04</TableCell>
                   </TableRow>
@@ -208,7 +208,7 @@ aegis-forwarder (hub): SSHes into all VMs → tails logs → POST to API`}</pre>
                 <div className="bg-muted/20 p-4 rounded border border-border">
                   <h4 className="text-sm font-bold mb-2 uppercase text-primary">pfSense Zones</h4>
                   <p className="text-sm text-muted-foreground font-mono">PUBLIC · INTERNAL · MGMT</p>
-                  <p className="text-xs mt-2">bank-web + dns-server (Public), customer-db + atm-server (Internal), aegis (MGMT).</p>
+                  <p className="text-xs mt-2">bank-web + dns-server (Public), customer-db + ldap-server (Internal), aegis (MGMT).</p>
                 </div>
               </div>
               <div className="bg-muted/20 p-4 rounded border border-border">
@@ -224,7 +224,7 @@ aegis-forwarder (hub): SSHes into all VMs → tails logs → POST to API`}</pre>
                   <p>10.10.10.20   — dns-server (BIND9)</p>
                   <p>10.20.20.1    — pfSense INTERNAL gateway (OVS Internal-Switch)</p>
                   <p>10.20.20.10   — customer-db (MySQL, Fail2ban)</p>
-                  <p>10.20.20.20   — atm-server (Flask ATM API)</p>
+                  <p>10.20.20.20   — ldap-server (OpenLDAP / slapd)</p>
                   <p>10.30.30.1    — pfSense MGMT gateway</p>
                   <p>10.30.30.10   — aegis-forwarder (hub)</p>
                 </div>
@@ -380,19 +380,21 @@ sudo apt install -y fail2ban mysql-server ufw iptables
 
 sudo systemctl enable --now fail2ban mysql`} />
 
-              <h3 className="text-sm font-bold uppercase text-primary mt-4">atm-server (10.20.20.20) — Internal</h3>
-              <CodeBlock language="bash" code={`# ATM API + security
-sudo apt install -y python3 python3-pip python3-flask python3-psycopg2 fail2ban ufw iptables
+              <h3 className="text-sm font-bold uppercase text-primary mt-4">ldap-server (10.20.20.20) — Internal</h3>
+              <CodeBlock language="bash" code={`# OpenLDAP + security tools
+sudo apt install -y slapd ldap-utils fail2ban ufw iptables
 
-# ATM service (connects to customer-db 10.20.20.10:5432)
-sudo systemctl enable --now fail2ban`} />
+# Configure OpenLDAP base DN
+sudo dpkg-reconfigure slapd
+
+sudo systemctl enable --now fail2ban slapd`} />
 
               <h3 className="text-sm font-bold uppercase text-primary mt-4">Verify SSH from AEGIS VM</h3>
               <CodeBlock language="bash" code={`# From AEGIS VM (10.30.30.10):
 ssh sithu@10.10.10.10 "sudo tail -5 /var/log/suricata/eve.json"
 ssh sithu@10.10.10.20 "sudo systemctl status bind9"
 ssh sithu@10.20.20.10 "sudo tail -5 /var/log/auth.log"
-ssh sithu@10.20.20.20 "sudo systemctl status atm"`} />
+ssh sithu@10.20.20.20 "sudo systemctl status slapd"`} />
             </section>
 
             {/* ── 6. pfSense Config ── */}
@@ -408,7 +410,7 @@ ssh sithu@10.20.20.20 "sudo systemctl status atm"`} />
                   <div className="font-mono text-xs space-y-1 text-muted-foreground">
                     <p>em0 (WAN)      → 10.0.23.2/30  — upstream: R1 ether3</p>
                     <p>em1 (PUBLIC)   → 10.10.10.1/24 — OVS Public-Switch (bank-web, dns-server)</p>
-                    <p>em2 (INTERNAL) → 10.20.20.1/24 — OVS Internal-Switch (customer-db, atm-server)</p>
+                    <p>em2 (INTERNAL) → 10.20.20.1/24 — OVS Internal-Switch (customer-db, ldap-server)</p>
                     <p>em3 (MGMT)     → 10.30.30.1/24 — direct to aegis-forwarder</p>
                   </div>
                 </div>
