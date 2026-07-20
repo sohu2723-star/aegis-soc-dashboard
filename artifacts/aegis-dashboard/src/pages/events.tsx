@@ -93,7 +93,8 @@ export default function Events() {
             <TableRow className="border-border">
               <TableHead className="w-[160px]">Timestamp</TableHead>
               <TableHead className="w-[90px]">Severity</TableHead>
-              <TableHead>Type</TableHead>
+              <TableHead className="w-[120px]">Type</TableHead>
+              <TableHead>Rule / Signature</TableHead>
               <TableHead>Source</TableHead>
               <TableHead>Target</TableHead>
               <TableHead className="w-[90px]">Status</TableHead>
@@ -102,13 +103,13 @@ export default function Events() {
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                   Analyzing network traffic...
                 </TableCell>
               </TableRow>
             ) : filtered.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                   {selectedDevice
                     ? `No events for ${selectedDevice.hostname} (${selectedDevice.ip}).`
                     : "No events detected."}
@@ -134,6 +135,18 @@ export default function Events() {
                   </Badge>
                 </TableCell>
                 <TableCell className="font-medium text-primary text-sm">{event.type}</TableCell>
+                <TableCell className="max-w-[260px]">
+                  {event.subtype ? (
+                    <span
+                      className="font-mono text-xs text-yellow-400 truncate block"
+                      title={event.description ?? event.subtype}
+                    >
+                      {event.subtype}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">—</span>
+                  )}
+                </TableCell>
                 <TableCell><span className="font-mono text-xs text-cyan-400">{event.sourceIp}</span></TableCell>
                 <TableCell><HostLabel ip={event.targetHost} /></TableCell>
                 <TableCell>
