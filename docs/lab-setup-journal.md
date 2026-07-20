@@ -664,6 +664,31 @@ ping -c 3 8.8.8.8
 
 ---
 
+## [2026-07-20] — Forwarder: bank-web http_access Sensor + pfSense Suricata Dual-Interface
+
+**Status:** ✅ Done
+**What:** forwarder script ၂ ခု fix —
+1. `bank-web` sensors list မှာ `http_access` (Apache access.log login breach detection) ထည့်
+2. `_watch_pfsense_suricata()` ကို dual-interface support (PUBLIC em1.10 + INTERNAL em2.20) ဖို့ update; hub mode မှာ ၂ thread spawn ဖြစ်အောင် ပြောင်း
+
+**Code changes:**
+- `scripts/src/aegis_forwarder.py`
+  - `bank-web` sensors: `["fail2ban", "ssh", "http"]` → `["fail2ban", "ssh", "http", "http_access"]`
+  - `_watch_pfsense_suricata(log_path)` — path parameter accept ဖို့ refactor; default path ကို `suricata_em0` မှ lab v4 path `suricata_em110` (PUBLIC) သို့ ပြောင်း
+  - Hub mode launcher — `PFSENSE_SURICATA_LOGS` (comma-separated) config check ထည့်; default = PUBLIC `em1.10` + INTERNAL `em2.20` ၂ thread
+- `scripts/src/aegis_forwarder.local.conf.example` — `PFSENSE_SURICATA_LOGS` / `PFSENSE_SURICATA_LOG` documentation ထည့်
+
+**How:**
+```
+# hub mode မှာ ခု ဒီ threads run မယ်:
+►  pfSense Suricata IDS [PUBLIC(em1.10)]   → /var/db/suricata/suricata_em110/eve.json
+►  pfSense Suricata IDS [INTERNAL(em2.20)] → /var/db/suricata/suricata_em220/eve.json
+```
+**Result:** Python syntax ✅, API server build ✅
+**Next:** Aegis VM မှာ forwarder update (`wget` + `systemctl restart`) လုပ်ပြီး pfSense Suricata threads connect ဖြစ်မဖြစ် journalctl မှာ စစ်ရမည်
+
+---
+
 ## [2026-07-21] — Behavioral Analysis: Breach vs Authorized Login Classification
 
 **Status:** ✅ Done
@@ -1347,7 +1372,7 @@ INTERNAL `/var/db/suricata/suricata_em220/rules/custom.rules`:
 
 **Test:** `nmap -sS 10.10.10.10` Kali မှာ run → Services → Suricata → Alerts tab → PUBLIC instance ရွေး → alert ပေါ်လာရမည်
 
-**Next:** Eve.json AEGIS signatures confirm + aegis_forwarder.py မှာ pfSense Suricata log path connect လုပ်ရမည်
+**Next:** ~~Eve.json AEGIS signatures confirm + aegis_forwarder.py မှာ pfSense Suricata log path connect လုပ်ရမည်~~ ✅ Done (see entry below)
 
 ---
 
@@ -1363,4 +1388,4 @@ INTERNAL `/var/db/suricata/suricata_em220/rules/custom.rules`:
   - Generic `/ingest/event`: optional `signature_text` field accept + store
 - `artifacts/aegis-dashboard/src/pages/events.tsx` — "Matched Detection Rule" block ထဲ "Full Rule Text" pre block ထည့် (font-mono, dark bg, yellow text)
 **Result:** Build clean ✅. API server restart ✅. Supabase column migration ကျန်တယ် (user run ရမည်).
-**Next:** Supabase SQL editor မှာ `ALTER TABLE security_events ADD COLUMN IF NOT EXISTS signature_text text;` run ပြီး forwarder က `signature_text` field ထည့်ပို့ရမည်
+**Next:** ~~Supabase SQL editor မှာ `ALTER TABLE security_events ADD COLUMN IF NOT EXISTS signature_text text;` run ပြီး forwarder က `signature_text` field ထည့်ပို့ရမည်~~ ✅ Migration already run (confirmed in memory).

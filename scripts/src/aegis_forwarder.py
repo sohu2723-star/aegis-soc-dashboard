@@ -77,7 +77,7 @@ REMOTE_HOSTS = [h for h in [
     {
         "name": "bank-web",
         "ip":   BANKWEB_IP,
-        "sensors": ["fail2ban", "ssh", "http"],
+        "sensors": ["fail2ban", "ssh", "http", "http_access"],
         # services to health-check via SSH systemctl on this VM
         "health_services": [
             ("fail2ban",  "Fail2ban",        "sensor"),
@@ -1178,17 +1178,24 @@ def _remote_register_host(host_name: str, host_ip: str):
         print(f"  WARN Remote host registration {host_name} failed: {e}")
 
 
-def _watch_pfsense_suricata():
+def _watch_pfsense_suricata(log_path: str | None = None):
     """
-    SSH into pfSense (PFSENSE_IP) and tail Suricata EVE JSON log.
-    pfSense Suricata writes EVE JSON to /var/log/suricata/<iface>/eve.json.
-    Set PFSENSE_SURICATA_LOG in aegis_forwarder.local.conf if your path differs.
-    Default: /var/log/suricata/suricata_em0/eve.json  (em0 = WAN on typical pfSense)
+    SSH into pfSense (PFSENSE_IP) and tail one Suricata EVE JSON log.
+    Call this once per Suricata interface (PUBLIC em1.10 + INTERNAL em2.20).
 
-    aegis_forwarder.local.conf example:
-        PFSENSE_SURICATA_LOG = /var/log/suricata/suricata_em0/eve.json
+    aegis_forwarder.local.conf examples:
+        # Single custom path (overrides both defaults):
+        PFSENSE_SURICATA_LOG = /var/db/suricata/suricata_em110/eve.json
+        # Two paths — comma-separated (hub mode spawns one thread per path):
+        PFSENSE_SURICATA_LOGS = /var/db/suricata/suricata_em110/eve.json,/var/db/suricata/suricata_em220/eve.json
+
+    Defaults (lab topology v4):
+        PUBLIC  (em1.10): /var/db/suricata/suricata_em110/eve.json  (bank-web + DNS)
+        INTERNAL(em2.20): /var/db/suricata/suricata_em220/eve.json  (customer-db + LDAP)
     """
-    log_path = _cfg("PFSENSE_SURICATA_LOG", "/var/log/suricata/suricata_em0/eve.json")
+    if log_path is None:
+        log_path = _cfg("PFSENSE_SURICATA_LOG",
+                        "/var/db/suricata/suricata_em110/eve.json")
     ssh_key  = os.path.expanduser(PFSENSE_SSH_KEY)
     ssh_cmd  = [
         "ssh", "-T",
@@ -1738,12 +1745,26 @@ def run_hub_mode():
             threads.append(t)
             print(f"  ► {h['name']}/{sensor} thread started")
 
-    # pfSense Suricata IDS — dedicated thread, uses pfSense SSH key
-    pf_sur = threading.Thread(target=_watch_pfsense_suricata, daemon=True,
-                              name="pfsense-suricata")
-    pf_sur.start()
-    threads.append(pf_sur)
-    print("  ► pfSense Suricata IDS thread started")
+    # pfSense Suricata IDS — one thread per interface log (PUBLIC + INTERNAL)
+    # Configurable via PFSENSE_SURICATA_LOGS (comma-separated paths) or
+    # PFSENSE_SURICATA_LOG (single path, used for both if LOGS not set).
+    _pf_logs_raw = _cfg("PFSENSE_SURICATA_LOGS", "")
+    if _pf_logs_raw:
+        _pf_log_paths = [p.strip() for p in _pf_logs_raw.split(",") if p.strip()]
+    else:
+        # Default: lab topology v4 — PUBLIC (em1.10) + INTERNAL (em2.20)
+        _default_public   = "/var/db/suricata/suricata_em110/eve.json"
+        _default_internal = "/var/db/suricata/suricata_em220/eve.json"
+        _single = _cfg("PFSENSE_SURICATA_LOG", "")
+        _pf_log_paths = [_single, _single] if _single else [_default_public, _default_internal]
+    _pf_iface_labels = ["PUBLIC(em1.10)", "INTERNAL(em2.20)"] + ["extra"] * 8
+    for idx, _lp in enumerate(_pf_log_paths):
+        _label = _pf_iface_labels[idx] if idx < len(_pf_iface_labels) else f"iface{idx}"
+        pf_sur = threading.Thread(target=_watch_pfsense_suricata, args=(_lp,),
+                                  daemon=True, name=f"pfsense-suricata-{idx}")
+        pf_sur.start()
+        threads.append(pf_sur)
+        print(f"  ► pfSense Suricata IDS thread started [{_label}] → {_lp}")
 
     print()
     try:
