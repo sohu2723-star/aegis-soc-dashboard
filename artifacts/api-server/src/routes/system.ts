@@ -172,9 +172,9 @@ const ALWAYS_DELETE_COMPONENTS = [
 
 // Old IPs that no longer exist in the topology — rows with these hostIps must be purged
 // so stale DB entries (from old forwarder versions) don't appear on the dashboard.
-const OBSOLETE_HOST_IPS = [
-  "10.20.20.20",  // old customer-db IP before topology v4 (now 10.20.20.10); atm-server uses .20 but registers its own rows
-];
+// NOTE: 10.20.20.20 was the old customer-db IP (now 10.20.20.10) and briefly planned for
+// atm-server, but v4 topology assigns it to ldap-server — DO NOT add it here.
+const OBSOLETE_HOST_IPS: string[] = [];
 
 async function purgeStaleRows() {
   const [all, hosts] = await Promise.all([

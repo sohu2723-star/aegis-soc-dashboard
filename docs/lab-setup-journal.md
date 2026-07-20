@@ -1417,3 +1417,37 @@ INTERNAL `/var/db/suricata/suricata_em220/rules/custom.rules`:
 - `artifacts/aegis-dashboard/src/pages/events.tsx` — "Matched Detection Rule" block ထဲ "Full Rule Text" pre block ထည့် (font-mono, dark bg, yellow text)
 **Result:** Build clean ✅. API server restart ✅. Supabase column migration ကျန်တယ် (user run ရမည်).
 **Next:** ~~Supabase SQL editor မှာ `ALTER TABLE security_events ADD COLUMN IF NOT EXISTS signature_text text;` run ပြီး forwarder က `signature_text` field ထည့်ပို့ရမည်~~ ✅ Migration already run (confirmed in memory).
+
+---
+
+## [2026-07-20] — Replit Project Import + Environment Setup
+
+**Status:** ✅ Done
+**What:** GitHub repo ကို Replit ထဲ import လုပ်ပြီး development environment setup လုပ်ခဲ့တယ်။ Dependencies install + secrets configure + workflows run
+
+**How:**
+```bash
+pnpm install   # 473 packages installed from lockfile
+```
+
+Required secrets (Replit Secrets panel မှာ set):
+- `SUPABASE_DB_URL` — Supabase pooler URI (port 6543)
+- `AEGIS_INGEST_KEY` — VM sensor auth key
+- `AEGIS_ADMIN_KEY` — Admin endpoint key
+- `SESSION_SECRET` — JWT signing secret
+- `GROQ_API_KEY` — Groq AI summaries
+- `TELEGRAM_BOT_TOKEN` — Alert notifications
+- `TELEGRAM_CHAT_ID` — Telegram target chat
+
+**Workflows running:**
+- **Start application** — `pnpm --filter @workspace/aegis-dashboard run dev` (port 5000)
+- **API Server** — `PORT=3000 pnpm --filter @workspace/api-server run dev` (port 3000)
+
+**Bug fixed — `system.ts` OBSOLETE_HOST_IPS:**
+- `"10.20.20.20"` ကို OBSOLETE_HOST_IPS ထဲ ထည့်ထားတယ် (old customer-db IP မှ ကျန်ခဲ့တာ)
+- v4 topology မှာ 10.20.20.20 = LDAP-Server ဆိုတော့ delete မလုပ်ရဘူး
+- seededPairs protection ကြောင့် seeded rows မပျက်ပေမဲ့ forwarder-registered non-seeded rows ကို incorrectly delete လုပ်နိုင်ခဲ့
+- **Fix:** OBSOLETE_HOST_IPS ကို empty array `[]` ဖြစ်အောင် ပြောင်း + comment update
+
+**Result:** API server ✅ running, Dashboard ✅ running (login page ပြနေ), LDAP-Server rows bug ✅ fixed
+**Next:** Aegis VM မှာ forwarder update (`wget` + `systemctl restart aegis-forwarder`) လုပ်ပြီး DNS/LDAP threads connect ဖြစ်မဖြစ် journalctl မှာ စစ်ရမည်
