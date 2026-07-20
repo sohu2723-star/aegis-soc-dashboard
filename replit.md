@@ -75,6 +75,38 @@ Render free tier spins down after 15 minutes of inactivity. First request after 
 - **pfSense** — Firewall/router (iptables / ufw rules, port blocking, null routing)
 - **AEGIS Dashboard** — Web monitoring UI only; receives real events via ingest API
 
+## Running on Replit (Development / Code Editing)
+
+Replit is used for code editing. The workflows below let you preview the app locally while making changes.
+
+### First-time setup
+```bash
+pnpm install   # installs all workspace dependencies
+```
+
+### Required Replit Secrets
+Set these in the Replit Secrets panel before starting workflows:
+
+| Secret | Description |
+|---|---|
+| `SUPABASE_DB_URL` | Supabase pooler URI — Settings → Database → URI, port **6543** |
+| `AEGIS_INGEST_KEY` | Ingest authentication key (must match Ubuntu VM forwarder) |
+| `AEGIS_ADMIN_KEY` | Admin endpoint key (`X-AEGIS-Admin-Key` header) |
+| `SESSION_SECRET` | Random string for JWT/session signing |
+| `GROQ_API_KEY` | *(optional)* Groq API key for AI report summaries |
+| `TELEGRAM_BOT_TOKEN` | *(optional)* Telegram bot token for alert notifications |
+| `TELEGRAM_CHAT_ID` | *(optional)* Telegram chat ID for alert notifications |
+
+`ADMIN_EMAIL` and `GOOGLE_CLIENT_ID` are already set as environment variables in `.replit`.
+
+### Workflows
+- **Start application** — React/Vite frontend on port 5000 (`pnpm --filter @workspace/aegis-dashboard run dev`)
+- **API Server** — Express API on port 3000 (`PORT=3000 pnpm --filter @workspace/api-server run dev`)
+
+Both workflows run in parallel via the **Project** run button.
+
+> **Note:** Google SSO will show a 403 on the Replit dev domain unless the `*.replit.dev` origin is added to the Google Cloud Console OAuth client. Use the access key login as an alternative during development.
+
 ## User Preferences
 
 - **Replit is used for code editing only** — not for running or deploying the app.
