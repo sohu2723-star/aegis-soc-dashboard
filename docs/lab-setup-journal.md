@@ -1181,3 +1181,67 @@ MGMT (direct)  → aegis-forwarder (10.30.30.10)
 | aegis_forwarder.py hub mode | Auto-defense rules |
 | Kali attack execution | Dashboard alert display |
 | New VMs: DNS, Mail, CCTV, VoIP | New cards for each service |
+
+---
+
+---
+
+## 2026-07-20 — Topology v4 Final — OVS Switches + DNS + LDAP + customer-db IP Change
+
+**Status:** ✅ Done  
+**What:** GNS3 lab topology ကို v3 မှ v4 (Final) သို့ upgrade လုပ်ခဲ့သည်။ OVS switch ၂ ခု ထည့်ပြီး DNS-Server (10.10.10.20) + LDAP-Server (10.20.20.20) VM အသစ် ၂ ခု ထည့်သည်။ customer-db IP ကို 10.20.20.20 မှ 10.20.20.10 သို့ ပြောင်းသည်။  
+**How:** GNS3 GUI မှ node ထည့်၊ OVS console မှ VLAN tag configure၊ docs အားလုံး v4 update  
+**Result:** v4 topology active ဖြစ်ပြီ — GNS3 lab ဓာတ်ပုံ confirm ဖြစ်တယ်  
+**Next:** DNS-Server (BIND9) + LDAP-Server (OpenLDAP) services install + aegis_forwarder.py hub mode မှာ new VMs ထည့် configure
+
+---
+
+### v4 Topology Changes Summary
+
+| Change | v3 | v4 |
+|---|---|---|
+| customer-db IP | 10.20.20.20 | **10.20.20.10** |
+| DNS-Server | မရှိ | **10.10.10.20** (DMZ) |
+| LDAP-Server | မရှိ | **10.20.20.20** (Internal) |
+| DMZ switch | မရှိ | **Public-Services OVS Switch** |
+| Internal switch | မရှိ | **Internal-Services OVS Switch** |
+| aegis VM name | aegis-forwarder | **aegis-ADMIN** |
+| Forwarder targets | bank-web + customer-db | bank-web + DNS + customer-db + LDAP |
+
+### v4 Full IP Plan
+
+| Node | IP | Zone |
+|---|---|---|
+| Router (ether1) | 192.168.122.2 | Internet |
+| Router (ether2) | 192.168.10.1 | Attacker GW |
+| Router (ether3) | 10.0.23.1 | pfSense WAN link |
+| pfSense WAN | 10.0.23.2 | — |
+| pfSense DMZ GW | 10.10.10.1 | DMZ |
+| pfSense INT GW | 10.20.20.1 | Internal |
+| pfSense MGMT GW | 10.30.30.1 | MGMT |
+| Attacker (Kali) | DHCP 192.168.10.x | Attacker |
+| bank-web | **10.10.10.10** | DMZ |
+| DNS-Server | **10.10.10.20** | DMZ (NEW) |
+| customer-db | **10.20.20.10** | Internal (IP ပြောင်း) |
+| LDAP-Server | **10.20.20.20** | Internal (NEW) |
+| aegis-ADMIN | **10.30.30.10** | MGMT |
+
+### OVS Switch VLAN Config
+
+```bash
+# Public-Services Switch
+ovs-vsctl set port eth1 tag=10   # bank-web
+ovs-vsctl set port eth2 tag=10   # DNS-Server
+
+# Internal-Services Switch
+ovs-vsctl set port eth1 tag=20   # customer-db
+ovs-vsctl set port eth2 tag=20   # LDAP-Server
+```
+
+### Docs Updated
+
+| File | Changes |
+|---|---|
+| `docs/GNS3_SETUP.md` | Full v4 rewrite — v3 content အကုန် ဖျက်၊ OVS/DNS/LDAP sections ထည့်၊ Router-2 section ဖျက် |
+| `docs/PROJECT_LOG.md` | v4 topology diagram + platform table + Phase 4 update |
+| `docs/PROJECT_BOOK.md` | v4 topology (ခုနကအဆက်ကတည်းကပြီး) |

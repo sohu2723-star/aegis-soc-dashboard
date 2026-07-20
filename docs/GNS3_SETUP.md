@@ -1,6 +1,6 @@
 # AEGIS-SecureBank — GNS3 Setup Guide
 > Last updated: 2026-07-20
-> Topology v4 (Final) — OVS Switch x2, DNS-Server + LDAP-Server added, customer-db IP = 10.20.20.10
+> Topology v4 (Final) — OVS Switch x2, DNS-Server (10.10.10.20) + LDAP-Server (10.20.20.20), customer-db IP = 10.20.20.10
 
 ---
 
@@ -11,178 +11,266 @@
 | GNS3 2.2.x | With KVM/QEMU backend |
 | pfSense CE 2.7.x | Download ISO from pfsense.org |
 | MikroTik CHR | RouterOS 7.x — chr-7.x.img |
-| Ubuntu Server 22.04 | For all bank VMs + aegis-forwarder |
+| Ubuntu Server 22.04 | For all bank VMs + aegis-ADMIN |
 | Kali Linux | Latest rolling release |
-| Python 3.10+ | On aegis-forwarder VM |
+| Open vSwitch (OVS) | GNS3 appliance — Public-Services + Internal-Services switches |
+| Python 3.10+ | On aegis-ADMIN VM only |
 
 ---
 
-## Quick IP Reference (v3 — Current)
+## Quick IP Reference (v4 — Final)
 
-| Node | IP | Network |
-|---|---|---|
-| Internet (virbr0) | — | 192.168.122.0/24 |
-| Router ether1 | 192.168.122.2/24 | Internet side |
-| Router ether2 | 192.168.10.1/24 | Kali DHCP gateway |
-| Router ether3 | 10.0.23.1/30 | pfSense WAN link |
-| Kali / Attacker | DHCP 192.168.10.x | 192.168.10.0/24 (pool .2–.100) |
-| pfSense WAN | 10.0.23.2/30 | R1↔pfSense |
-| pfSense BANK_WEB | 10.10.10.1/24 | DMZ |
-| pfSense CUSTOMER_DB | 10.20.20.1/24 | Internal |
-| pfSense MGMT | 10.30.30.1/24 | Management |
-| bank-web | 10.10.10.10/24 | DMZ |
-| customer-db | 10.20.20.20/24 | Internal |
-| aegis-forwarder | 10.30.30.10/24 | Management |
+| Node | IP | Network | Role |
+|---|---|---|---|
+| Internet (virbr0) | — | 192.168.122.0/24 | GNS3 NAT cloud |
+| Router e0 (ether1) | 192.168.122.2/24 | Internet side | MikroTik CHR |
+| Router e1 (ether2) | 192.168.10.1/24 | Attacker DHCP gateway | |
+| Router e2 (ether3) | 10.0.23.1/30 | pfSense WAN link | |
+| Kali / Attacker | DHCP 192.168.10.x | 192.168.10.0/24 | Red Team |
+| pfSense WAN (e0) | 10.0.23.2/30 | Router↔pfSense | |
+| pfSense DMZ (e1) | 10.10.10.1/24 | Public Services GW | |
+| pfSense INT (e2) | 10.20.20.1/24 | Internal Services GW | |
+| pfSense MGMT (e3) | 10.30.30.1/24 | Management GW | |
+| Public-Services OVS | — | — | DMZ switch |
+| bank-web | 10.10.10.10/24 | DMZ | Apache2, vsftpd, Suricata, Fail2ban |
+| DNS-Server | 10.10.10.20/24 | DMZ | BIND9 DNS |
+| Internal-Services OVS | — | — | Internal switch |
+| customer-db | 10.20.20.10/24 | Internal | MySQL, Suricata, Fail2ban |
+| LDAP-Server | 10.20.20.20/24 | Internal | OpenLDAP |
+| aegis-ADMIN | 10.30.30.10/24 | Management | Hub agent (SSH → bank VMs) |
 
-**Removed:** Router-2, Switch1, bank-mail (10.10.10.20), teller-pc (10.20.20.10)
+**Removed from v3:** Router-2, Switch1, bank-mail (10.10.10.20 old), teller-pc (10.20.20.10 old)
 
 ---
 
 ## Step 1 — GNS3 Node Placement & Cabling
 
-### Nodes to create (v3 — Current)
+### Nodes to create (v4)
 
-| Node | Template | Interfaces |
+| Node | Template | Interfaces needed |
 |---|---|---|
 | Internet | Cloud node (virbr0) | virbr0 |
-| Router | MikroTik CHR | ether1(e0), ether2(e1), ether3(e2) |
+| Router | MikroTik CHR | e0 (ether1), e1 (ether2), e2 (ether3) |
 | Attacker | Kali Linux | e0 |
-| pfSense | pfSense CE VM | vtnet0(e0), vtnet1(e1), vtnet2(e2), vtnet3(e3) |
-| Public-Service Switch | Ethernet switch | e0–e2 |
-| Internal-Service Switch | Ethernet switch | e0–e2 |
-| bank-web | Ubuntu Server | e0 |
-| customer-db | Ubuntu Server | e0 |
-| aegis-forwarder | Ubuntu Server | e0 |
+| pfSense | pfSense CE VM | e0 (WAN), e1 (DMZ), e2 (INT), e3 (MGMT) |
+| Public-Services | Open vSwitch | eth0, eth1, eth2 |
+| Internal-Services | Open vSwitch | eth0, eth1, eth2 |
+| bank-web | Ubuntu Server 22.04 | e0 |
+| DNS-Server | Ubuntu Server 22.04 | e0 |
+| customer-db | Ubuntu Server 22.04 | e0 |
+| LDAP-Server | Ubuntu Server 22.04 | e0 |
+| aegis-ADMIN | Ubuntu Server 22.04 | e0 |
 
-### Cable connections (v3)
+### Cable connections (v4)
 
 ```
-Internet/virbr0  → Router e0 (ether1: 192.168.122.2)  [direct]
-Attacker/Kali e0 → Router e1 (ether2: 192.168.10.1)  [direct, no switch]
-Router e2 (ether3: 10.0.23.1) → pfSense e0 WAN (10.0.23.2)  [direct]
-pfSense e1 (BANK_WEB: 10.10.10.1) → Public-Service Switch e0
-pfSense e2 (CUSTOMER_DB: 10.20.20.1) → Internal-Service Switch e0
-pfSense e3 (MGMT: 10.30.30.1) → aegis-forwarder e0 (10.30.30.10)  [direct]
-Public-Service Switch e1 → bank-web e0 (10.10.10.10)
-Internal-Service Switch e1 → customer-db e0 (10.20.20.20)
+Internet/virbr0       → Router e0 (ether1: 192.168.122.2)       [direct]
+Attacker/Kali e0      → Router e1 (ether2: DHCP gateway .1)     [direct]
+Router e2 (ether3)    → pfSense e0 WAN (10.0.23.x /30)          [direct]
+
+pfSense e1 (DMZ)      → Public-Services OVS eth0                [direct]
+Public-Services eth1  → bank-web e0 (10.10.10.10)               [direct]
+Public-Services eth2  → DNS-Server e0 (10.10.10.20)             [direct]
+
+pfSense e2 (INT)      → Internal-Services OVS eth0              [direct]
+Internal-Services eth1 → customer-db e0 (10.20.20.10)           [direct]
+Internal-Services eth2 → LDAP-Server e0 (10.20.20.20)           [direct]
+
+pfSense e3 (MGMT)     → aegis-ADMIN e0 (10.30.30.10)            [direct]
 ```
 
 ---
 
-## Step 2 — Router-1 Configuration (MikroTik CHR)
+## Step 2 — Router (MikroTik CHR) Configuration
 
-Connect to R1 console in GNS3:
+Router တစ်ခုတည်းသာ ရှိတယ် (R2 ဖြုတ်ပြီ)။ GNS3 Router console မှာ:
 
 ```routeros
-# ether1 → Switch1 / Kali side (static)
+# ── Interface IP Assignment ──────────────────────────────────────
+# e0 (ether1) → Internet (virbr0 NAT cloud)
 /ip address add address=192.168.122.2/24 interface=ether1
+# ဘာကြောင့်: Host machine ရဲ့ virbr0 (192.168.122.1) network နဲ့ connect ဖို့
 
-# ether2 → NAT cloud (MUST be DHCP — NAT cloud is 192.168.122.0/24 libvirt)
-/ip dhcp-client add interface=ether2 disabled=no
+# e1 (ether2) → Attacker/Kali network — DHCP server ဖြစ်မည်
+/ip address add address=192.168.10.1/24 interface=ether2
+# ဘာကြောင့်: Kali VM ကို DHCP ပေးမဲ့ gateway
 
-# ether3 → Router-2
-/ip address add address=10.0.12.1/30 interface=ether3
+# e2 (ether3) → pfSense WAN (point-to-point /30)
+/ip address add address=10.0.23.1/30 interface=ether3
+# ဘာကြောင့်: Router နဲ့ pfSense ကြား direct link
 
-# NAT masquerade — all traffic out ether2 gets NAT
-/ip firewall nat add chain=srcnat out-interface=ether2 action=masquerade
+# ── Default Route ───────────────────────────────────────────────
+/ip route add dst-address=0.0.0.0/0 gateway=192.168.122.1
+# ဘာကြောင့်: Internet traffic → host machine NAT ကတဆင့် ထွက်
 
-# Route: all internal traffic goes toward R2
-/ip route add dst-address=10.0.0.0/8 gateway=10.0.12.2
+# ── Internal Route ──────────────────────────────────────────────
+/ip route add dst-address=10.0.0.0/8 gateway=10.0.23.2
+# ဘာကြောင့်: 10.x.x.x network (bank services) → pfSense ကတဆင့် ရောက်
+
+# ── NAT Masquerade ──────────────────────────────────────────────
+/ip firewall nat add chain=srcnat action=masquerade out-interface=ether1
+# ဘာကြောင့်: Lab traffic internet ထွက်ရင် router IP နဲ့ NAT
+
+# ── Firewall: Allow Forward ──────────────────────────────────────
+/ip firewall filter add chain=forward action=accept place-before=0
+# ဘာကြောင့်: MikroTik default က forward traffic ပိတ်ထားတာကြောင့်
+
+# ── DHCP Pool for Kali ──────────────────────────────────────────
+/ip pool add name=kali-pool ranges=192.168.10.2-192.168.10.100
+/ip dhcp-server add name=kali-dhcp interface=ether2 address-pool=kali-pool disabled=no
+/ip dhcp-server network add address=192.168.10.0/24 gateway=192.168.10.1 dns-server=8.8.8.8
+# ဘာကြောင့်: Kali VM ကို auto IP ပေးဖို့
+
+# ── Verify ──────────────────────────────────────────────────────
+/ip address print           # IP တွေ မှန်မမှန် စစ်
+/ip route print             # Route table ကြည့်
+/ip dhcp-server print       # DHCP server status
+/ping 8.8.8.8 count=4      # Internet test
+/ping 10.0.23.2 count=4    # pfSense WAN test
+```
+
+> ⚠️ **ether1 မှာ static IP (192.168.122.2) ထည့်ပါ — DHCP client မသုံးနဲ့**  
+> GNS3 NAT cloud (virbr0) သည် 192.168.122.0/24 ဖြစ်ပြီး router ကနေ static ထည့်မှ route table မှန်ကန်တယ်။
+
+---
+
+## Step 3 — pfSense Initial Configuration
+
+### 3a. Console Interface Assignment (Option 1)
+
+pfSense boot ဖြစ်ရင် console မှာ **Option 1 — Assign Interfaces** ရွေး:
+
+```
+WAN  → vtnet0   (e0)   ← Router e2 မှ WAN traffic ဝင်
+DMZ  → vtnet1   (e1)   ← Public Services (bank-web, DNS-Server)
+INT  → vtnet2   (e2)   ← Internal Services (customer-db, LDAP-Server)
+MGMT → vtnet3   (e3)   ← Management (aegis-ADMIN)
+```
+
+### 3b. Console IP Assignment (Option 2)
+
+```
+Interface  IP              Gateway    DHCP Range
+─────────  ──────────────  ─────────  ─────────────────
+WAN        10.0.23.2/30    10.0.23.1  (none)
+DMZ        10.10.10.1/24   (none)     10.10.10.100–200
+INT        10.20.20.1/24   (none)     10.20.20.100–200
+MGMT       10.30.30.1/24   (none)     10.30.30.100–200
+```
+
+### 3c. WebGUI Firewall Rules
+
+WebGUI: `http://10.30.30.1` (MGMT interface မှ access)  
+Default login: `admin` / `pfsense`
+
+**WAN — Attacker traffic ခွင့်ပြု:**
+```
+Action: Pass | Interface: WAN | Source: 192.168.10.0/24 | Destination: any
+```
+*ဘာကြောင့်: Kali (192.168.10.x) မှ lab network ထဲ ဝင်နိုင်ဖို့*
+
+**DMZ — bank-web, DNS outbound ခွင့်ပြု + Internal ပိတ်:**
+```
+Action: Pass  | Interface: DMZ | Source: DMZ net | Destination: any
+Action: Block | Interface: DMZ | Source: DMZ net | Destination: 10.20.20.0/24
+```
+*ဘာကြောင့်: bank-web က internet ရနိုင်သော်လည်း customer-db/LDAP ကို တိုက်ရိုက် မဝင်နိုင်ဖို့*
+
+**INT — Internal outbound ခွင့်ပြု:**
+```
+Action: Pass | Interface: INT | Source: INT net | Destination: any
+```
+
+**MGMT — aegis-ADMIN အတွက် အကုန် ခွင့်ပြု:**
+```
+Action: Pass | Interface: MGMT | Source: MGMT net | Destination: any
+```
+*ဘာကြောင့်: aegis-ADMIN (10.30.30.10) က bank-web, DNS, customer-db, LDAP ကို SSH ဝင်နိုင်ဖို့*
+
+### 3d. pfSense Static Route (Kali return path)
+
+WebGUI → **System → Routing → Static Routes → Add**:
+```
+Network:   192.168.10.0/24
+Gateway:   10.0.23.1  (Router WAN)
+```
+*ဘာကြောင့်: Kali (192.168.10.x) ကို response packet ပြန်ပို့ဖို့*
+
+### 3e. pfSense SSH Enable (aegis-ADMIN access)
+
+```
+WebGUI → System → Advanced → Admin Access
+→ Secure Shell Server → ☑ Enable Secure Shell
+→ Save
+```
+
+### 3f. pfSense SSH Key (passwordless access)
+
+```
+WebGUI → System → User Manager → admin → Edit
+→ Authorized SSH Keys → aegis-ADMIN ရဲ့ public key paste
+→ Save
+```
+
+*aegis-ADMIN ကနေ key ကြည့်ဖို့:*
+```bash
+cat ~/.ssh/pfsense_key.pub
+```
+
+---
+
+## Step 4 — OVS Switch Configuration (Open vSwitch)
+
+GNS3 မှာ OVS switch console ဖွင့်ပြီး VLAN port configure လုပ်ရမယ်။
+
+### ဘာကြောင့် OVS သုံးတာလဲ?
+GNS3 built-in Ethernet switch = VLAN မပါ။ OVS = VLAN tagging, trunk/access port support → DMZ နဲ့ Internal segment ကို switch level မှာ ခွဲနိုင်တယ်။
+
+### Public-Services Switch (bank-web + DNS-Server)
+
+```bash
+# OVS console မှာ
+ovs-vsctl show
+# eth0 = pfSense e1 ချိတ် — trunk (tag မထည့် = all VLANs ဖြတ်)
+# eth1 = bank-web ချိတ် — access port VLAN 10
+ovs-vsctl set port eth1 tag=10
+
+# eth2 = DNS-Server ချိတ် — access port VLAN 10
+ovs-vsctl set port eth2 tag=10
 
 # Verify
-/ip address print
-/ip route print
-/ping 8.8.8.8 count=4        # internet test via NAT
-/ping 10.0.12.2 count=4      # R1 → R2 link test
+ovs-vsctl show
 ```
 
-> ⚠️ **Do NOT set a static IP on ether2.** The GNS3 NAT cloud uses 192.168.122.0/24
-> (libvirt virbr0 DHCP). A static 10.x.x.x on ether2 will not route.
+### Internal-Services Switch (customer-db + LDAP-Server)
 
----
+```bash
+# eth0 = pfSense e2 ချိတ် — trunk
+# eth1 = customer-db ချိတ် — access port VLAN 20
+ovs-vsctl set port eth1 tag=20
 
-## Step 3 — Router-2 Configuration (MikroTik CHR)
-
-```routeros
-# ether1 → Router-1
-/ip address add address=10.0.12.2/30 interface=ether1
-
-# ether2 → pfSense WAN
-/ip address add address=10.0.23.1/30 interface=ether2
-
-# Default route toward internet via R1
-/ip route add dst-address=0.0.0.0/0 gateway=10.0.12.1
-
-# Routes toward pfSense segments
-/ip route add dst-address=10.10.10.0/24 gateway=10.0.23.2
-/ip route add dst-address=10.20.20.0/24 gateway=10.0.23.2
-/ip route add dst-address=10.30.30.0/24 gateway=10.0.23.2
+# eth2 = LDAP-Server ချိတ် — access port VLAN 20
+ovs-vsctl set port eth2 tag=20
 
 # Verify
-/ip address print
-/ping 10.0.12.1 count=4      # R2 → R1
-/ping 10.0.23.2 count=4      # R2 → pfSense WAN
+ovs-vsctl show
 ```
+
+### VLAN Reference
+
+| VLAN ID | Segment | VMs |
+|---|---|---|
+| 10 | DMZ (Public) | bank-web (10.10.10.10), DNS-Server (10.10.10.20) |
+| 20 | Internal | customer-db (10.20.20.10), LDAP-Server (10.20.20.20) |
 
 ---
 
-## Step 4 — pfSense Initial Configuration
+## Step 5 — Static IPs on Ubuntu VMs (Netplan)
 
-### 4a. Console interface assignment (Option 1)
+ဒီ template ကို ဘယ် VM မှာမဆို `/etc/netplan/00-installer-config.yaml` ထဲ ထည့်ပြီး IP ပြောင်းသုံးပါ:
 
-Boot pfSense, at console choose **Option 1 — Assign Interfaces**:
+### bank-web (10.10.10.10 / DMZ)
 
-```
-WAN  → vtnet0   (e0)
-LAN  → vtnet1   (e1)   rename to DMZ after
-OPT1 → vtnet2   (e2)   rename to INT
-OPT2 → vtnet3   (e3)   rename to MGMT
-```
-
-### 4b. Console IP assignment (Option 2)
-
-```
-Interface  IP              DHCP server range
-─────────  ──────────────  ────────────────────────────
-WAN        10.0.23.2/30    none (upstream: 10.0.23.1)
-DMZ        10.10.10.1/24   10.10.10.100–200
-INT        10.20.20.1/24   10.20.20.100–200
-MGMT       10.30.30.1/24   10.30.30.100–200
-```
-
-### 4c. WebGUI firewall rules
-
-Access WebGUI via pfSense console → browser on any connected VM.
-
-**WAN — allow Kali lab to reach DMZ and Internal:**
-```
-Action: Pass | IF: WAN | Src: 192.168.122.0/24 | Dst: 10.10.10.0/24
-Action: Pass | IF: WAN | Src: 192.168.122.0/24 | Dst: 10.20.20.0/24
-```
-
-**DMZ — outbound yes, no DMZ→Internal:**
-```
-Action: Pass  | IF: DMZ | Src: DMZ net    | Dst: any
-Action: Block | IF: DMZ | Src: DMZ net    | Dst: 10.20.20.0/24
-```
-
-**INT — outbound yes:**
-```
-Action: Pass | IF: INT  | Src: INT net    | Dst: any
-```
-
-**MGMT — aegis-forwarder needs outbound HTTPS to Render:**
-```
-Action: Pass | IF: MGMT | Src: MGMT net  | Dst: any
-```
-
----
-
-## Step 5 — Static IPs on Ubuntu VMs
-
-For each VM, edit `/etc/netplan/00-installer-config.yaml`:
-
-### bank-web (10.10.10.10)
 ```yaml
 network:
   version: 2
@@ -193,182 +281,305 @@ network:
         - to: default
           via: 10.10.10.1
       nameservers:
-        addresses: [8.8.8.8]
+        addresses: [10.10.10.20, 8.8.8.8]
 ```
 
-### bank-mail (10.10.10.20)
-Same template — address: `10.10.10.20/24`, via: `10.10.10.1`
+### DNS-Server (10.10.10.20 / DMZ)
 
-### teller-pc (10.20.20.10)
-Same template — address: `10.20.20.10/24`, via: `10.20.20.1`
+```yaml
+network:
+  version: 2
+  ethernets:
+    ens3:
+      addresses: [10.10.10.20/24]
+      routes:
+        - to: default
+          via: 10.10.10.1
+      nameservers:
+        addresses: [127.0.0.1, 8.8.8.8]
+```
 
-### customer-db (10.20.20.20)
-Same template — address: `10.20.20.20/24`, via: `10.20.20.1`
+### customer-db (10.20.20.10 / Internal)
 
-### aegis-forwarder (10.30.30.10)
-Same template — address: `10.30.30.10/24`, via: `10.30.30.1`
+```yaml
+network:
+  version: 2
+  ethernets:
+    ens3:
+      addresses: [10.20.20.10/24]
+      routes:
+        - to: default
+          via: 10.20.20.1
+      nameservers:
+        addresses: [10.10.10.20, 8.8.8.8]
+```
+
+### LDAP-Server (10.20.20.20 / Internal)
+
+```yaml
+network:
+  version: 2
+  ethernets:
+    ens3:
+      addresses: [10.20.20.20/24]
+      routes:
+        - to: default
+          via: 10.20.20.1
+      nameservers:
+        addresses: [10.10.10.20, 8.8.8.8]
+```
+
+### aegis-ADMIN (10.30.30.10 / MGMT)
+
+```yaml
+network:
+  version: 2
+  ethernets:
+    ens3:
+      addresses: [10.30.30.10/24]
+      routes:
+        - to: default
+          via: 10.30.30.1
+      nameservers:
+        addresses: [10.10.10.20, 8.8.8.8]
+```
 
 Apply on each VM:
 ```bash
 sudo netplan apply
-ip addr show ens3   # verify IP
-ping 10.0.23.2      # ping pfSense WAN to confirm routing
+ip addr show ens3       # IP စစ်
+ping -c 2 10.30.30.1   # pfSense GW စစ်
 ```
 
 ---
 
-## Step 6 — Passwordless sudo on aegis-forwarder (Required for nmap + tcpdump)
+## Step 6 — Passwordless sudo on aegis-ADMIN
 
-There is no central SSH hub — each VM runs its own local `aegis_forwarder.py` (Step 8) and
-reads only its own log files, so no cross-VM SSH access or shared user is required.
-
-The **aegis-forwarder** VM still needs passwordless sudo locally, because its own
-`aegis_forwarder.py --mode all` process also runs the nmap network scanner and tcpdump
-traffic capture for itself:
+aegis-ADMIN သည် hub mode agent ဖြစ်ပြီး bank VMs တွေကို SSH ဝင်ပြီး log တောင်းတယ်။  
+Local nmap/tcpdump လည်း run လိုတာကြောင့် passwordless sudo လိုတယ်:
 
 ```bash
-# On aegis-forwarder only
-echo "$USER ALL=(ALL) NOPASSWD: ALL" | sudo tee /etc/sudoers.d/aegis-forwarder
+# aegis-ADMIN VM မှာ သာ
+echo "$USER ALL=(ALL) NOPASSWD: ALL" | sudo tee /etc/sudoers.d/aegis-admin
+```
+
+bank-web, DNS-Server, customer-db, LDAP-Server တွေမှာ **မလိုဘူး** — aegis-ADMIN ကနေ SSH ဝင်ပြုလုပ်တာ ဖြစ်တာကြောင့်။
+
+---
+
+## Step 7 — SSH Key Setup (aegis-ADMIN → Bank VMs)
+
+aegis-ADMIN hub agent ကနေ bank VMs ကို SSH ဝင်ဖို့ key ပြင်ဆင်ရမယ်:
+
+```bash
+# aegis-ADMIN VM မှာ
+ssh-keygen -t ed25519 -f ~/.ssh/aegis_hub -N ""
+
+# bank-web ကို copy
+ssh-copy-id -i ~/.ssh/aegis_hub.pub sithu@10.10.10.10
+
+# DNS-Server ကို copy
+ssh-copy-id -i ~/.ssh/aegis_hub.pub sithu@10.10.10.20
+
+# customer-db ကို copy
+ssh-copy-id -i ~/.ssh/aegis_hub.pub sithu@10.20.20.10
+
+# LDAP-Server ကို copy (optional — sensors မသတ်မှတ်ရသေး)
+ssh-copy-id -i ~/.ssh/aegis_hub.pub sithu@10.20.20.20
+
+# pfSense ကို copy (defense commands အတွက်)
+# → pfSense WebGUI → System → User Manager → admin → Authorized SSH Keys မှာ ထည့်ပြီးသား
+
+# Test connections
+ssh -i ~/.ssh/aegis_hub sithu@10.10.10.10 "hostname"
+ssh -i ~/.ssh/aegis_hub sithu@10.20.20.10 "hostname"
 ```
 
 ---
 
-## Step 7 — Install Security Tools on VMs
+## Step 8 — Install Security Tools on Bank VMs
 
-### bank-web (10.10.10.10) — Apache + ModSecurity + Suricata
+### bank-web (10.10.10.10) — Apache + ModSecurity + Suricata + Fail2ban + vsftpd
 
 ```bash
 # Apache + ModSecurity WAF
 sudo apt update
-sudo apt install apache2 libapache2-mod-security2 -y
+sudo apt install -y apache2 libapache2-mod-security2 php libapache2-mod-php
 sudo a2enmod security2
 sudo cp /etc/modsecurity/modsecurity.conf-recommended /etc/modsecurity/modsecurity.conf
 sudo sed -i 's/SecRuleEngine DetectionOnly/SecRuleEngine On/' /etc/modsecurity/modsecurity.conf
 sudo systemctl restart apache2
 
-# Verify WAF is blocking
-curl -v "http://localhost/?id=1'%20OR%20'1'='1" 2>&1 | grep "403\|forbidden"
+# Create a simple vulnerable PHP page for attack testing
+sudo tee /var/www/html/login.php > /dev/null << 'EOF'
+<?php
+$user = $_GET['user'] ?? '';
+$pass = $_GET['pass'] ?? '';
+echo "<form method='GET'><input name='user'/><input name='pass'/><button>Login</button></form>";
+echo "User: $user";
+EOF
 
 # Suricata IDS
 sudo add-apt-repository ppa:oisf/suricata-stable -y
-sudo apt install suricata -y
+sudo apt install -y suricata
 sudo suricata-update
 sudo suricata -c /etc/suricata/suricata.yaml -i ens3 -D
-sudo tail -5 /var/log/suricata/eve.json   # verify running
-```
+sudo tail -5 /var/log/suricata/eve.json
 
-### bank-mail (10.10.10.20) — Postfix + Fail2ban
-
-```bash
-sudo apt install postfix fail2ban -y
+# Fail2ban
+sudo apt install -y fail2ban
 sudo systemctl enable --now fail2ban
-sudo fail2ban-client status   # verify
+
+# vsftpd FTP server
+sudo apt install -y vsftpd
+sudo sed -i 's/#write_enable=YES/write_enable=YES/' /etc/vsftpd.conf
+sudo sed -i 's/#local_enable=YES/local_enable=YES/' /etc/vsftpd.conf
+sudo systemctl enable --now vsftpd
 ```
 
-### customer-db (10.20.20.20) — PostgreSQL + Fail2ban
+### DNS-Server (10.10.10.20) — BIND9
 
 ```bash
-sudo apt install postgresql postgresql-contrib fail2ban -y
+sudo apt update
+sudo apt install -y bind9 bind9utils bind9-doc fail2ban
 
-# Allow remote connections (lab only — never do this on a real prod DB)
-sudo sed -i "s/#listen_addresses = 'localhost'/listen_addresses = '*'/" /etc/postgresql/*/main/postgresql.conf
-echo "host all all 10.20.20.0/24 md5" | sudo tee -a /etc/postgresql/*/main/pg_hba.conf
-sudo systemctl restart postgresql
+# Basic BIND9 config — recursive resolver for lab
+sudo tee /etc/bind/named.conf.options > /dev/null << 'EOF'
+options {
+    directory "/var/cache/bind";
+    recursion yes;
+    allow-recursion { 10.0.0.0/8; 192.168.10.0/24; };
+    forwarders { 8.8.8.8; 1.1.1.1; };
+    listen-on { any; };
+    allow-query { any; };
+};
+EOF
 
-# Seed a demo "customers" table so an attacker has something to actually steal
-sudo -u postgres psql -c "CREATE DATABASE bankdb;"
-sudo -u postgres psql -d bankdb -c "CREATE TABLE customers (id serial, name text, account_no text, balance numeric);"
-sudo -u postgres psql -d bankdb -c "INSERT INTO customers (name, account_no, balance) VALUES ('Demo User','1234567890', 5000.00);"
-
-sudo systemctl enable --now fail2ban
-```
-
-### teller-pc (10.20.20.10) — Cowrie Honeypot + Fail2ban
-
-```bash
-sudo apt install git python3-virtualenv libssl-dev libffi-dev build-essential fail2ban -y
-
-# Install Cowrie
-cd /home
-sudo useradd -r -s /bin/false cowrie
-sudo mkdir /home/cowrie && sudo chown cowrie:cowrie /home/cowrie
-sudo -u cowrie git clone https://github.com/cowrie/cowrie.git /home/cowrie/cowrie
-cd /home/cowrie/cowrie
-sudo -u cowrie virtualenv cowrie-env
-sudo -u cowrie bash -c "source cowrie-env/bin/activate && pip install -r requirements.txt"
-sudo -u cowrie cp etc/cowrie.cfg.dist etc/cowrie.cfg
-
-# Configure Cowrie to listen on port 2222
-sudo -u cowrie sed -i 's/^#\?\s*listen_port\s*=.*/listen_port = 2222/' etc/cowrie.cfg
-
-# Redirect real SSH attempts on port 22 to Cowrie on 2222
-sudo iptables -t nat -A PREROUTING -p tcp --dport 22 -j REDIRECT --to-port 2222
-# Persist iptables rule
-sudo apt install iptables-persistent -y
-sudo netfilter-persistent save
-
-# Start Cowrie
-sudo -u cowrie bash -c "cd /home/cowrie/cowrie && source cowrie-env/bin/activate && bin/cowrie start"
-tail -f /home/cowrie/cowrie/var/log/cowrie/cowrie.json   # verify running
+sudo systemctl enable --now bind9
+dig @10.10.10.20 google.com   # test recursion
 
 # Fail2ban
 sudo systemctl enable --now fail2ban
 ```
 
----
-
-## Step 8 — Deploy aegis_forwarder.py on EVERY VM (agent mode — no central hub)
-
-Each VM (bank-web, bank-mail, teller-pc, customer-db, aegis-forwarder) runs its **own**
-local copy of `aegis_forwarder.py`, tailing only its own log files. There is no SSH between
-VMs and no shared user — just repeat these steps on each of the five VMs.
-
-### 8a. Install dependencies (on each VM)
+### customer-db (10.20.20.10) — MySQL + Suricata + Fail2ban
 
 ```bash
 sudo apt update
-sudo apt install python3-pip -y
+sudo apt install -y mysql-server suricata fail2ban
+
+# MySQL — allow remote connections (lab only)
+sudo sed -i "s/127.0.0.1/0.0.0.0/" /etc/mysql/mysql.conf.d/mysqld.cnf
+sudo systemctl restart mysql
+
+# Create demo bank database
+sudo mysql -e "CREATE DATABASE IF NOT EXISTS bankdb;"
+sudo mysql bankdb -e "CREATE TABLE IF NOT EXISTS customers (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(100), account_no VARCHAR(20), balance DECIMAL(10,2));"
+sudo mysql bankdb -e "INSERT INTO customers (name,account_no,balance) VALUES ('Demo User','1234567890',5000.00);"
+sudo mysql -e "CREATE USER IF NOT EXISTS 'bankuser'@'%' IDENTIFIED BY 'BankPass123!';"
+sudo mysql -e "GRANT ALL ON bankdb.* TO 'bankuser'@'%'; FLUSH PRIVILEGES;"
+
+# Suricata
+sudo add-apt-repository ppa:oisf/suricata-stable -y
+sudo apt install -y suricata
+sudo suricata-update
+sudo suricata -c /etc/suricata/suricata.yaml -i ens3 -D
+
+sudo systemctl enable --now fail2ban
+```
+
+### LDAP-Server (10.20.20.20) — OpenLDAP
+
+```bash
+sudo apt update
+sudo DEBIAN_FRONTEND=noninteractive apt install -y slapd ldap-utils fail2ban
+
+# Set admin password during dpkg-reconfigure
+sudo dpkg-reconfigure slapd
+# → Omit OpenLDAP server configuration? No
+# → DNS domain name: bank.local
+# → Organization name: SecureBank
+# → Admin password: (set strong password)
+# → Database: MDB
+# → Remove database when slapd is purged? No
+
+sudo systemctl enable --now slapd
+
+# Verify
+ldapsearch -x -H ldap://localhost -b "dc=bank,dc=local"
+
+sudo systemctl enable --now fail2ban
+```
+
+---
+
+## Step 9 — Deploy aegis_forwarder.py on aegis-ADMIN (Hub Mode)
+
+Hub mode = aegis-ADMIN တစ်ခုတည်း run ၊ bank VMs တွေကို SSH ဝင်ပြီး log ဖတ်တယ်။  
+Bank VMs မှာ forwarder **မသွင်းရဘူး**။
+
+### 9a. Install dependencies
+
+```bash
+# aegis-ADMIN မှာ သာ
+sudo apt update
+sudo apt install -y python3-pip python3-requests openssh-client nmap
 pip3 install requests
-
-# aegis-forwarder VM only (runs the network scanner + traffic capture for itself):
-sudo apt install nmap tcpdump -y
 ```
 
-### 8b. Download script (on each VM)
+### 9b. Download script
 
 ```bash
-sudo wget -O /opt/aegis_forwarder.py \
+sudo mkdir -p /opt/aegis/scripts/src
+cd /opt/aegis/scripts/src
+
+wget -O aegis_forwarder.py \
   https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/scripts/src/aegis_forwarder.py
-sudo chmod +x /opt/aegis_forwarder.py
+chmod +x aegis_forwarder.py
 ```
 
-### 8c. Configure environment (on each VM)
+### 9c. Configure local.conf
 
 ```bash
-sudo tee /etc/environment.aegis << 'EOF'
+# local.conf ကို create (gitignored — AEGIS_KEY ထည့်မယ်)
+sudo tee /opt/aegis/scripts/src/aegis_forwarder.local.conf << 'EOF'
 AEGIS_URL=https://aegis-api-server-jp3b.onrender.com/api
-AEGIS_KEY=<value of AEGIS_INGEST_KEY from Replit Secrets>
+AEGIS_KEY=<AEGIS_INGEST_KEY value>
+AEGIS_ADMIN_KEY=<AEGIS_ADMIN_KEY value>
+BANK_WEB_IP=10.10.10.10
+DNS_SERVER_IP=10.10.10.20
+CUSTOMER_DB_IP=10.20.20.10
+LDAP_SERVER_IP=10.20.20.20
+BANK_WEB_SSH_USER=sithu
+CUSTOMER_DB_SSH_USER=sithu
+SSH_KEY_PATH=/home/sithu/.ssh/aegis_hub
+PFSENSE_IP=10.30.30.1
+PFSENSE_SSH_USER=admin
+PFSENSE_SSH_KEY=/home/sithu/.ssh/pfsense_key
 EOF
-
-# Test manually first
-source /etc/environment.aegis
-python3 /opt/aegis_forwarder.py --mode all
-# Should print heartbeat + sensor watch lines for THIS VM's own logs
 ```
 
-### 8d. Run as systemd service (on each VM)
+### 9d. Test manually
+
+```bash
+cd /opt/aegis/scripts/src
+python3 aegis_forwarder.py --mode hub
+# → heartbeat + SSH into bank VMs + log tail lines ပြမယ်
+```
+
+### 9e. Run as systemd service
 
 ```bash
 sudo tee /etc/systemd/system/aegis-forwarder.service << 'EOF'
 [Unit]
-Description=AEGIS Forwarder (local agent)
+Description=AEGIS Hub Forwarder
 After=network.target
 
 [Service]
 Type=simple
-User=root
-EnvironmentFile=/etc/environment.aegis
-ExecStart=/usr/bin/python3 /opt/aegis_forwarder.py --mode all
+User=sithu
+WorkingDirectory=/opt/aegis/scripts/src
+ExecStart=/usr/bin/python3 /opt/aegis/scripts/src/aegis_forwarder.py --mode hub
 Restart=always
 RestartSec=10
 StandardOutput=journal
@@ -380,197 +591,170 @@ EOF
 
 sudo systemctl daemon-reload
 sudo systemctl enable --now aegis-forwarder
-sudo systemctl status aegis-forwarder
-sudo journalctl -u aegis-forwarder -f   # watch live output
+sudo journalctl -u aegis-forwarder -f   # live output ကြည့်
+```
+
+### Script update (Important — git pull မအလုပ်လုပ်ဘူး)
+
+```bash
+cd /opt/aegis/scripts/src
+wget -O aegis_forwarder.py \
+  https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/scripts/src/aegis_forwarder.py
+sudo systemctl restart aegis-forwarder
 ```
 
 ---
 
-## Step 9 — Deploy defense_agent.py (bank-web + teller-pc)
+## Step 10 — Kali Attacker Setup
 
 ```bash
-# On bank-web and teller-pc
-sudo wget -O /opt/defense_agent.py \
-  https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/scripts/src/defense_agent.py
+# Kali — lab routes ထည့် (pfSense ကတဆင့် bank VMs ရောက်ဖို့)
+sudo ip route add 10.10.10.0/24 via 192.168.10.1
+sudo ip route add 10.20.20.0/24 via 192.168.10.1
+sudo ip route add 10.30.30.0/24 via 192.168.10.1
 
-sudo tee /etc/systemd/system/aegis-defense.service << 'EOF'
-[Unit]
-Description=AEGIS Defense Agent
-After=network.target
-
-[Service]
-Type=simple
-User=root
-Environment=AEGIS_URL=https://aegis-api-server-jp3b.onrender.com/api
-Environment=AEGIS_KEY=<AEGIS_INGEST_KEY value>
-Environment=AEGIS_ADMIN_KEY=<AEGIS_ADMIN_KEY value>
-ExecStart=/usr/bin/python3 /opt/defense_agent.py --vm ubuntu
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-sudo systemctl daemon-reload
-sudo systemctl enable --now aegis-defense
-```
-
----
-
-## Step 10 — Kali Attacker Routes
-
-Kali needs routes to reach DMZ (10.10.10.0/24) and Internal (10.20.20.0/24) via Router-1:
-
-```bash
-# On Kali — add persistent routes
-sudo ip route add 10.10.10.0/24 via 192.168.122.2
-sudo ip route add 10.20.20.0/24 via 192.168.122.2
-sudo ip route add 10.30.30.0/24 via 192.168.122.2
+# Persistent routes (/etc/network/interfaces မှာ ထည့်)
+# post-up ip route add 10.0.0.0/8 via 192.168.10.1
 
 # Verify reachability
 ping -c 2 10.10.10.10   # bank-web
-ping -c 2 10.20.20.10   # teller-pc
+ping -c 2 10.10.10.20   # DNS-Server
+ping -c 2 10.20.20.10   # customer-db
 ```
 
 ---
 
 ## Step 11 — End-to-End Tests
 
-### Test 1: API health check (from aegis-forwarder)
+### Test 1: API health check (from aegis-ADMIN)
+
 ```bash
-curl -s https://aegis-api-server-jp3b.onrender.com/api/health
+curl -s https://aegis-api-server-jp3b.onrender.com/api/healthz
 # Expected: {"status":"ok"}
 ```
 
 ### Test 2: Manual ingest event
+
 ```bash
+source /opt/aegis/scripts/src/aegis_forwarder.local.conf
 curl -s -X POST https://aegis-api-server-jp3b.onrender.com/api/ingest/ssh \
   -H "Content-Type: application/json" \
   -H "X-AEGIS-Key: $AEGIS_KEY" \
-  -d '{"src_ip":"192.168.122.x (DHCP)","username":"root","status":"failed","failures":5}'
+  -d '{"src_ip":"192.168.10.99","username":"root","status":"failed","failures":5}'
 # Expected: {"ok":true}
 ```
-→ Open dashboard → **Security Events** — SSH brute-force event appears.
+→ Dashboard **Security Events** page မှာ SSH event ပေါ်မယ်
 
-### Test 3: Verify each VM's forwarder is running
+### Test 3: Kali → Suricata → Dashboard
+
 ```bash
-# On each VM (bank-web, bank-mail, teller-pc, customer-db, aegis-forwarder)
-sudo journalctl -u aegis-forwarder --since "1 min ago"
-# Should show sensor watch lines for that VM's own logs, e.g.:
-#   [TAIL] /var/log/suricata/eve.json
-#   [HEARTBEAT] My IP = 10.10.10.10
+# Kali မှာ
+nmap -sS -p 1-1000 10.10.10.10
+
+# bank-web မှာ (aegis-ADMIN SSH ဝင်ပြီး စစ်)
+ssh sithu@10.10.10.10 "sudo tail -5 /var/log/suricata/eve.json | grep alert"
+```
+→ Dashboard **Security Events** မှာ 15s အတွင်း ET SCAN alert ပေါ်မယ်
+
+### Test 4: SSH brute force → auto-defense
+
+```bash
+# Kali မှာ
+hydra -l root -P /usr/share/wordlists/rockyou.txt ssh://10.10.10.10 -t 4
+
+# Dashboard → Defense Center → auto-block ပေါ်မယ်
 ```
 
-### Test 4: Kali → Suricata → Dashboard
+### Test 5: Web attack (SQLi)
+
 ```bash
-# On Kali
-nmap -sV -p 22,80,443 10.10.10.10
-
-# On bank-web — verify detection
-sudo tail -f /var/log/suricata/eve.json | grep '"event_type":"alert"'
-```
-→ Within 15s, alert appears on dashboard **Security Events** page.
-
-### Test 5: Auto-defense trigger
-```bash
-# On Kali — SSH brute force teller-pc (Cowrie catches it)
-hydra -l root -P /usr/share/wordlists/rockyou.txt ssh://10.20.20.10 -t 4
-
-# Dashboard → Defense Center → auto-block should appear after threshold
+# Kali မှာ
+sqlmap -u "http://10.10.10.10/login.php?user=admin&pass=test" --batch --level=2
+# → ModSecurity block + Suricata SQLi alert
 ```
 
-### Test 6: Network discovery (check Network Monitor page)
+### Test 6: DNS query (DNS-Server test)
+
 ```bash
-# From aegis-forwarder — manual nmap to populate hosts
-sudo nmap -sn 10.10.10.0/24 -oG - | grep Up | awk '{print $2}'
+# ဘယ် VM ကနေမဆို
+dig @10.10.10.20 google.com
+# → A record ရမယ် (recursive query အောင်မြင်)
 ```
-→ Dashboard **Network Monitor** — hosts populate.
 
 ---
 
 ## Troubleshooting
 
-### Forwarder can't reach the API at all ("Temporary failure in name resolution")?
-```
-ERROR service_health/suricata: HTTPSConnectionPool(host='aegis-api-server-jp3b.onrender.com', ...)
-Failed to establish a new connection: [Errno -3] Temporary failure in name resolution
-```
-This means the VM cannot resolve DNS — it never even reaches the internet routing question,
-so the dashboard will show the host going stale/OFFLINE and **no real attack data is being
-recorded**, even if Kali is actively attacking.
+### DNS resolution failed ("Temporary failure in name resolution")?
 
 ```bash
-# 1. Isolate DNS vs. routing — run on the affected VM
-ping -c 2 8.8.8.8          # tests raw internet routing (by IP)
-ping -c 2 google.com       # tests DNS resolution specifically
+# affected VM မှာ
+ping -c 2 8.8.8.8          # raw routing test
+ping -c 2 google.com       # DNS test
+cat /etc/resolv.conf       # nameserver စစ်
 
-# If (1) works but (2) fails → DNS-only problem. Fix:
-cat /etc/resolv.conf       # check current nameservers
-sudo nano /etc/netplan/00-installer-config.yaml
-#   add under the interface:
-#     nameservers:
-#       addresses: [8.8.8.8, 1.1.1.1]
+# Fix — nameserver ထည့် (netplan)
+# nameservers:
+#   addresses: [10.10.10.20, 8.8.8.8]
 sudo netplan apply
-ping -c 2 google.com       # should now resolve
-
-# If (1) ALSO fails → no internet route at all, check upstream:
-#   - On Router-1 (MikroTik): /ip dhcp-client print   → status should be "bound"
-#   - On pfSense: confirm the MGMT (or relevant zone) outbound rule is "Pass | any"
-#   - GNS3 NAT cloud must be attached and the host machine's virbr0/NAT must be up
-```
-Once DNS resolves, restart the forwarder (`sudo systemctl restart aegis-forwarder`) and the
-health-check errors should clear within one cycle.
-
-### Forwarder not reading its own log files?
-```bash
-# On the affected VM — the forwarder runs as root via systemd, so it should
-# already have read access. If a log lives under a non-root owner (e.g. Cowrie):
-sudo chmod o+r /var/log/suricata/eve.json 2>/dev/null
-sudo chmod o+r /home/cowrie/cowrie/var/log/cowrie/cowrie.json 2>/dev/null
-sudo systemctl restart aegis-forwarder
 ```
 
-### Events not appearing on dashboard?
+### OVS switch port တွေ VLAN tag ကျသွားတယ်?
+
 ```bash
-# 1. Check forwarder logs on the specific VM
+# OVS console မှာ restart ဖြစ်ရင် tag ကျနိုင်တယ်
+ovs-vsctl show   # tag values စစ်
+ovs-vsctl set port eth1 tag=10   # ပြန်ထည့်
+ovs-vsctl set port eth2 tag=10
+```
+
+### aegis-ADMIN ကနေ bank VM ကို SSH မဝင်ရဘူး?
+
+```bash
+# aegis-ADMIN မှာ
+ssh -i ~/.ssh/aegis_hub -v sithu@10.10.10.10
+# → Permission denied ဆိုရင် bank-web မှာ authorized_keys ပြန်စစ်
+# cat ~/.ssh/authorized_keys on bank-web
+
+# pfSense MGMT rule — aegis-ADMIN outbound pass ဖြစ်နေမဖြစ်နေ စစ်
+```
+
+### Kali ကနေ bank VMs မရောက်ဘူး?
+
+```bash
+# Kali မှာ
+ip route show | grep 10.10.10
+# Route မရှိရင်:
+sudo ip route add 10.10.10.0/24 via 192.168.10.1
+
+# R1 route table စစ် (MikroTik console)
+/ip route print
+/ping 10.0.23.2 count=4   # R1 → pfSense test
+```
+
+### Events dashboard မှာ မပေါ်ဘူး?
+
+```bash
+# aegis-ADMIN မှာ
 sudo journalctl -u aegis-forwarder -f
+# "POST /api/ingest/..." success ပြမမပြ စစ်
 
-# 2. Test API key manually
-curl -s -X POST $AEGIS_URL/ingest/event \
+# API key test
+curl -s -X POST https://aegis-api-server-jp3b.onrender.com/api/ingest/event \
   -H "X-AEGIS-Key: $AEGIS_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"source":"test","type":"network_scan","subtype":"Test","severity":"low","sourceIp":"1.2.3.4","description":"test"}'
-
-# 3. Check API server is up
-curl https://aegis-api-server-jp3b.onrender.com/api/health
+  -d '{"source":"test","type":"network_scan","severity":"low","sourceIp":"1.2.3.4","description":"test"}'
 ```
 
-### tcpdump / nmap not working (Traffic shows 0)?
-```bash
-# aegis-forwarder VM needs passwordless sudo (it's the only VM running the scanner)
-sudo -n true && echo "sudo OK" || echo "NEEDS PASSWORD"
-# Fix:
-echo "$USER ALL=(ALL) NOPASSWD: ALL" | sudo tee /etc/sudoers.d/aegis-forwarder
-```
+### Defense agent blocks မကျဘူး?
 
-### Kali can't reach DMZ?
 ```bash
-# Verify route on Kali
-ip route show | grep 10.10.10
-# If missing:
-sudo ip route add 10.10.10.0/24 via 192.168.122.2
+# aegis-ADMIN မှာ
+sudo journalctl -u aegis-forwarder -f | grep defense
+# "defense_agent_loop" polling ပြမမပြ စစ်
 
-# Verify R1 is routing (MikroTik console)
-/ip route print
-/ping 10.0.23.2 count=4   # R1 → pfSense WAN via R2
-```
-
-### Defense agent not executing blocks?
-```bash
-sudo systemctl status aegis-defense
-sudo journalctl -u aegis-defense -f
-sudo iptables -L INPUT -n | grep DROP   # see active blocks
+# bank-web မှာ (SSH ဝင်စစ်)
+ssh sithu@10.10.10.10 "sudo iptables -L INPUT -n | grep DROP"
 ```
 
 ---
@@ -580,10 +764,11 @@ sudo iptables -L INPUT -n | grep DROP   # see active blocks
 | Item | Value |
 |---|---|
 | API Base URL | `https://aegis-api-server-jp3b.onrender.com/api` |
-| Dashboard URL | `https://aegis-soc-dashboard.vercel.app` |
-| Ingest env var | `AEGIS_KEY` (value = AEGIS_INGEST_KEY from Replit Secrets) |
-| Admin env var | `AEGIS_ADMIN_KEY` (value = AEGIS_ADMIN_KEY from Replit Secrets) |
-| Ingest request header | `X-AEGIS-Key: <value>` |
-| Admin request header | `X-AEGIS-Admin-Key: <value>` |
-| Forwarder script location | `/opt/aegis_forwarder.py` on every VM |
-| Defense agent | `/opt/defense_agent.py` on bank-web / teller-pc |
+| Dashboard URL | `https://aegis-soc-dashboard-aegis-dashboard.vercel.app` |
+| Local conf | `/opt/aegis/scripts/src/aegis_forwarder.local.conf` (gitignored) |
+| Script location | `/opt/aegis/scripts/src/aegis_forwarder.py` |
+| Ingest header | `X-AEGIS-Key: <AEGIS_INGEST_KEY>` |
+| Admin header | `X-AEGIS-Admin-Key: <AEGIS_ADMIN_KEY>` |
+| pfSense WebGUI | `http://10.30.30.1` (from MGMT segment) |
+| VLAN 10 | DMZ — bank-web (10.10.10.10), DNS-Server (10.10.10.20) |
+| VLAN 20 | Internal — customer-db (10.20.20.10), LDAP-Server (10.20.20.20) |

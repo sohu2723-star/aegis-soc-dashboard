@@ -9,36 +9,39 @@
 
 ## Current System Architecture
 
-### Lab Topology (v3 — Active)
+### Lab Topology (v4 — Final)
 
 ```
-[Attacker VM]
-(any IP — not fixed)
+[Attacker VM — Kali]
+DHCP 192.168.10.x
       │
- [Switch1]
-      │
- [Router-1 — MikroTik CHR]
-   ether1: 192.168.122.2/24   ← attacker/GNS3 NAT side
-   ether2: DHCP               ← NAT internet egress
-   ether3: 10.0.23.1/30       ← pfSense WAN (direct, R2 removed)
+ [Router — MikroTik CHR]
+   ether1: 192.168.122.2/24   ← Internet (virbr0 NAT)
+   ether2: 192.168.10.1/24    ← Attacker DHCP gateway
+   ether3: 10.0.23.1/30       ← pfSense WAN (direct)
       │
  [pfSense 2.7.2]
-   WAN  (em0): 10.0.23.2/30
-   DMZ  (em1): 10.10.10.1/24
-   INT  (em2): 10.20.20.1/24
-   MGMT (em3): 10.30.30.1/24
+   WAN  (e0): 10.0.23.2/30
+   DMZ  (e1): 10.10.10.1/24
+   INT  (e2): 10.20.20.1/24
+   MGMT (e3): 10.30.30.1/24
       │
- ┌────┼────────────────┐
-[DMZ]              [INT]              [MGMT]
-[bank-web]    [customer-db]    [aegis-forwarder]
-10.10.10.10   10.20.20.20      10.30.30.10
-Apache2        PostgreSQL       Hub agent
-vsftpd         Suricata         SSH → bank VMs
-Suricata        Fail2ban
+ ┌────┴────────────────┬──────────────────────┐
+[DMZ]               [Internal]             [MGMT]
+[Public-Services     [Internal-Services    [aegis-ADMIN]
+ OVS Switch]          OVS Switch]          10.30.30.10
+  │         │           │          │       Hub agent
+[bank-web] [DNS-Server] [customer-db] [LDAP-Server]
+10.10.10.10 10.10.10.20  10.20.20.10  10.20.20.20
+Apache2     BIND9        MySQL        OpenLDAP
+vsftpd      Fail2ban     Suricata     Fail2ban
+Suricata                 Fail2ban
 Fail2ban
 ```
 
-**Removed nodes:** R2 (MikroTik), bank-mail (10.10.10.20), teller-pc (10.20.20.10)
+**v4 changes:** OVS switches added, DNS-Server (10.10.10.20) + LDAP-Server (10.20.20.20) added,  
+customer-db moved to 10.20.20.10, aegis-forwarder renamed to aegis-ADMIN  
+**Removed:** Router-2, Switch1, bank-mail, teller-pc
 
 ### Data Flow
 
@@ -85,7 +88,7 @@ Attack detected
 | Frontend | Vercel | https://aegis-soc-dashboard-aegis-dashboard.vercel.app |
 | API Server | Render | https://aegis-api-server-jp3b.onrender.com |
 | Database | Supabase | PostgreSQL pooler (aws-1-ap-southeast-2:6543) |
-| AEGIS Agent | AEGIS VM (10.30.30.10) | systemd service — aegis-forwarder |
+| AEGIS Agent | aegis-ADMIN (10.30.30.10) | systemd service — aegis-forwarder (hub mode) |
 
 ### Required Secrets
 
@@ -98,7 +101,7 @@ Attack detected
 | Groq API key | `GROQ_API_KEY` | AI analysis (optional) |
 | Telegram bot token | `TELEGRAM_BOT_TOKEN` | Alert push (optional) |
 | Telegram chat ID | `TELEGRAM_CHAT_ID` | Alert push (optional) |
-| pfSense API key | `PFSENSE_API_KEY` | pfSense WAN block rules |
+| pfSense SSH key path | `PFSENSE_SSH_KEY` | pfSense SSH easyrule (defense) |
 
 ---
 
@@ -126,9 +129,9 @@ Attack detected
 - Burmese language AI output with English technical terms
 
 ### Phase 4 — Hub Agent (aegis_forwarder.py --mode hub)
-- Single agent on AEGIS VM SSHes into bank-web and customer-db
-- Per-host health_services maps (bank-web: suricata/fail2ban/apache2/vsftpd; customer-db: suricata/fail2ban/postgresql)
-- pfSense health monitoring via HTTP ping (30s interval)
+- Single agent on aegis-ADMIN (10.30.30.10) SSHes into bank-web, DNS-Server, customer-db, LDAP-Server
+- Per-host health_services maps: bank-web (suricata/fail2ban/apache2/vsftpd), DNS-Server (bind9/fail2ban), customer-db (suricata/fail2ban/mysql), LDAP-Server (slapd/fail2ban)
+- pfSense health monitoring via SSH ping (30s interval)
 - Hub sends offline status for all remote hosts on shutdown
 
 ### Phase 5 — pfSense Integration
