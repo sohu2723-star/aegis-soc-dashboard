@@ -7,7 +7,7 @@ const VW = 960;
 const VH = 520;
 
 // ── Node definitions — real lab topology (v4 simplified) ─────────────────────
-// Path: Attacker → R1 → pfSense (OVS switches) → bank-web / dns-server / customer-db / ldap-server
+// Path: Attacker → R1 → pfSense (OVS switches) → company-web-server / dns-server / company-customer-db / ldap-server
 //       → MGMT: aegis-forwarder (10.30.30.10) → AEGIS Dashboard
 const NODES = {
   attacker: {
@@ -31,9 +31,9 @@ const NODES = {
     color: "#f59e0b", glow: "rgba(245,158,11,0.45)",
     icon: "🛡",
   },
-  bankweb: {
+  companyweb: {
     x: 570, y: 80,
-    label: "bank-web", sub: "Apache · Fail2ban",
+    label: "company-web-server", sub: "Apache · Fail2ban",
     ip: "10.10.10.10 (Public)",
     color: "#22c55e", glow: "rgba(34,197,94,0.3)",
     icon: "🖥",
@@ -54,7 +54,7 @@ const NODES = {
   },
   customerdb: {
     x: 570, y: 400,
-    label: "customer-db", sub: "PostgreSQL",
+    label: "company-customer-db", sub: "PostgreSQL",
     ip: "10.20.20.10 (Internal)",
     color: "#22c55e", glow: "rgba(34,197,94,0.3)",
     icon: "🗄",
@@ -88,10 +88,10 @@ type NodeKey = keyof typeof NODES;
 const EDGES: [NodeKey, NodeKey][] = [
   ["attacker",  "r1"],         // Attacker → R1 ether1 (192.168.122.x)
   ["r1",        "pfsense"],    // R1 ether3 (10.0.23.1) → pfSense WAN (10.0.23.2)
-  ["pfsense",   "bankweb"],    // pfSense → Public-Switch → bank-web (10.10.10.10)
+  ["pfsense",   "companyweb"],    // pfSense → Public-Switch → company-web-server (10.10.10.10)
   ["pfsense",   "dnsserver"],  // pfSense → Public-Switch → dns-server (10.10.10.20)
   ["pfsense",   "forwarder"],  // pfSense MGMT → aegis-forwarder (10.30.30.10)
-  ["pfsense",   "customerdb"], // pfSense → Internal-Switch → customer-db (10.20.20.10)
+  ["pfsense",   "customerdb"], // pfSense → Internal-Switch → company-customer-db (10.20.20.10)
   ["pfsense",   "ldapserver"],  // pfSense → Internal-Switch → ldap-server (10.20.20.20)
   ["forwarder", "aegis"],      // aegis-forwarder → AEGIS Dashboard (via Render API)
 ];
@@ -104,8 +104,8 @@ const NOTIFY_EDGES: [NodeKey, NodeKey][] = [
 // ── Attack path routing ────────────────────────────────────────────────────────
 function getAttackPath(targetHost: string | null | undefined): NodeKey[] {
   const t = (targetHost ?? "").toLowerCase();
-  if (t.includes("bank") || t.includes("web") || t === "10.10.10.10" || t.includes("apache") || t.includes("dvwa")) {
-    return ["attacker", "r1", "pfsense", "bankweb"];
+  if (t.includes("company") || t.includes("web") || t === "10.10.10.10" || t.includes("apache") || t.includes("dvwa")) {
+    return ["attacker", "r1", "pfsense", "companyweb"];
   }
   if (t.includes("dns") || t === "10.10.10.20" || t.includes("bind")) {
     return ["attacker", "r1", "pfsense", "dnsserver"];
@@ -743,8 +743,8 @@ function NodeIcon({ nodeKey, x, y, color }: { nodeKey: NodeKey; x: number; y: nu
         </g>
       );
 
-    // 🖥 Server/monitor — bank-web
-    case "bankweb":
+    // 🖥 Server/monitor — company-web-server
+    case "companyweb":
       return (
         <g transform={`translate(${x - 11},${y - 13})`} fill="none" stroke={c} strokeWidth="1.8" strokeLinecap="round">
           <rect x={0} y={0} width={22} height={15} rx={2} />
@@ -776,7 +776,7 @@ function NodeIcon({ nodeKey, x, y, color }: { nodeKey: NodeKey; x: number; y: nu
         </g>
       );
 
-    // 🗄 Database stack — customer-db
+    // 🗄 Database stack — company-customer-db
     case "customerdb":
       return (
         <g transform={`translate(${x - 9},${y - 13})`} fill="none" stroke={c} strokeWidth="1.8" strokeLinecap="round">

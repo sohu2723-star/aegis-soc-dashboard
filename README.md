@@ -1,6 +1,6 @@
 # AEGIS Security Operations Center Dashboard
 
-Full-stack real-time SOC (Security Operations Center) dashboard for the GNS3 AEGIS-SecureBank lab. Monitors live attacks and defenses — dashboard is monitoring-only; all real attack and defense happens on the GNS3 virtual machines.
+Full-stack real-time SOC (Security Operations Center) dashboard for the GNS3 AEGIS-SecureCompany lab. Monitors live attacks and defenses — dashboard is monitoring-only; all real attack and defense happens on the GNS3 virtual machines.
 
 ---
 
@@ -27,7 +27,7 @@ Full-stack real-time SOC (Security Operations Center) dashboard for the GNS3 AEG
                     ┌────────────────────┼──────────────┐
                [DMZ Zone]          [INT Zone]       [MGMT Zone]
                     │                   │                │
-              [bank-web]         [customer-db]   [aegis-forwarder]
+              [company-web-server]         [company-customer-db]   [aegis-forwarder]
              10.10.10.10         10.20.20.20      10.30.30.10
             Apache, vsftpd        PostgreSQL        Hub agent
             Suricata              Suricata          (SSH → VMs)
@@ -66,7 +66,7 @@ Full-stack real-time SOC (Security Operations Center) dashboard for the GNS3 AEG
                     │ POST /api/ingest/*  (X-AEGIS-Key)
 ┌───────────────────┴─────────────────────────────────────┐
 │   aegis_forwarder.py  (hub mode — runs on AEGIS VM)     │
-│   10.30.30.10 — SSHes into bank-web and customer-db     │
+│   10.30.30.10 — SSHes into company-web-server and company-customer-db     │
 │   to tail their Suricata / Fail2ban / SSH / FTP logs,   │
 │   then POSTs events to the API server.                  │
 │   Also monitors pfSense health via HTTP ping.           │
@@ -91,7 +91,7 @@ Full-stack real-time SOC (Security Operations Center) dashboard for the GNS3 AEG
 - **System Status** — Health monitoring for all defense components (per-VM service status)
 
 ### Network & Defense
-- **Network Monitor** — Live topology map (pfSense, bank-web, customer-db, aegis-forwarder), connected hosts table with real last-seen timestamps
+- **Network Monitor** — Live topology map (pfSense, company-web-server, company-customer-db, aegis-forwarder), connected hosts table with real last-seen timestamps
 - **Defense Center** — Auto defense status (Fail2ban, Suricata) per device + Admin manual IP block/unblock + pfSense WAN block via REST API
 
 ### Intelligence
@@ -199,7 +199,7 @@ See [docs/AEGIS_VM_SETUP.md](docs/AEGIS_VM_SETUP.md) for complete step-by-step s
 
 **Quick summary:**
 1. AEGIS VM (10.30.30.10) runs `aegis_forwarder.py --mode hub`
-2. Hub SSHes into bank-web (10.10.10.10) and customer-db (10.20.20.20)
+2. Hub SSHes into company-web-server (10.10.10.10) and company-customer-db (10.20.20.20)
 3. Tails their Suricata, Fail2ban, SSH, FTP logs remotely
 4. POSTs all events to Render API — dashboard updates live
 
@@ -224,7 +224,7 @@ All endpoints require `X-AEGIS-Key` header.
 ## Defense System
 
 ### Auto Defense
-- SSH brute-force → iptables DROP on bank-web
+- SSH brute-force → iptables DROP on company-web-server
 - Port scan / web attack → iptables DROP + pfSense WAN block
 - Critical event → pfSense REST API block rule (persistent, applied immediately)
 - All high+ alerts → Telegram notification (immediate push)

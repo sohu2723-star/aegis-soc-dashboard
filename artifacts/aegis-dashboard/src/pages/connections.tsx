@@ -179,7 +179,7 @@ function HttpTab({ selectedIp }: { selectedIp: string | null }) {
   );
 }
 
-// DB attack types relevant to this lab (customer-db PostgreSQL on 10.20.20.20)
+// DB attack types relevant to this lab (company-customer-db PostgreSQL on 10.20.20.20)
 interface DbAttack {
   id: number; sourceIp: string; targetIp: string; port: number | null;
   attackType: string | null; query: string | null; username: string | null;
@@ -194,7 +194,7 @@ function useDbAttacks() {
   });
 }
 
-// DB attack type colour map — relevant to PostgreSQL / bank system
+// DB attack type colour map — relevant to PostgreSQL / company system
 const dbSevMap: Record<string, string> = {
   "SQLi":          "border-red-500 text-red-400",
   "Auth Brute":    "border-orange-500 text-orange-400",

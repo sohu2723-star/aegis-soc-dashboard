@@ -32,7 +32,7 @@ const GLOBAL_COMPONENTS = [
 // The aegis_forwarder (hub mode) will update these to online/offline via POST /system/status.
 // Match component names exactly with what the forwarder POSTs to /system/status.
 const PER_HOST_SENSORS = [
-  // ── bank-web (10.10.10.10): Apache/Fail2ban ──────────────────────────────────
+  // ── company-web-server (10.10.10.10): Apache/Fail2ban ───────────────────────
   {
     component: "Fail2ban",
     layer: "sensor",
@@ -54,7 +54,7 @@ const PER_HOST_SENSORS = [
     description: "Apache/ModSecurity log watcher — SQLi, XSS, LFI, RFI, directory traversal",
     hostIp: "10.10.10.10",
   },
-  // ── aegis-forwarder (10.30.30.10): Hub script VM ────────────────────────────
+  // ── aegis-company-admin (10.30.30.10): Hub script VM ───────────────────────
   // MGMT zone ဖြစ်ပေမယ့် SSH ဖွင့်ထားတာကြောင့် Kali မှ attack လာနိုင်
   {
     component: "Hub Forwarder",
@@ -78,7 +78,7 @@ const PER_HOST_SENSORS = [
     hostIp: "10.30.30.10",
   },
 
-  // ── customer-db (10.20.20.10): MySQL/Fail2ban ────────────────────────────────
+  // ── company-customer-db (10.20.20.10): MySQL/Fail2ban ───────────────────────
   {
     component: "Fail2ban",
     layer: "sensor",
@@ -100,7 +100,7 @@ const PER_HOST_SENSORS = [
     description: "MySQL log watcher — auth failures, suspicious queries, connection anomalies",
     hostIp: "10.20.20.10",
   },
-  // ── dns-server (10.10.10.20): BIND9/Fail2ban ─────────────────────────────────
+  // ── company-dns-server (10.10.10.20): BIND9/Fail2ban ───────────────────────
   {
     component: "DNS Monitor",
     layer: "sensor",
@@ -112,17 +112,17 @@ const PER_HOST_SENSORS = [
     component: "Fail2ban",
     layer: "sensor",
     status: "unknown",
-    description: "Brute-force IP banning — SSH auth failures on dns-server",
+    description: "Brute-force IP banning — SSH auth failures on company-dns-server",
     hostIp: "10.10.10.20",
   },
   {
     component: "SSH Monitor",
     layer: "sensor",
     status: "unknown",
-    description: "SSH auth.log watcher — unauthorized access attempts on dns-server",
+    description: "SSH auth.log watcher — unauthorized access attempts on company-dns-server",
     hostIp: "10.10.10.20",
   },
-  // ── ldap-server (10.20.20.20): OpenLDAP/Fail2ban ────────────────────────────
+  // ── company-ldap-server (10.20.20.20): OpenLDAP/Fail2ban ───────────────────
   {
     component: "LDAP Monitor",
     layer: "sensor",
@@ -134,14 +134,14 @@ const PER_HOST_SENSORS = [
     component: "Fail2ban",
     layer: "sensor",
     status: "unknown",
-    description: "Brute-force IP banning — SSH and LDAP auth failures on ldap-server",
+    description: "Brute-force IP banning — SSH and LDAP auth failures on company-ldap-server",
     hostIp: "10.20.20.20",
   },
   {
     component: "SSH Monitor",
     layer: "sensor",
     status: "unknown",
-    description: "SSH auth.log watcher — unauthorized access attempts on ldap-server",
+    description: "SSH auth.log watcher — unauthorized access attempts on company-ldap-server",
     hostIp: "10.20.20.20",
   },
 ];

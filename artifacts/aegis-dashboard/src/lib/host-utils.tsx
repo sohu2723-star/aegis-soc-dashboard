@@ -7,7 +7,7 @@
  *
  * Usage:
  *   import { HostLabel, resolveHostLabel } from "@/lib/host-utils";
- *   <HostLabel ip="10.10.10.10" />   → renders "bank-web" (with IP tooltip)
+ *   <HostLabel ip="10.10.10.10" />   → renders "company-web-server" (with IP tooltip)
  */
 
 import { useDeviceContext, type NetworkHost } from "@/lib/device-context";
@@ -20,17 +20,23 @@ const STATIC_LABELS: Record<string, { label: string; role: "defender" | "attacke
 
 // ─── Generic labels stored by ingest routes when no real IP known ─────────────
 const GENERIC_LABELS: Record<string, { label: string; role: "defender" | "attacker" | "infra" }> = {
-  "bank-web":         { label: "bank-web",        role: "defender" },
-  "customer-db":      { label: "customer-db",     role: "defender" },
-  "dns-server":       { label: "dns-server",      role: "defender" },
-  "ldap-server":      { label: "ldap-server",      role: "defender" },
-  "atm-server":       { label: "atm-server",      role: "defender" },
-  "aegis-forwarder":  { label: "aegis-forwarder", role: "defender" },
-  "aegis":            { label: "aegis-forwarder", role: "defender" },
-  "ubuntu":           { label: "ubuntu (VM)",     role: "defender" },
-  "pfsense":          { label: "pfSense",         role: "infra"    },
-  "internal-network": { label: "internal-network",role: "infra"    },
-  "lan-segment":      { label: "LAN segment",     role: "infra"    },
+  // Current names (company topology)
+  "company-web-server":  { label: "company-web-server",  role: "defender" },
+  "company-customer-db": { label: "company-customer-db", role: "defender" },
+  "company-dns-server":  { label: "company-dns-server",  role: "defender" },
+  "company-ldap-server": { label: "company-ldap-server", role: "defender" },
+  // Legacy aliases — kept so old events in DB still resolve correctly
+  "bank-web":            { label: "company-web-server",  role: "defender" },
+  "customer-db":         { label: "company-customer-db", role: "defender" },
+  "dns-server":          { label: "company-dns-server",  role: "defender" },
+  "ldap-server":         { label: "company-ldap-server", role: "defender" },
+  "atm-server":          { label: "atm-server",          role: "defender" },
+  "aegis-forwarder":     { label: "aegis-forwarder",     role: "defender" },
+  "aegis":               { label: "aegis-forwarder",     role: "defender" },
+  "ubuntu":              { label: "ubuntu (VM)",          role: "defender" },
+  "pfsense":             { label: "pfSense",              role: "infra"    },
+  "internal-network":    { label: "internal-network",     role: "infra"    },
+  "lan-segment":         { label: "LAN segment",          role: "infra"    },
 };
 
 export interface HostInfo {

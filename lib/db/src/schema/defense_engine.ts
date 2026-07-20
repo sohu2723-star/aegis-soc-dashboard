@@ -16,7 +16,7 @@ export const defenseRulesTable = pgTable("defense_rules", {
   defenseType:   varchar("defense_type", { length: 32 }).notNull(),
   actionParams:  text("action_params"),
 
-  targetVm:  varchar("target_vm", { length: 32 }).notNull().default("bank-web"),
+  targetVm:  varchar("target_vm", { length: 32 }).notNull().default("company-web-server"),
   priority:  integer("priority").notNull().default(100),
   isActive:  boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),

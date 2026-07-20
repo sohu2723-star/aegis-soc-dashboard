@@ -195,7 +195,7 @@ router.post("/ingest/fail2ban", auth, async (req, res) => {
   const event = await insertEvent({
     type:"network_attack", subtype:"Brute Force", severity:"high",
     sourceIp: ip ?? "unknown",
-    targetHost: target_ip ?? "bank-web",
+    targetHost: target_ip ?? "company-web-server",
     toolUsed:"fail2ban", description:`Fail2ban banned ${ip} from [${jail ?? "sshd"}] after ${failures ?? "?"} failures. Auto-block applied.`,
     status:"blocked", layer:"perimeter",
     signatureText,
@@ -214,7 +214,7 @@ router.post("/ingest/ssh", auth, async (req, res) => {
   // prior_failures = how many failed attempts from this IP before this success event
   // 0 = clean login (authorized); ≥3 = brute-force success (breach)
   const priorFails   = prior_failures != null ? Number(prior_failures) : failCount;
-  const targetHost   = dest_ip ?? "bank-web";
+  const targetHost   = dest_ip ?? "company-web-server";
 
   await db.insert(sshSessionsTable).values({
     sourceIp: src_ip ?? "unknown", username: username ?? null,
@@ -277,7 +277,7 @@ router.post("/ingest/http_access", auth, async (req, res) => {
 
   const priorFails = Number(prior_failures) || 0;
   const isSuccess  = Boolean(is_success);
-  const host       = targetHost ?? dest_ip ?? "bank-web";
+  const host       = targetHost ?? dest_ip ?? "company-web-server";
   const sigText    = signature_text ? String(signature_text).slice(0, 2000) : null;
 
   if (isSuccess) {
@@ -425,7 +425,7 @@ router.post("/ingest/dns", auth, async (req, res) => {
 
   const event = await insertEvent({
     type:"network_attack", subtype: attack_type ?? "DNS Attack", severity: s,
-    sourceIp: src_ip ?? "unknown", targetHost: target_resolver ?? "dns-server",
+    sourceIp: src_ip ?? "unknown", targetHost: target_resolver ?? "company-dns-server",
     toolUsed:"dnsspoof",
     description:`DNS ${attack_type ?? "attack"} from ${src_ip}: query "${query}" → poisoned to ${response_ip ?? "?"}`,
     status:"detected", layer:"perimeter",

@@ -15,13 +15,13 @@ const router = Router();
 
 const SOC_SYSTEM = `သင်သည် AEGIS-AI — AEGIS SOC Dashboard ၏ built-in security analyst ဖြစ်သည်။
 
-Lab topology:
-- bank-web (10.10.10.10): Fail2ban, Apache2/ModSecurity
-- dns-server (10.10.10.20): Fail2ban, BIND9
-- customer-db (10.20.20.10): Fail2ban, MySQL
-- ldap-server (10.20.20.20): Fail2ban, OpenLDAP
+Lab topology (AEGIS-SecureCompany):
+- company-web-server (10.10.10.10): Fail2ban, Apache2/ModSecurity
+- company-dns-server (10.10.10.20): Fail2ban, BIND9
+- company-customer-db (10.20.20.10): Fail2ban, MySQL
+- company-ldap-server (10.20.20.20): Fail2ban, OpenLDAP
 - pfSense: Suricata IDS (network-based, monitors all traffic)
-- AEGIS VM (10.30.30.10): hub forwarder
+- aegis-company-admin VM (10.30.30.10): hub forwarder
 - pfSense (10.30.30.1): WAN firewall
 - Attacker: မည်သည့် IP မဆို — 192.168.122.x မဟုတ်ဘဲ မည်သည့် IP မဆို threat ဖြစ်နိုင်သည်
 
@@ -315,7 +315,7 @@ Valid values:
 - triggerSeverity: any | medium | high | critical
 - actionType: auto | suggest
 - defenseType: block_ip | null_route | rate_limit | port_block | pfsense_block | alert_only
-- targetVm: bank-web | customer-db | aegis | pfsense | all  (ubuntu မသုံးရ — ဤ values များသာ ခွင့်ပြုသည်)
+- targetVm: company-web-server | company-customer-db | company-dns-server | company-ldap-server | aegis | pfsense | all  (ubuntu မသုံးရ — ဤ values များသာ ခွင့်ပြုသည်)
 
 Attack data ကို ကြည့်ပြီး defense rules 3-5 ခု recommend ပေးပါ။
 တစ်ခုချင်းစီကို ဒီ JSON format အတိုင်း ဖော်ပြပါ:
@@ -332,7 +332,7 @@ Attack data ကို ကြည့်ပြီး defense rules 3-5 ခု recom
       "triggerWindowSecs": 60,
       "actionType": "auto",
       "defenseType": "block_ip",
-      "targetVm": "bank-web",
+      "targetVm": "company-web-server",
       "priority": 20
     }
   ]

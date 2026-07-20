@@ -35,7 +35,7 @@
 # Default route → virbr0 host (internet ထွက်ဖို့)
 /ip route add dst-address=0.0.0.0/0 gateway=192.168.122.1
 
-# Internal route → pfSense (bank VMs ရောက်ဖို့)
+# Internal route → pfSense (company VMs ရောက်ဖို့)
 /ip route add dst-address=10.0.0.0/8 gateway=10.0.23.2
 ```
 
@@ -56,7 +56,7 @@
 ```routeros
 /ip pool add name=kali-pool ranges=192.168.10.2-192.168.10.100
 /ip dhcp-server add name=kali-dhcp interface=ether2 address-pool=kali-pool disabled=no
-/ip dhcp-server network add address=192.168.10.0/24 gateway=192.168.10.1 dns-server=8.8.8.8
+/ip dhcp-server network add address=192.168.10.0/24 gateway=192.168.10.1 company-dns-server=8.8.8.8
 ```
 
 ---

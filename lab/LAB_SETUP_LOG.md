@@ -14,9 +14,9 @@ R1 MikroTik
     └─ ether3: 10.0.23.1/30      (pfSense WAN link)
                     │
               pfSense (10.0.23.2)
-              ├─ LAN       10.10.10.1/24 → bank-web     (10.10.10.10)
-              ├─ BANK_WEB  10.20.20.1/24 → customer-db  (10.20.20.20)
-              └─ CUSTOMER_DB 10.30.30.1/24 → aegis      (10.30.30.10)
+              ├─ LAN       10.10.10.1/24 → company-web-server     (10.10.10.10)
+              ├─ COMPANY_WEB  10.20.20.1/24 → company-customer-db  (10.20.20.20)
+              └─ COMPANY_DB 10.30.30.1/24 → aegis      (10.30.30.10)
 ```
 
 ---
@@ -41,7 +41,7 @@ echo "nameserver 8.8.8.8" | sudo tee /etc/resolv.conf
 
 ---
 
-## customer-db VM (10.20.20.20) — ✅ COMPLETE
+## company-customer-db VM (10.20.20.20) — ✅ COMPLETE
 
 ```bash
 sudo apt update && sudo apt install -y mysql-server
@@ -60,7 +60,7 @@ Must **append** both lines to mysqld.cnf instead. Verify with `ss -tlnp | grep 3
 
 **Verify:**
 ```bash
-sudo mysql -e "USE bankdb; SELECT acc_no, full_name, balance FROM accounts;"
+sudo mysql -e "USE companydb; SELECT acc_no, full_name, balance FROM accounts;"
 ss -tlnp | grep 3306   # should show 0.0.0.0:3306
 ```
 
@@ -68,7 +68,7 @@ ss -tlnp | grep 3306   # should show 0.0.0.0:3306
 
 ---
 
-## bank-web VM (10.10.10.10) — ✅ COMPLETE
+## company-web-server VM (10.10.10.10) — ✅ COMPLETE
 
 ```bash
 sudo apt update && sudo apt install -y apache2 php libapache2-mod-php php-mysql
@@ -87,7 +87,7 @@ sudo wget -O style.css     https://paste.rs/YR5lT
 sudo systemctl enable apache2 && sudo systemctl restart apache2
 ```
 
-**Verify:** http://10.10.10.10 → SecureBank login
+**Verify:** http://10.10.10.10 → SecureCompany login
 
 ---
 

@@ -55,7 +55,7 @@ VM_NAME   = _cfg("VM_NAME",   "ubuntu")   # ubuntu | pfsense — used by the def
 
 # ─── REMOTE / HUB MODE CONFIG ─────────────────────────────────────────────────
 # Used when running with --mode hub on the aegis-forwarder VM (10.30.30.10).
-# The hub SSHes into bank VMs to tail their logs AND SSHes into pfSense
+# The hub SSHes into company VMs to tail their logs AND SSHes into pfSense
 # to execute firewall rules via easyrule — all from one script, one machine.
 # Override REMOTE_SSH_USER in aegis_forwarder.local.conf if your user differs.
 REMOTE_SSH_USER = _cfg("REMOTE_SSH_USER", "sithu")
@@ -75,7 +75,7 @@ LDAPSERVER_IP  = _cfg("LDAPSERVER_IP",  "")   # 10.20.20.20
 # Only include hosts whose IP is configured (non-empty).
 REMOTE_HOSTS = [h for h in [
     {
-        "name": "bank-web",
+        "name": "company-web-server",
         "ip":   BANKWEB_IP,
         "sensors": ["fail2ban", "ssh", "http", "http_access"],
         # services to health-check via SSH systemctl on this VM
@@ -86,7 +86,7 @@ REMOTE_HOSTS = [h for h in [
         ],
     } if BANKWEB_IP else None,
     {
-        "name": "customer-db",
+        "name": "company-customer-db",
         "ip":   CUSTOMERDB_IP,
         "sensors": ["fail2ban", "ssh", "mysql"],
         "health_services": [
@@ -96,7 +96,7 @@ REMOTE_HOSTS = [h for h in [
         ],
     } if CUSTOMERDB_IP else None,
     {
-        "name": "dns-server",
+        "name": "company-dns-server",
         "ip":   DNSSERVER_IP,
         "sensors": ["fail2ban", "ssh", "bind9"],
         "health_services": [
@@ -106,7 +106,7 @@ REMOTE_HOSTS = [h for h in [
         ],
     } if DNSSERVER_IP else None,
     {
-        "name": "ldap-server",
+        "name": "company-ldap-server",
         "ip":   LDAPSERVER_IP,
         "sensors": ["fail2ban", "ssh", "slapd"],
         "health_services": [
@@ -232,7 +232,7 @@ def _local_fail2ban_signature(jail: str) -> str:
 
 def _remote_fail2ban_signature(host_ip: str, jail: str) -> str:
     """
-    SSH into a remote bank VM and read its Fail2ban filter + jail config.
+    SSH into a remote company VM and read its Fail2ban filter + jail config.
     Called from hub mode once per (host, jail) pair — result is cached.
     """
     cache_key = f"{host_ip}:{jail}"
@@ -516,7 +516,7 @@ def _dispatch_defense(cmd: dict):
 
 
 def _exec_defense_ssh_remote(target_ip: str, command: str, cmd_id: int):
-    """SSH into a bank VM (bank-web / customer-db) and run an iptables command.
+    """SSH into a company VM (company-web-server / company-customer-db) and run an iptables command.
     If the command is an iptables INPUT block, also kill any existing SSH sessions
     from that attacker IP so the block takes effect immediately.
     """
@@ -565,7 +565,7 @@ def _dispatch_defense_hub(cmd: dict):
     """
     Hub-mode dispatcher: routes defense commands to the right executor.
       target_vm == "pfsense"        → SSH into pfSense → easyrule/pfctl (PFSENSE_IP)
-      target_vm in bank VM names    → SSH iptables into that VM
+      target_vm in company VM names    → SSH iptables into that VM
       target_vm == "aegis" / ""     → local iptables on this machine
     """
     cmd_id       = cmd["id"]
@@ -586,7 +586,7 @@ def _dispatch_defense_hub(cmd: dict):
             _exec_defense_pfsense(command_text, cmd_id)
         return
 
-    # Route to bank VMs via SSH
+    # Route to company VMs via SSH
     _remote_ips = {h["name"]: h["ip"] for h in REMOTE_HOSTS}
     if target_vm in _remote_ips:
         _exec_defense_ssh_remote(_remote_ips[target_vm], command_text, cmd_id)
@@ -597,7 +597,7 @@ def _dispatch_defense_hub(cmd: dict):
         print(f"[defense-hub] Broadcasting to ALL VMs: {command_text}")
         # Local Aegis VM
         _exec_defense_shell(command_text, cmd_id)
-        # Remote bank VMs via SSH
+        # Remote company VMs via SSH
         for h in REMOTE_HOSTS:
             _exec_defense_ssh_remote(h["ip"], command_text, cmd_id)
         return
@@ -620,7 +620,7 @@ def defense_agent_loop(hub_mode: bool = False):
     """
     Poll for pending defense commands and execute them. Runs forever.
 
-    In hub_mode: polls for ALL hub VMs (aegis, pfsense, bank-web, customer-db)
+    In hub_mode: polls for ALL hub VMs (aegis, pfsense, company-web-server, company-customer-db)
     and routes each command to the right executor.
     In normal mode: polls only for VM_NAME and runs commands locally.
     """
@@ -739,7 +739,7 @@ def heartbeat_loop():
 
 def send_offline():
     """Send offline status immediately when script shuts down.
-    In hub mode: also marks all remote hosts (bank-web, customer-db) offline
+    In hub mode: also marks all remote hosts (company-web-server, company-customer-db) offline
     so the dashboard reflects the real state immediately, rather than waiting
     for the 45s heartbeat timeout.
     """
@@ -923,8 +923,8 @@ def watch_ssh():
     # IPs that belong to our own lab infrastructure — never flag as attackers
     OWN_IP = get_local_ip()
     DEFENDER_IPS = {ip for ip in [
-        BANKWEB_IP,    # bank-web (from conf)
-        CUSTOMERDB_IP, # customer-db (from conf)
+        BANKWEB_IP,    # company-web-server (from conf)
+        CUSTOMERDB_IP, # company-customer-db (from conf)
         OWN_IP,        # this VM itself
     ] if ip}
 
@@ -1077,7 +1077,7 @@ def watch_http_access():
             })
 
 
-# ─── REMOTE MODE (hub SSHes into bank VMs) ───────────────────────────────────
+# ─── REMOTE MODE (hub SSHes into company VMs) ───────────────────────────────────
 
 def _ssh_tail(host_name: str, host_ip: str, log_path: str):
     """
@@ -1191,8 +1191,8 @@ def _watch_pfsense_suricata(log_path: str | None = None):
         PFSENSE_SURICATA_LOGS = /var/db/suricata/suricata_em110/eve.json,/var/db/suricata/suricata_em220/eve.json
 
     Defaults (lab topology v4):
-        PUBLIC  (em1.10): /var/db/suricata/suricata_em110/eve.json  (bank-web + DNS)
-        INTERNAL(em2.20): /var/db/suricata/suricata_em220/eve.json  (customer-db + LDAP)
+        PUBLIC  (em1.10): /var/db/suricata/suricata_em110/eve.json  (company-web-server + DNS)
+        INTERNAL(em2.20): /var/db/suricata/suricata_em220/eve.json  (company-customer-db + LDAP)
     """
     if log_path is None:
         log_path = _cfg("PFSENSE_SURICATA_LOG",
@@ -1291,8 +1291,8 @@ def _watch_remote_ssh(host_name: str, host_ip: str):
 
 def _watch_remote_fail2ban(host_name: str, host_ip: str):
     """Tail fail2ban.log on a remote VM via SSH and forward ban events."""
-    # Never report our own hub or any bank VM as an attacker —
-    # aegis-forwarder SSHes into bank VMs so fail2ban may temporarily ban it.
+    # Never report our own hub or any company VM as an attacker —
+    # aegis-forwarder SSHes into company VMs so fail2ban may temporarily ban it.
     _defender_ips = {h["ip"] for h in REMOTE_HOSTS} | {"10.30.30.10"}
     print(f"[{host_name}] fail2ban thread started")
     for line in _ssh_tail(host_name, host_ip, "/var/log/fail2ban.log"):
@@ -1314,7 +1314,7 @@ def _watch_remote_fail2ban(host_name: str, host_ip: str):
 
 
 def _watch_remote_modsecurity(host_name: str, host_ip: str):
-    """Tail ModSecurity audit log on a remote VM (bank-web) via SSH."""
+    """Tail ModSecurity audit log on a remote VM (company-web-server) via SSH."""
     log_path = "/var/log/apache2/modsec_audit.log"
     print(f"[{host_name}] http/modsecurity thread started")
     current_ip     = None
@@ -1353,8 +1353,8 @@ def _watch_remote_modsecurity(host_name: str, host_ip: str):
 
 
 # PostgreSQL log line examples:
-# 2024-01-01 12:00:00 UTC [1234]: [1-1] user=app,db=bankdb,host=192.168.1.5 ERROR: syntax error ...
-# 2024-01-01 12:00:00 UTC [1234]: [1-1] user=app,db=bankdb,host=192.168.1.5 FATAL: password auth failed
+# 2024-01-01 12:00:00 UTC [1234]: [1-1] user=app,db=companydb,host=192.168.1.5 ERROR: syntax error ...
+# 2024-01-01 12:00:00 UTC [1234]: [1-1] user=app,db=companydb,host=192.168.1.5 FATAL: password auth failed
 _PG_LOG_RE = re.compile(
     r"user=(\S+),db=(\S+),host=([\d.]+).*?(ERROR|FATAL|WARNING|LOG):\s*(.+)"
 )
@@ -1369,7 +1369,7 @@ _PG_SQL_RE = re.compile(
 
 def _watch_remote_http_access(host_name: str, host_ip: str):
     """
-    Tail Apache access.log on a remote VM (bank-web) via SSH.
+    Tail Apache access.log on a remote VM (company-web-server) via SSH.
     Detects login brute-force success: repeated 401/403 → 200/302 on login URLs.
     """
     log_path = "/var/log/apache2/access.log"
@@ -1562,7 +1562,7 @@ def _watch_remote_slapd(host_name: str, host_ip: str):
 
 
 def _remote_heartbeat_loop(hosts: list):
-    """Send online heartbeat for every remote bank VM every 15s.
+    """Send online heartbeat for every remote company VM every 15s.
     Without this they time out (server marks offline after 45s / 3 missed beats).
     """
     while True:
@@ -1581,11 +1581,11 @@ def _remote_heartbeat_loop(hosts: list):
 
 
 def _remote_service_health_loop(hosts: list):
-    """SSH into each bank VM every 30s and report real service health to AEGIS.
-    Each host uses its own health_services list so bank-web and customer-db
-    get the right set of checks (no postgresql on bank-web, no apache2 on customer-db).
+    """SSH into each company VM every 30s and report real service health to AEGIS.
+    Each host uses its own health_services list so company-web-server and company-customer-db
+    get the right set of checks (no postgresql on company-web-server, no apache2 on company-customer-db).
     """
-    print("[REMOTE SERVICE HEALTH] Monitoring bank-web & customer-db every 30s via SSH")
+    print("[REMOTE SERVICE HEALTH] Monitoring company-web-server & company-customer-db every 30s via SSH")
     for h in hosts:
         svcs = [s[0] for s in h.get("health_services", [])]
         print(f"[REMOTE SERVICE HEALTH]   {h['name']}: {', '.join(svcs)}")
@@ -1669,15 +1669,15 @@ def _pfsense_health_loop():
 
 def run_hub_mode():
     """
-    Hub mode: aegis-forwarder VM (10.30.30.10) SSHes into each bank VM and
+    Hub mode: aegis-forwarder VM (10.30.30.10) SSHes into each company VM and
     tails their logs. Sensor threads are spawned per-host based on the
     'sensors' key in REMOTE_HOSTS. Defense commands are routed to the right
-    executor (local iptables / pfSense API / SSH iptables on bank VMs).
+    executor (local iptables / pfSense API / SSH iptables on company VMs).
 
     Supported sensors per host (via SSH log tail):
       fail2ban   — /var/log/fail2ban.log
       ssh        — /var/log/auth.log
-      http       — /var/log/apache2/modsec_audit.log  (bank-web)
+      http       — /var/log/apache2/modsec_audit.log  (company-web-server)
       mysql      — /var/log/mysql/error.log            (customer-db)
       postgresql — /var/log/postgresql/*.log           (customer-db, if used)
       bind9      — /var/log/named/                     (dns-server)
@@ -1715,7 +1715,7 @@ def run_hub_mode():
     threads.append(hb)
     print("  ► remote heartbeat thread started")
 
-    # Service health — SSHes into each bank VM every 30s, checks systemctl per-host
+    # Service health — SSHes into each company VM every 30s, checks systemctl per-host
     sh = threading.Thread(target=_remote_service_health_loop, args=(REMOTE_HOSTS,),
                           daemon=True, name="remote-service-health")
     sh.start()
@@ -1794,7 +1794,7 @@ if __name__ == "__main__":
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Modes:
-  hub     Run on the AEGIS VM (10.30.30.10): SSHes into bank-web + customer-db to
+  hub     Run on the AEGIS VM (10.30.30.10): SSHes into company-web-server + company-customer-db to
           tail their logs, SSHes into pfSense to run easyrule/pfctl commands, and
           runs the defense agent for ALL VMs.  One script, one machine, everything.
   all     Run all local sensors on THIS machine (normal forwarder mode).
@@ -1826,7 +1826,7 @@ Modes:
 ║            AEGIS Forwarder — Blue Team v3                        ║
 ╚══════════════════════════════════════════════════════════════════╝
   Target  : {AEGIS_URL}
-  Mode    : {args.mode}{"  ← hub: covers bank-web, customer-db, pfSense" if _is_hub else ""}
+  Mode    : {args.mode}{"  ← hub: covers company-web-server, company-customer-db, pfSense" if _is_hub else ""}
   VM_NAME : {VM_NAME}
 """)
 
@@ -1840,7 +1840,7 @@ Modes:
 
     # Local service health:
     #   NON-hub mode → run SERVICE_MAP checks (fail2ban/ssh) on THIS VM
-    #   Hub mode     → skip local checks; _remote_service_health_loop() covers bank VMs
+    #   Hub mode     → skip local checks; _remote_service_health_loop() covers company VMs
     #                  via SSH. Running both would cause UP/DOWN flapping.
     if not _is_hub:
         sh = threading.Thread(target=service_health_loop, daemon=True, name="service_health")

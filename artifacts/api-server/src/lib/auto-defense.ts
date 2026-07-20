@@ -328,9 +328,8 @@ async function suggestManualDefense(rule: DefenseRule, event: IngestEvent) {
   broadcaster.broadcast("incident", { id: incRow.id, title: `[ACTION NEEDED] ${rule.name}` });
 }
 
-// Rules that belonged to removed services (bank-mail, teller-pc, cowrie, snort)
-// or rules whose actionType changed — deleted from DB on startup so the new
-// seeded version takes effect immediately on next restart.
+// Rules that belonged to removed services or whose names changed — deleted from DB
+// on startup so the new seeded version takes effect immediately on next restart.
 const OBSOLETE_RULE_NAMES = [
   "Mail Spam → Auto Block",           // bank-mail removed from lab
   "MITM / ARP Spoof → Incident",      // No dedicated MITM sensor; Suricata handles detection only
@@ -343,6 +342,15 @@ const OBSOLETE_RULE_NAMES = [
   "DDoS → Null Route",
   "Web Attack (High) → Auto Block",
   "Port Scan → Auto Block",
+  // Renamed: bank-* → company-* topology
+  "SSH Brute Force → Auto Block (bank-web)",
+  "SSH Brute Force → Auto Block (customer-db)",
+  "SSH Brute Force → Auto Block (dns-server)",
+  "SSH Brute Force → Auto Block (ldap-server)",
+  "DNS Attack → Auto Block (dns-server)",
+  "DDoS → Null Route (all VMs)",
+  "Web Attack (High) → Auto Block (bank-web)",
+  "Port Scan → Auto Block (bank-web)",
 ];
 
 // ─── Seed default rules ───────────────────────────────────────────────────────
@@ -361,74 +369,74 @@ export async function seedDefaultRules() {
   const existingNames = new Set(existing.map(r => r.name));
 
   const defaults: Array<typeof defenseRulesTable.$inferInsert> = [
-    // ── SSH brute force — bank-web (10.10.10.10), customer-db (10.20.20.10), dns-server (10.10.10.20), ldap-server (10.20.20.20) ──
+    // ── SSH brute force — company-web-server (10.10.10.10), company-customer-db (10.20.20.10), company-dns-server (10.10.10.20), company-ldap-server (10.20.20.20) ──
     {
-      name: "SSH Brute Force → Auto Block (bank-web)",
-      description: "Block any IP with ≥5 SSH failures in 60s on bank-web (10.10.10.10). Executed by forwarder via iptables.",
+      name: "SSH Brute Force → Auto Block (company-web-server)",
+      description: "Block any IP with ≥5 SSH failures in 60s on company-web-server (10.10.10.10). Executed by forwarder via iptables.",
       triggerAttackType: "ssh_brute", triggerSeverity: "any",
       triggerThreshold: 5, triggerWindowSecs: 60,
       actionType: "auto", defenseType: "block_ip",
-      targetVm: "bank-web", priority: 10, isActive: true,
+      targetVm: "company-web-server", priority: 10, isActive: true,
     },
     {
-      name: "SSH Brute Force → Auto Block (customer-db)",
-      description: "Block any IP with ≥5 SSH failures in 60s on customer-db (10.20.20.10). Executed by forwarder via iptables.",
+      name: "SSH Brute Force → Auto Block (company-customer-db)",
+      description: "Block any IP with ≥5 SSH failures in 60s on company-customer-db (10.20.20.10). Executed by forwarder via iptables.",
       triggerAttackType: "ssh_brute", triggerSeverity: "any",
       triggerThreshold: 5, triggerWindowSecs: 60,
       actionType: "auto", defenseType: "block_ip",
-      targetVm: "customer-db", priority: 11, isActive: true,
+      targetVm: "company-customer-db", priority: 11, isActive: true,
     },
     {
-      name: "SSH Brute Force → Auto Block (dns-server)",
-      description: "Block any IP with ≥5 SSH failures in 60s on dns-server (10.10.10.20). Executed by forwarder via iptables.",
+      name: "SSH Brute Force → Auto Block (company-dns-server)",
+      description: "Block any IP with ≥5 SSH failures in 60s on company-dns-server (10.10.10.20). Executed by forwarder via iptables.",
       triggerAttackType: "ssh_brute", triggerSeverity: "any",
       triggerThreshold: 5, triggerWindowSecs: 60,
       actionType: "auto", defenseType: "block_ip",
-      targetVm: "dns-server", priority: 13, isActive: true,
+      targetVm: "company-dns-server", priority: 13, isActive: true,
     },
     {
-      name: "SSH Brute Force → Auto Block (ldap-server)",
-      description: "Block any IP with ≥5 SSH failures in 60s on ldap-server (10.20.20.20). Executed by forwarder via iptables.",
+      name: "SSH Brute Force → Auto Block (company-ldap-server)",
+      description: "Block any IP with ≥5 SSH failures in 60s on company-ldap-server (10.20.20.20). Executed by forwarder via iptables.",
       triggerAttackType: "ssh_brute", triggerSeverity: "any",
       triggerThreshold: 5, triggerWindowSecs: 60,
       actionType: "auto", defenseType: "block_ip",
-      targetVm: "ldap-server", priority: 14, isActive: true,
+      targetVm: "company-ldap-server", priority: 14, isActive: true,
     },
-    // ── DNS attack — dns-server (BIND9 on 10.10.10.20) ─────────────────────
+    // ── DNS attack — company-dns-server (BIND9 on 10.10.10.20) ─────────────────────
     {
-      name: "DNS Attack → Auto Block (dns-server)",
-      description: "Block IP performing DNS amplification, zone transfer, or flood against dns-server (10.10.10.20).",
+      name: "DNS Attack → Auto Block (company-dns-server)",
+      description: "Block IP performing DNS amplification, zone transfer, or flood against company-dns-server (10.10.10.20).",
       triggerAttackType: "dns_attack", triggerSeverity: "any",
       triggerThreshold: 1, triggerWindowSecs: 60,
       actionType: "auto", defenseType: "block_ip",
-      targetVm: "dns-server", priority: 18, isActive: true,
+      targetVm: "company-dns-server", priority: 18, isActive: true,
     },
     // ── DDoS / SYN flood — all VMs ──────────────────────────────────────────────
     {
-      name: "DDoS → Null Route (all VMs)",
-      description: "Null-route any IP flooding ≥50 events in 30s — applied on all monitored VMs.",
+      name: "DDoS → Null Route (company VMs)",
+      description: "Null-route any IP flooding ≥50 events in 30s — applied on all monitored company VMs.",
       triggerAttackType: "ddos", triggerSeverity: "any",
       triggerThreshold: 50, triggerWindowSecs: 30,
       actionType: "auto", defenseType: "null_route",
       targetVm: "all", priority: 8, isActive: true,
     },
-    // ── Web attacks — bank-web only (Apache2 + ModSecurity on 10.10.10.10) ─────
+    // ── Web attacks — company-web-server only (Apache2 + ModSecurity on 10.10.10.10) ─────
     {
-      name: "Web Attack (High) → Auto Block (bank-web)",
-      description: "Block IP on first high/critical SQLi, XSS, LFI, RFI against bank-web (10.10.10.10). ModSecurity / Suricata detection.",
+      name: "Web Attack (High) → Auto Block (company-web-server)",
+      description: "Block IP on first high/critical SQLi, XSS, LFI, RFI against company-web-server (10.10.10.10). ModSecurity / Suricata detection.",
       triggerAttackType: "web_attack", triggerSeverity: "high",
       triggerThreshold: 1, triggerWindowSecs: 60,
       actionType: "auto", defenseType: "block_ip",
-      targetVm: "bank-web", priority: 15, isActive: true,
+      targetVm: "company-web-server", priority: 15, isActive: true,
     },
-    // ── Port scan — bank-web (primary entry point) ───────────────────────────
+    // ── Port scan — company-web-server (primary entry point) ───────────────────────────
     {
-      name: "Port Scan → Auto Block (bank-web)",
-      description: "Block any IP detected running a port scan (nmap) against bank-web (10.10.10.10).",
+      name: "Port Scan → Auto Block (company-web-server)",
+      description: "Block any IP detected running a port scan (nmap) against company-web-server (10.10.10.10).",
       triggerAttackType: "port_scan", triggerSeverity: "any",
       triggerThreshold: 1, triggerWindowSecs: 60,
       actionType: "auto", defenseType: "block_ip",
-      targetVm: "bank-web", priority: 20, isActive: true,
+      targetVm: "company-web-server", priority: 20, isActive: true,
     },
     // ── pfSense WAN boundary blocks (aegis_forwarder.py --vm pfsense via SSH) ─
     {

@@ -5,9 +5,9 @@
  * Used by auto-defense to prevent self-blocking.
  *
  * Lab topology (GNS3):
- *   10.10.10.x  — bank-web subnet  (defender)
- *   10.20.20.x  — customer-db subnet (defender)
- *   10.30.30.x  — aegis + pfSense subnet (defender)
+ *   10.10.10.x  — company-web-server / company-dns-server subnet (defender)
+ *   10.20.20.x  — company-customer-db / company-ldap-server subnet (defender)
+ *   10.30.30.x  — aegis-company-admin + pfSense subnet (defender)
  *   127.x       — loopback
  *
  *   192.168.122.x — GNS3 NAT cloud / attacker Kali subnet → NOT whitelisted
@@ -21,9 +21,9 @@
 
 // Only these specific subnets are our own defender infrastructure.
 const DEFENDER_SUBNETS: Array<{ prefix: number[]; bits: number }> = [
-  { prefix: [10, 10, 10], bits: 24 },  // bank-web
-  { prefix: [10, 20, 20], bits: 24 },  // customer-db
-  { prefix: [10, 30, 30], bits: 24 },  // aegis + pfSense
+  { prefix: [10, 10, 10], bits: 24 },  // company-web-server + company-dns-server
+  { prefix: [10, 20, 20], bits: 24 },  // company-customer-db + company-ldap-server
+  { prefix: [10, 30, 30], bits: 24 },  // aegis-company-admin + pfSense
   { prefix: [127],         bits: 8  },  // loopback
 ];
 

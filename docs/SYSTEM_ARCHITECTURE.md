@@ -1,11 +1,11 @@
-# AEGIS-SecureBank — System Architecture
+# AEGIS-SecureCompany — System Architecture
 > Last updated: 2026-07-20
-> Topology version: v4 (Final) — OVS switches, DNS-Server, LDAP-Server, customer-db=10.20.20.10
+> Topology version: v4 (Final) — OVS switches, DNS-Server, LDAP-Server, company-customer-db=10.20.20.10
 > IP source of truth: `docs/ip-plan.md`
 
 ---
 
-## 1. Lab Topology — GNS3 AEGIS-SecureBank (v4 Final)
+## 1. Lab Topology — GNS3 AEGIS-SecureCompany (v4 Final)
 
 ```
   [Attacker — Kali]
@@ -26,11 +26,11 @@
    │            │                     │              │
 [Public-Services  ]           [Internal-Services]  [MGMT]
 [ OVS Switch      ]           [ OVS Switch       ]   │
-[eth0←pfSense DMZ ]           [eth0←pfSense INT  ] [aegis-ADMIN]
-[eth1→bank-web    ]           [eth1→customer-db  ] [10.30.30.10]
+[eth0←pfSense DMZ ]           [eth0←pfSense INT  ] [aegis-company-admin]
+[eth1→company-web-server    ]           [eth1→company-customer-db  ] [10.30.30.10]
 [eth2→DNS-Server  ]           [eth2→LDAP-Server  ] [Hub agent  ]
    │         │                    │          │
-[bank-web] [DNS-Server]     [customer-db] [LDAP-Server]
+[company-web-server] [DNS-Server]     [company-customer-db] [LDAP-Server]
 10.10.10.10 10.10.10.20     10.20.20.10   10.20.20.20
 Apache2     BIND9            MySQL         OpenLDAP
 vsftpd      Fail2ban         Suricata      Fail2ban
@@ -43,10 +43,10 @@ Fail2ban
 > **Attacker note:** Attackers can come from **any IP address** — not just 192.168.10.x.
 > Any external, internal, or VPN IP should be treated as a potential threat source.
 
-> **Forwarder model (hub mode):** A single `aegis_forwarder.py --mode hub` runs on aegis-ADMIN
-> (10.30.30.10). It SSHes into bank-web, DNS-Server, customer-db, LDAP-Server to tail their logs,
+> **Forwarder model (hub mode):** A single `aegis_forwarder.py --mode hub` runs on aegis-company-admin
+> (10.30.30.10). It SSHes into company-web-server, DNS-Server, company-customer-db, LDAP-Server to tail their logs,
 > then POSTs all events directly to the API server.
-> Bank VMs do NOT run the forwarder script themselves — hub handles all collection.
+> Company VMs do NOT run the forwarder script themselves — hub handles all collection.
 
 ---
 
@@ -57,9 +57,9 @@ Fail2ban
 | Attacker network | 192.168.10.0/24 | — | Kali DHCP subnet (Router ether2) |
 | Internet (virbr0) | 192.168.122.0/24 | — | GNS3 NAT cloud |
 | R1 ↔ pfSense WAN | 10.0.23.0/30 | em0 | Edge uplink (direct) |
-| DMZ (Public) | 10.10.10.0/24 | em1 | bank-web, DNS-Server |
-| Internal | 10.20.20.0/24 | em2 | customer-db, LDAP-Server |
-| Management | 10.30.30.0/24 | em3 | aegis-ADMIN |
+| DMZ (Public) | 10.10.10.0/24 | em1 | company-web-server, DNS-Server |
+| Internal | 10.20.20.0/24 | em2 | company-customer-db, LDAP-Server |
+| Management | 10.30.30.0/24 | em3 | aegis-company-admin |
 
 ### Node IP Reference (canonical)
 
@@ -73,11 +73,11 @@ Fail2ban
 | pfSense DMZ (em1) | 10.10.10.1/24 | DMZ | Public Services gateway |
 | pfSense INT (em2) | 10.20.20.1/24 | Internal | Internal Services gateway |
 | pfSense MGMT (em3) | 10.30.30.1/24 | Management | MGMT gateway |
-| bank-web | **10.10.10.10**/24 | DMZ | Apache2, vsftpd, Suricata, Fail2ban |
+| company-web-server | **10.10.10.10**/24 | DMZ | Apache2, vsftpd, Suricata, Fail2ban |
 | DNS-Server | **10.10.10.20**/24 | DMZ | BIND9 DNS |
-| customer-db | **10.20.20.10**/24 | Internal | MySQL, Suricata, Fail2ban |
+| company-customer-db | **10.20.20.10**/24 | Internal | MySQL, Suricata, Fail2ban |
 | LDAP-Server | **10.20.20.20**/24 | Internal | OpenLDAP |
-| aegis-ADMIN | **10.30.30.10**/24 | Management | Hub agent — SSHes into all bank VMs |
+| aegis-company-admin | **10.30.30.10**/24 | Management | Hub agent — SSHes into all company VMs |
 
 ---
 
@@ -88,17 +88,17 @@ Fail2ban
 |---|---|---|
 | Router (R1) | MikroTik CHR | ether1=virbr0, ether2=Kali DHCP (192.168.10.1), ether3=10.0.23.1 (pfSense WAN) |
 | pfSense | pfSense CE 2.7.x | Stateful FW — 4 zones: WAN/DMZ/INT/MGMT |
-| Public-Services | OVS Switch | bank-web (VLAN10/eth1), DNS-Server (VLAN10/eth2) |
-| Internal-Services | OVS Switch | customer-db (VLAN20/eth1), LDAP-Server (VLAN20/eth2) |
+| Public-Services | OVS Switch | company-web-server (VLAN10/eth1), DNS-Server (VLAN10/eth2) |
+| Internal-Services | OVS Switch | company-customer-db (VLAN20/eth1), LDAP-Server (VLAN20/eth2) |
 
 ### Security Tools per VM
 | VM | IP | Tools | Log Files (tailed by hub) |
 |---|---|---|---|
-| bank-web | 10.10.10.10 | Apache2, vsftpd, ModSecurity WAF, Suricata, Fail2ban | `/var/log/suricata/eve.json`, `/var/log/fail2ban.log`, `/var/log/auth.log`, `/var/log/vsftpd.log` |
+| company-web-server | 10.10.10.10 | Apache2, vsftpd, ModSecurity WAF, Suricata, Fail2ban | `/var/log/suricata/eve.json`, `/var/log/fail2ban.log`, `/var/log/auth.log`, `/var/log/vsftpd.log` |
 | DNS-Server | 10.10.10.20 | BIND9, Fail2ban | `/var/log/fail2ban.log`, `/var/log/auth.log` |
-| customer-db | 10.20.20.10 | MySQL, Suricata, Fail2ban | `/var/log/suricata/eve.json`, `/var/log/fail2ban.log`, `/var/log/auth.log` |
+| company-customer-db | 10.20.20.10 | MySQL, Suricata, Fail2ban | `/var/log/suricata/eve.json`, `/var/log/fail2ban.log`, `/var/log/auth.log` |
 | LDAP-Server | 10.20.20.20 | OpenLDAP (slapd), Fail2ban | `/var/log/fail2ban.log`, `/var/log/auth.log` |
-| aegis-ADMIN | 10.30.30.10 | `aegis_forwarder.py --mode hub` | SSHes into all bank VMs every 15s, tails their logs, POSTs to API |
+| aegis-company-admin | 10.30.30.10 | `aegis_forwarder.py --mode hub` | SSHes into all company VMs every 15s, tails their logs, POSTs to API |
 
 ### AEGIS Platform
 | Component | Host | URL |
@@ -125,34 +125,34 @@ Fail2ban
                           │
                           ▼
 ┌──────────────────────────────────────────────────────────────────────┐
-│                   DETECTION PHASE (Bank VMs)                         │
+│                   DETECTION PHASE (Company VMs)                         │
 │                                                                       │
-│  bank-web (10.10.10.10)                                               │
+│  company-web-server (10.10.10.10)                                               │
 │  ├── Suricata     → /var/log/suricata/eve.json                       │
 │  ├── Fail2ban     → /var/log/fail2ban.log                            │
 │  ├── SSH auth     → /var/log/auth.log                                │
 │  └── vsftpd       → /var/log/vsftpd.log                              │
 │                                                                       │
-│  customer-db (10.20.20.10)                                            │
+│  company-customer-db (10.20.20.10)                                            │
 │  ├── Suricata     → /var/log/suricata/eve.json                       │
 │  ├── Fail2ban     → /var/log/fail2ban.log                            │
 │  └── SSH auth     → /var/log/auth.log                                │
 └──────────────────────────────────────────────────────────────────────┘
-                          │  logs written locally on each bank VM
+                          │  logs written locally on each company VM
                           ▼
 ┌──────────────────────────────────────────────────────────────────────┐
 │           FORWARDING PHASE (Hub — aegis_forwarder --mode hub)        │
 │                                                                       │
 │  aegis_forwarder.py runs on AEGIS VM (10.30.30.10) only.            │
-│  No forwarder script on bank VMs.                                     │
+│  No forwarder script on company VMs.                                     │
 │                                                                       │
-│  Every 15 seconds, hub SSHes into each bank VM and tails new lines: │
-│  ├── bank-web   : suricata eve.json, fail2ban.log, auth.log, vsftpd │
-│  └── customer-db: suricata eve.json, fail2ban.log, auth.log          │
+│  Every 15 seconds, hub SSHes into each company VM and tails new lines: │
+│  ├── company-web-server   : suricata eve.json, fail2ban.log, auth.log, vsftpd │
+│  └── company-customer-db: suricata eve.json, fail2ban.log, auth.log          │
 │                                                                       │
 │  Hub also monitors its own local services:                            │
 │  ├── service_health_loop — reports AEGIS VM's own service status     │
-│  ├── _remote_service_health_loop — SSH checks bank VM services       │
+│  ├── _remote_service_health_loop — SSH checks company VM services       │
 │  ├── _pfsense_health_loop — HTTP ping pfSense every 30s              │
 │  ├── heartbeat_loop — POST /api/network/hosts every 15s              │
 │  └── defense_agent_loop — polls + executes defense commands every 5s │
@@ -287,7 +287,7 @@ aegis-soc-dashboard/
 │   └── api-zod/                      ← Generated Zod schemas
 └── scripts/src/
     └── aegis_forwarder.py            ← Hub agent (--mode hub): runs on AEGIS VM only,
-                                         SSHes into bank VMs to tail logs, executes defense
+                                         SSHes into company VMs to tail logs, executes defense
                                          commands, monitors pfSense health via HTTP ping
 ```
 

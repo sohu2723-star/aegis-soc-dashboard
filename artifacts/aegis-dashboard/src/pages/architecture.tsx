@@ -42,7 +42,7 @@ const BLOCKS: BlockDetail[] = [
   {
     id: "defense",
     title: "AEGIS Defense Perimeter",
-    subtitle: "pfSense + Bank VMs — IDS/IPS & Application-level sensors",
+    subtitle: "pfSense + Company VMs — IDS/IPS & Application-level sensors",
     color: "#22c55e",
     borderColor: "border-green-500",
     bgColor: "bg-green-950/40",
@@ -104,7 +104,7 @@ const BLOCKS: BlockDetail[] = [
       { step: 2, action: "Command Center", detail: "Total Events, Critical Threats, Active Alerts, Systems Online counters update live" },
       { step: 3, action: "Network Monitor", detail: "Network topology map, traffic chart (12h), connected hosts from VMs" },
       { step: 4, action: "Defense Center", detail: "Auto-block log (pfSense Suricata + Fail2ban) + Manual admin block/unblock IP form" },
-      { step: 5, action: "Telegram Alert", detail: "Attack detected → Telegram Bot sends: 🚨 ALERT: SQLi from 192.168.122.153 → bank-web" },
+      { step: 5, action: "Telegram Alert", detail: "Attack detected → Telegram Bot sends: 🚨 ALERT: SQLi from 192.168.122.153 → company-web-server" },
       { step: 6, action: "Admin Commands", detail: "Admin replies to Telegram Bot: /block 192.168.122.153 → API auto-blocks IP" },
       { step: 7, action: "Report Generate", detail: "Reports page → Generate → PDF/HTML with event summary, attack breakdown, top attacker IPs" },
     ],

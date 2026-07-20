@@ -27,7 +27,7 @@
 /ip route add dst-address=0.0.0.0/0 gateway=192.168.122.1 comment="Internet"
 
 # === Internal Route (pfSense handles 10.x.x.x) ===
-/ip route add dst-address=10.0.0.0/8 gateway=10.0.23.2 comment="Bank VMs via pfSense"
+/ip route add dst-address=10.0.0.0/8 gateway=10.0.23.2 comment="Company VMs via pfSense"
 
 # === NAT masquerade (internet out via ether1) ===
 /ip firewall nat add chain=srcnat action=masquerade out-interface=ether1
@@ -38,7 +38,7 @@
 # === DHCP server for Kali (ether2) ===
 /ip pool add name=kali-pool ranges=192.168.10.2-192.168.10.100
 /ip dhcp-server add name=kali-dhcp interface=ether2 address-pool=kali-pool disabled=no
-/ip dhcp-server network add address=192.168.10.0/24 gateway=192.168.10.1 dns-server=8.8.8.8
+/ip dhcp-server network add address=192.168.10.0/24 gateway=192.168.10.1 company-dns-server=8.8.8.8
 ```
 
 ---

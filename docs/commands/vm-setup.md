@@ -1,7 +1,7 @@
 # Ubuntu VM Setup — Bank Servers + AEGIS-ADMIN
-> **GNS3 nodes:** bank-web, DNS-Server, customer-db, LDAP-Server, aegis-ADMIN
+> **GNS3 nodes:** company-web-server, DNS-Server, company-customer-db, LDAP-Server, aegis-company-admin
 > **Base image:** ubuntu-base (Ubuntu Server 22.04, QEMU linked clone)
-> **Last updated:** 2026-07-20 (v4 Final — OVS switches, DNS-Server, LDAP-Server, customer-db=10.20.20.10)
+> **Last updated:** 2026-07-20 (v4 Final — OVS switches, DNS-Server, LDAP-Server, company-customer-db=10.20.20.10)
 
 ---
 
@@ -21,11 +21,11 @@
 
 | VM | Subnet | IP | Gateway | Role |
 |---|---|---|---|---|
-| bank-web | DMZ (10.10.10.0/24) | **10.10.10.10/24** | 10.10.10.1 | Apache2, vsftpd, Suricata, Fail2ban |
+| company-web-server | DMZ (10.10.10.0/24) | **10.10.10.10/24** | 10.10.10.1 | Apache2, vsftpd, Suricata, Fail2ban |
 | DNS-Server | DMZ (10.10.10.0/24) | **10.10.10.20/24** | 10.10.10.1 | BIND9 DNS, Fail2ban |
-| customer-db | Internal (10.20.20.0/24) | **10.20.20.10/24** | 10.20.20.1 | MySQL, Suricata, Fail2ban |
+| company-customer-db | Internal (10.20.20.0/24) | **10.20.20.10/24** | 10.20.20.1 | MySQL, Suricata, Fail2ban |
 | LDAP-Server | Internal (10.20.20.0/24) | **10.20.20.20/24** | 10.20.20.1 | OpenLDAP (slapd), Fail2ban |
-| aegis-ADMIN | MGMT (10.30.30.0/24) | **10.30.30.10/24** | 10.30.30.1 | aegis_forwarder.py hub agent |
+| aegis-company-admin | MGMT (10.30.30.0/24) | **10.30.30.10/24** | 10.30.30.1 | aegis_forwarder.py hub agent |
 
 **Removed from v3:** bank-mail (10.10.10.20), teller-pc (10.20.20.10)
 
@@ -35,11 +35,11 @@
 
 | VM | VM port | Connected to | Switch port |
 |---|---|---|---|
-| bank-web | e0 | Public-Services OVS Switch | eth1 |
+| company-web-server | e0 | Public-Services OVS Switch | eth1 |
 | DNS-Server | e0 | Public-Services OVS Switch | eth2 |
-| customer-db | e0 | Internal-Services OVS Switch | eth1 |
+| company-customer-db | e0 | Internal-Services OVS Switch | eth1 |
 | LDAP-Server | e0 | Internal-Services OVS Switch | eth2 |
-| aegis-ADMIN | e0 | pfSense e3 (em3/MGMT) | direct |
+| aegis-company-admin | e0 | pfSense e3 (em3/MGMT) | direct |
 
 ---
 
@@ -87,7 +87,7 @@ sudo nano /etc/netplan/01-network-manager-all.yaml
 
 ---
 
-### bank-web (10.10.10.10)
+### company-web-server (10.10.10.10)
 
 ```yaml
 network:
@@ -121,7 +121,7 @@ network:
 
 ---
 
-### customer-db (10.20.20.10)
+### company-customer-db (10.20.20.10)
 
 ```yaml
 network:
@@ -155,7 +155,7 @@ network:
 
 ---
 
-### aegis-ADMIN (10.30.30.10)
+### aegis-company-admin (10.30.30.10)
 
 ```yaml
 network:
@@ -188,10 +188,10 @@ ping -c 3 8.8.8.8
 ## Step 5 — Hostname Set
 
 ```bash
-sudo hostnamectl set-hostname bank-web
-sudo hostnamectl set-hostname dns-server
-sudo hostnamectl set-hostname customer-db
-sudo hostnamectl set-hostname ldap-server
+sudo hostnamectl set-hostname company-web-server
+sudo hostnamectl set-hostname company-dns-server
+sudo hostnamectl set-hostname company-customer-db
+sudo hostnamectl set-hostname company-ldap-server
 sudo hostnamectl set-hostname aegis-admin
 ```
 
@@ -202,13 +202,13 @@ sudo hostnamectl set-hostname aegis-admin
 pfSense console Option 8 (Shell) —
 
 ```bash
-# DMZ — bank-web, DNS-Server
+# DMZ — company-web-server, DNS-Server
 easyrule pass lan any 10.10.10.0/24 any
 
-# Internal — customer-db, LDAP-Server
+# Internal — company-customer-db, LDAP-Server
 easyrule pass opt1 any 10.20.20.0/24 any
 
-# MGMT — aegis-ADMIN
+# MGMT — aegis-company-admin
 easyrule pass opt2 any 10.30.30.0/24 any
 
 pfctl -e
@@ -223,15 +223,15 @@ pfctl -e
 
 | VM | IP | Gateway Ping | Internet | Services |
 |---|---|---|---|---|
-| bank-web | ✅ 10.10.10.10 | ✅ | ✅ | Apache2, vsftpd, Suricata, Fail2ban |
+| company-web-server | ✅ 10.10.10.10 | ✅ | ✅ | Apache2, vsftpd, Suricata, Fail2ban |
 | DNS-Server | ✅ 10.10.10.20 | ✅ | ✅ | BIND9 ⏳ configure |
-| customer-db | ✅ 10.20.20.10 | ✅ | ✅ | MySQL, Suricata, Fail2ban |
+| company-customer-db | ✅ 10.20.20.10 | ✅ | ✅ | MySQL, Suricata, Fail2ban |
 | LDAP-Server | ✅ 10.20.20.20 | ✅ | ✅ | OpenLDAP ⏳ configure |
-| aegis-ADMIN | ✅ 10.30.30.10 | ✅ | ✅ | hub mode ✅ |
+| aegis-company-admin | ✅ 10.30.30.10 | ✅ | ✅ | hub mode ✅ |
 
 ---
 
-## bank-web Full Service Setup
+## company-web-server Full Service Setup
 
 ```bash
 sudo apt update && sudo apt install -y apache2 php libapache2-mod-php php-mysql \
@@ -268,14 +268,14 @@ sudo systemctl enable bind9
 
 ---
 
-## customer-db Full Service Setup
+## company-customer-db Full Service Setup
 
 ```bash
 sudo apt update && sudo apt install -y mysql-server suricata fail2ban openssh-server
 
-sudo mysql -e "CREATE DATABASE bankdb;
-  CREATE USER 'bankuser'@'%' IDENTIFIED BY 'SecurePass123!';
-  GRANT ALL ON bankdb.* TO 'bankuser'@'%';"
+sudo mysql -e "CREATE DATABASE companydb;
+  CREATE USER 'companyuser'@'%' IDENTIFIED BY 'SecurePass123!';
+  GRANT ALL ON companydb.* TO 'companyuser'@'%';"
 
 sudo sed -i "s/bind-address.*/bind-address = 0.0.0.0/" /etc/mysql/mysql.conf.d/mysqld.cnf
 sudo systemctl restart mysql
@@ -291,7 +291,7 @@ sudo apt update && sudo apt install -y slapd ldap-utils fail2ban openssh-server
 # Reconfigure slapd
 sudo dpkg-reconfigure slapd
 # DNS domain name: securebank.local
-# Organization: SecureBank
+# Organization: SecureCompany
 # Admin password: <set strong password>
 
 sudo systemctl restart slapd
@@ -300,7 +300,7 @@ sudo systemctl enable slapd
 
 ---
 
-## aegis-ADMIN Full Service Setup
+## aegis-company-admin Full Service Setup
 
 ```bash
 sudo apt update && sudo apt install -y python3-pip openssh-client

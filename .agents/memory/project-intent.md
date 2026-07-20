@@ -32,8 +32,8 @@ The "Simulate Attack" button must be disabled — only real data from real VMs.
 | Machine | IP | Role | Tools |
 |---|---|---|---|
 | Kali Linux | 192.168.10.x (DHCP) | Red Team (attacker) | nmap, hydra, sqlmap, hping3, metasploit |
-| bank-web | 10.10.10.10 | Public web server | Apache2, vsftpd, Suricata, Fail2ban, ModSecurity |
-| customer-db | 10.20.20.20 | Internal DB server | PostgreSQL, Suricata, Fail2ban |
+| company-web-server | 10.10.10.10 | Public web server | Apache2, vsftpd, Suricata, Fail2ban, ModSecurity |
+| company-customer-db | 10.20.20.20 | Internal DB server | PostgreSQL, Suricata, Fail2ban |
 | aegis-forwarder | 10.30.30.10 | AEGIS hub agent | aegis_forwarder.py --mode hub |
 | pfSense | 10.30.30.1 / 10.0.23.2 | Firewall/router | easyrule, pfctl, VLAN routing |
 | Router (MikroTik) | 192.168.10.1 / 10.0.23.1 | WAN router | NAT, DHCP for Kali |

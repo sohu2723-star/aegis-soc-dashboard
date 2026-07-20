@@ -31,7 +31,7 @@ export default function SetupGuide() {
     <div className="h-full flex flex-col max-w-6xl mx-auto space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-primary uppercase">AEGIS System Setup Guide</h1>
-        <p className="text-sm text-muted-foreground">GNS3 AEGIS-SecureBank lab — real device setup (hub mode).</p>
+        <p className="text-sm text-muted-foreground">GNS3 AEGIS-SecureCompany lab — real device setup (hub mode).</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 flex-1 min-h-0">
@@ -44,7 +44,7 @@ export default function SetupGuide() {
               <a href="#nodes"         className="text-foreground hover:underline hover:text-primary/80">2. GNS3 Nodes</a>
               <a href="#network"       className="text-foreground hover:underline hover:text-primary/80">3. Network Config</a>
               <a href="#aegis-vm"      className="text-foreground hover:underline hover:text-primary/80">4. AEGIS VM Hub Setup</a>
-              <a href="#bank-vms"      className="text-foreground hover:underline hover:text-primary/80">5. Bank VM Setup</a>
+              <a href="#company-vms"      className="text-foreground hover:underline hover:text-primary/80">5. Company VM Setup</a>
               <a href="#firewall"      className="text-foreground hover:underline hover:text-primary/80">6. pfSense Config</a>
               <a href="#integration"   className="text-destructive hover:underline font-bold">7. Connect Live</a>
               <a href="#attack-tests"  className="text-foreground hover:underline hover:text-primary/80">8. Attack Tests</a>
@@ -70,9 +70,9 @@ export default function SetupGuide() {
               </div>
 
               <p className="text-foreground leading-relaxed">
-                AEGIS-SecureBank is a real-device Red/Blue team cybersecurity lab built in GNS3.
-                The AEGIS VM (10.30.30.10) runs in <strong>hub mode</strong> — it SSHes into bank-web and
-                customer-db to tail their logs and forward all events to the dashboard.
+                AEGIS-SecureCompany is a real-device Red/Blue team cybersecurity lab built in GNS3.
+                The AEGIS VM (10.30.30.10) runs in <strong>hub mode</strong> — it SSHes into company-web-server and
+                company-customer-db to tail their logs and forward all events to the dashboard.
                 The dashboard at{" "}
                 <code className="bg-muted px-1.5 rounded text-primary mx-1">aegis-soc-dashboard.vercel.app</code>
                 is monitoring-only — all actual attack and defense happens on the GNS3 virtual machines.
@@ -89,14 +89,14 @@ export default function SetupGuide() {
          │ direct cable
 [Kali]                      [pfSense 2.7.2]
   DHCP 192.168.10.x          WAN:         10.0.23.2/30
-  no switch                  BANK_WEB:    10.10.10.1/24
-                             CUSTOMER_DB: 10.20.20.1/24
+  no switch                  COMPANY_WEB:    10.10.10.1/24
+                             COMPANY_DB: 10.20.20.1/24
                              MGMT:        10.30.30.1/24
                                        │
                      ┌─────────────────┼──────────────┐
                 [DMZ Zone]        [INT Zone]      [MGMT Zone]
                      │                │                │
-               [bank-web]      [customer-db]   [aegis-forwarder]
+               [company-web-server]      [company-customer-db]   [aegis-forwarder]
            10.10.10.10  10.10.10.20  10.20.20.10  10.20.20.20  10.30.30.10
            Apache       BIND9        MySQL        OpenLDAP     Hub agent
            ModSecurity  Fail2ban     Fail2ban     Fail2ban     (SSH → VMs)
@@ -110,8 +110,8 @@ aegis-forwarder (hub): SSHes into all VMs → tails logs → POST to API`}</pre>
                   <p className="text-muted-foreground text-xs">Any IP — nmap, sqlmap, hydra, hping3, metasploit, nikto</p>
                 </div>
                 <div className="bg-cyan-950/30 border border-cyan-500/30 rounded p-3">
-                  <p className="font-bold text-cyan-400 mb-1">🛡 Bank VMs</p>
-                  <p className="text-muted-foreground text-xs">bank-web, customer-db — Suricata, Fail2ban, service logs</p>
+                  <p className="font-bold text-cyan-400 mb-1">🛡 Company VMs</p>
+                  <p className="text-muted-foreground text-xs">company-web-server, company-customer-db — Suricata, Fail2ban, service logs</p>
                 </div>
                 <div className="bg-green-950/30 border border-green-500/30 rounded p-3">
                   <p className="font-bold text-green-400 mb-1">⊕ pfSense + R1</p>
@@ -155,25 +155,25 @@ aegis-forwarder (hub): SSHes into all VMs → tails logs → POST to API`}</pre>
                     <TableCell className="font-mono text-muted-foreground text-xs">pfSense 2.7.x</TableCell>
                   </TableRow>
                   <TableRow className="border-border">
-                    <TableCell className="font-medium text-cyan-400">bank-web</TableCell>
+                    <TableCell className="font-medium text-cyan-400">company-web-server</TableCell>
                     <TableCell>Web Server (DMZ)</TableCell>
                     <TableCell className="font-mono text-muted-foreground text-xs">10.10.10.10/24</TableCell>
                     <TableCell className="font-mono text-muted-foreground text-xs">Ubuntu 24.04</TableCell>
                   </TableRow>
                   <TableRow className="border-border">
-                    <TableCell className="font-medium text-cyan-400">dns-server</TableCell>
+                    <TableCell className="font-medium text-cyan-400">company-dns-server</TableCell>
                     <TableCell>DNS Server (Public)</TableCell>
                     <TableCell className="font-mono text-muted-foreground text-xs">10.10.10.20/24</TableCell>
                     <TableCell className="font-mono text-muted-foreground text-xs">Ubuntu 24.04</TableCell>
                   </TableRow>
                   <TableRow className="border-border">
-                    <TableCell className="font-medium text-cyan-400">customer-db</TableCell>
+                    <TableCell className="font-medium text-cyan-400">company-customer-db</TableCell>
                     <TableCell>Database (Internal)</TableCell>
                     <TableCell className="font-mono text-muted-foreground text-xs">10.20.20.10/24</TableCell>
                     <TableCell className="font-mono text-muted-foreground text-xs">Ubuntu 24.04</TableCell>
                   </TableRow>
                   <TableRow className="border-border">
-                    <TableCell className="font-medium text-cyan-400">ldap-server</TableCell>
+                    <TableCell className="font-medium text-cyan-400">company-ldap-server</TableCell>
                     <TableCell>LDAP Directory (Internal)</TableCell>
                     <TableCell className="font-mono text-muted-foreground text-xs">10.20.20.20/24</TableCell>
                     <TableCell className="font-mono text-muted-foreground text-xs">Ubuntu 24.04</TableCell>
@@ -208,7 +208,7 @@ aegis-forwarder (hub): SSHes into all VMs → tails logs → POST to API`}</pre>
                 <div className="bg-muted/20 p-4 rounded border border-border">
                   <h4 className="text-sm font-bold mb-2 uppercase text-primary">pfSense Zones</h4>
                   <p className="text-sm text-muted-foreground font-mono">PUBLIC · INTERNAL · MGMT</p>
-                  <p className="text-xs mt-2">bank-web + dns-server (Public), customer-db + ldap-server (Internal), aegis (MGMT).</p>
+                  <p className="text-xs mt-2">company-web-server + company-dns-server (Public), company-customer-db + company-ldap-server (Internal), aegis (MGMT).</p>
                 </div>
               </div>
               <div className="bg-muted/20 p-4 rounded border border-border">
@@ -220,11 +220,11 @@ aegis-forwarder (hub): SSHes into all VMs → tails logs → POST to API`}</pre>
                   <p>10.0.23.1     — R1 ether3 (pfSense WAN upstream)</p>
                   <p>10.0.23.2     — pfSense WAN</p>
                   <p>10.10.10.1    — pfSense PUBLIC gateway (OVS Public-Switch)</p>
-                  <p>10.10.10.10   — bank-web (Apache, ModSecurity, Fail2ban)</p>
-                  <p>10.10.10.20   — dns-server (BIND9)</p>
+                  <p>10.10.10.10   — company-web-server (Apache, ModSecurity, Fail2ban)</p>
+                  <p>10.10.10.20   — company-dns-server (BIND9)</p>
                   <p>10.20.20.1    — pfSense INTERNAL gateway (OVS Internal-Switch)</p>
-                  <p>10.20.20.10   — customer-db (MySQL, Fail2ban)</p>
-                  <p>10.20.20.20   — ldap-server (OpenLDAP / slapd)</p>
+                  <p>10.20.20.10   — company-customer-db (MySQL, Fail2ban)</p>
+                  <p>10.20.20.20   — company-ldap-server (OpenLDAP / slapd)</p>
                   <p>10.30.30.1    — pfSense MGMT gateway</p>
                   <p>10.30.30.10   — aegis-forwarder (hub)</p>
                 </div>
@@ -242,7 +242,7 @@ aegis-forwarder (hub): SSHes into all VMs → tails logs → POST to API`}</pre>
 # DHCP server for Kali (ether2)
 /ip pool add name=kali-pool ranges=192.168.10.2-192.168.10.100
 /ip dhcp-server add name=kali-dhcp interface=ether2 address-pool=kali-pool disabled=no
-/ip dhcp-server network add address=192.168.10.0/24 gateway=192.168.10.1 dns-server=8.8.8.8`} />
+/ip dhcp-server network add address=192.168.10.0/24 gateway=192.168.10.1 company-dns-server=8.8.8.8`} />
               </div>
               <div className="bg-muted/20 p-4 rounded border border-border">
                 <h4 className="text-sm font-bold mb-2 uppercase text-muted-foreground">Attacker VM Route (add each session):</h4>
@@ -263,7 +263,7 @@ sudo ip route add 10.0.0.0/8 via 192.168.10.1`} />
                 4. AEGIS VM Hub Setup (10.30.30.10)
               </h2>
               <p className="text-foreground leading-relaxed">
-                The AEGIS VM is the central hub. It SSHes into bank-web and customer-db to tail their logs,
+                The AEGIS VM is the central hub. It SSHes into company-web-server and company-customer-db to tail their logs,
                 then forwards all events to the Render API. Only this VM needs outbound HTTPS to the internet.
               </p>
 
@@ -288,18 +288,18 @@ AEGIS_URL=https://aegis-api-server-jp3b.onrender.com/api
 AEGIS_KEY=your-ingest-key
 AEGIS_ADMIN_KEY=your-admin-key
 
-# Hub mode: SSH into bank VMs
+# Hub mode: SSH into company VMs
 VM_NAME=aegis
-BANK_WEB_IP=10.10.10.10
-BANK_WEB_SSH_USER=sithu
-CUSTOMER_DB_IP=10.20.20.10
-CUSTOMER_DB_SSH_USER=sithu
+COMPANY_WEB_IP=10.10.10.10
+COMPANY_WEB_SSH_USER=sithu
+COMPANY_DB_IP=10.20.20.10
+COMPANY_DB_SSH_USER=sithu
 
 # pfSense (for defense block commands)
 PFSENSE_IP=10.30.30.1
 PFSENSE_API_KEY=your-pfsense-api-key-here`} />
 
-              <CodeBlock language="bash" code={`# 4. Setup SSH key auth (AEGIS VM → bank-web, customer-db)
+              <CodeBlock language="bash" code={`# 4. Setup SSH key auth (AEGIS VM → company-web-server, company-customer-db)
 ssh-keygen -t ed25519 -f ~/.ssh/aegis_hub -N ""
 ssh-copy-id -i ~/.ssh/aegis_hub.pub sithu@10.10.10.10
 ssh-copy-id -i ~/.ssh/aegis_hub.pub sithu@10.10.10.20
@@ -320,8 +320,8 @@ sudo python3 aegis_forwarder.py --mode hub
 # ► remote service health thread started
 # ► pfSense health thread started
 # ► defense agent thread started
-# bank-web : suricata ONLINE, fail2ban ONLINE
-# customer-db: postgresql ONLINE`} />
+# company-web-server : suricata ONLINE, fail2ban ONLINE
+# company-customer-db: postgresql ONLINE`} />
 
               <CodeBlock language="bash" code={`# 6. Install as systemd service
 sudo nano /etc/systemd/system/aegis-forwarder.service`} />
@@ -349,14 +349,14 @@ wget -O /opt/aegis/scripts/src/aegis_forwarder.py \\
 sudo systemctl restart aegis-forwarder`} />
             </section>
 
-            {/* ── 5. Bank VM Setup ── */}
-            <section id="bank-vms" className="space-y-4">
+            {/* ── 5. Company VM Setup ── */}
+            <section id="company-vms" className="space-y-4">
               <h2 className="text-xl font-bold uppercase text-primary border-b border-border/50 pb-2">
                 5. Bank VM Defense Tools Setup
               </h2>
-              <p className="text-foreground">Install IDS/IPS tools on each bank VM. No forwarder script needed on bank VMs — the hub handles log collection via SSH.</p>
+              <p className="text-foreground">Install IDS/IPS tools on each company VM. No forwarder script needed on company VMs — the hub handles log collection via SSH.</p>
 
-              <h3 className="text-sm font-bold uppercase text-primary mt-4">bank-web (10.10.10.10) — DMZ</h3>
+              <h3 className="text-sm font-bold uppercase text-primary mt-4">company-web-server (10.10.10.10) — DMZ</h3>
               <CodeBlock language="bash" code={`# Web server + security tools
 sudo apt install -y fail2ban apache2 ufw iptables
 
@@ -368,19 +368,19 @@ sudo sed -i 's/SecRuleEngine DetectionOnly/SecRuleEngine On/' /etc/modsecurity/m
 sudo systemctl enable --now fail2ban apache2
 sudo systemctl restart apache2`} />
 
-              <h3 className="text-sm font-bold uppercase text-primary mt-4">dns-server (10.10.10.20) — Public</h3>
+              <h3 className="text-sm font-bold uppercase text-primary mt-4">company-dns-server (10.10.10.20) — Public</h3>
               <CodeBlock language="bash" code={`# DNS + security tools
 sudo apt install -y bind9 bind9utils fail2ban ufw iptables
 
 sudo systemctl enable --now fail2ban bind9`} />
 
-              <h3 className="text-sm font-bold uppercase text-primary mt-4">customer-db (10.20.20.10) — Internal</h3>
+              <h3 className="text-sm font-bold uppercase text-primary mt-4">company-customer-db (10.20.20.10) — Internal</h3>
               <CodeBlock language="bash" code={`# Database + security tools
 sudo apt install -y fail2ban mysql-server ufw iptables
 
 sudo systemctl enable --now fail2ban mysql`} />
 
-              <h3 className="text-sm font-bold uppercase text-primary mt-4">ldap-server (10.20.20.20) — Internal</h3>
+              <h3 className="text-sm font-bold uppercase text-primary mt-4">company-ldap-server (10.20.20.20) — Internal</h3>
               <CodeBlock language="bash" code={`# OpenLDAP + security tools
 sudo apt install -y slapd ldap-utils fail2ban ufw iptables
 
@@ -409,8 +409,8 @@ ssh sithu@10.20.20.20 "sudo systemctl status slapd"`} />
                   <p className="font-bold text-primary mb-1">Interfaces Setup</p>
                   <div className="font-mono text-xs space-y-1 text-muted-foreground">
                     <p>em0 (WAN)      → 10.0.23.2/30  — upstream: R1 ether3</p>
-                    <p>em1 (PUBLIC)   → 10.10.10.1/24 — OVS Public-Switch (bank-web, dns-server)</p>
-                    <p>em2 (INTERNAL) → 10.20.20.1/24 — OVS Internal-Switch (customer-db, ldap-server)</p>
+                    <p>em1 (PUBLIC)   → 10.10.10.1/24 — OVS Public-Switch (company-web-server, company-dns-server)</p>
+                    <p>em2 (INTERNAL) → 10.20.20.1/24 — OVS Internal-Switch (company-customer-db, company-ldap-server)</p>
                     <p>em3 (MGMT)     → 10.30.30.1/24 — direct to aegis-forwarder</p>
                   </div>
                 </div>
@@ -444,7 +444,7 @@ ssh sithu@10.20.20.20 "sudo systemctl status slapd"`} />
               <div className="bg-muted/20 border border-border rounded p-4">
                 <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2">Data Flow</p>
                 <pre className="text-xs font-mono text-primary/80 leading-relaxed">{`Attacker (any IP)
-    │  network traffic → R1 → pfSense → bank-web / customer-db
+    │  network traffic → R1 → pfSense → company-web-server / company-customer-db
     ▼
 Suricata / Fail2ban / SSH auth detects
     │
@@ -525,7 +525,7 @@ TELEGRAM_CHAT_ID=your-chat-id       # your Telegram user/group ID`} />
                   {
                     label: "DB Brute",
                     cmd: "hydra -l postgres -P /usr/share/wordlists/rockyou.txt postgres://10.20.20.10",
-                    result: "Fail2ban on customer-db → high event"
+                    result: "Fail2ban on company-customer-db → high event"
                   },
                 ].map(({ label, cmd, result }) => (
                   <div key={label} className="flex gap-3 items-start">

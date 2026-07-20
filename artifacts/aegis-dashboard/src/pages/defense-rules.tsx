@@ -65,8 +65,8 @@ function Ts({ v }: { v: string }) {
 
 // ─── VM name badge ─────────────────────────────────────────────────────────────
 const VM_META: Record<string, { label: string; ip?: string; color: string }> = {
-  "bank-web":    { label: "bank-web",    ip: "10.10.10.10",  color: "border-cyan-500/50 text-cyan-300" },
-  "customer-db": { label: "customer-db", ip: "10.20.20.20",  color: "border-purple-500/50 text-purple-300" },
+  "company-web-server":    { label: "company-web-server",    ip: "10.10.10.10",  color: "border-cyan-500/50 text-cyan-300" },
+  "company-customer-db": { label: "company-customer-db", ip: "10.20.20.20",  color: "border-purple-500/50 text-purple-300" },
   "aegis":       { label: "aegis",       ip: "10.30.30.10",  color: "border-green-500/50 text-green-300" },
   "pfsense":     { label: "pfSense",                         color: "border-orange-500/50 text-orange-300" },
   "all":         { label: "all VMs",                         color: "border-yellow-500/50 text-yellow-300" },
@@ -120,7 +120,7 @@ function RulesTab() {
   const [triggerWindow, setTriggerWindow]       = useState(60);
   const [actionType, setActionType]             = useState("auto");
   const [defenseType, setDefenseType]           = useState("block_ip");
-  const [targetVm, setTargetVm]                 = useState("bank-web");
+  const [targetVm, setTargetVm]                 = useState("company-web-server");
   const [priority, setPriority]                 = useState(100);
 
   const authHeaders = (): Record<string, string> => {
@@ -284,8 +284,8 @@ function RulesTab() {
                   <Select value={targetVm} onValueChange={setTargetVm}>
                     <SelectTrigger className="bg-background border-border text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="bank-web">bank-web (10.10.10.10)</SelectItem>
-                      <SelectItem value="customer-db">customer-db (10.20.20.20)</SelectItem>
+                      <SelectItem value="company-web-server">company-web-server (10.10.10.10)</SelectItem>
+                      <SelectItem value="company-customer-db">company-customer-db (10.20.20.20)</SelectItem>
                       <SelectItem value="aegis">aegis (10.30.30.10)</SelectItem>
                       <SelectItem value="pfsense">pfsense (WAN firewall — SSH)</SelectItem>
                       <SelectItem value="all">all (every VM)</SelectItem>

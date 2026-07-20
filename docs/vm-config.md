@@ -1,7 +1,7 @@
 # VM Configuration Guide
 
 > **Last Updated:** 2026-07-20
-> **Topology:** v4 Final — OVS switches, DNS-Server (10.10.10.20), LDAP-Server (10.20.20.20), customer-db=10.20.20.10
+> **Topology:** v4 Final — OVS switches, DNS-Server (10.10.10.20), LDAP-Server (10.20.20.20), company-customer-db=10.20.20.10
 
 ---
 
@@ -10,9 +10,9 @@
 ### Interface Assignment (Console — Option 1)
 ```
 WAN  → em0   IP: 10.0.23.2/30     GW: 10.0.23.1
-DMZ  → em1   IP: 10.10.10.1/24    (Public Services — bank-web, DNS-Server)
-INT  → em2   IP: 10.20.20.1/24    (Internal Services — customer-db, LDAP-Server)
-MGMT → em3   IP: 10.30.30.1/24    (aegis-ADMIN)
+DMZ  → em1   IP: 10.10.10.1/24    (Public Services — company-web-server, DNS-Server)
+INT  → em2   IP: 10.20.20.1/24    (Internal Services — company-customer-db, LDAP-Server)
+MGMT → em3   IP: 10.30.30.1/24    (aegis-company-admin)
 ```
 
 WebGUI: `https://10.0.23.2` (from Router) — admin / pfsense
@@ -29,7 +29,7 @@ WebGUI: `https://10.0.23.2` (from Router) — admin / pfsense
 - Allow Internal → Internet (for updates only)
 
 **MGMT (em3):**
-- Allow aegis-ADMIN outbound HTTPS to API server
+- Allow aegis-company-admin outbound HTTPS to API server
 
 ### Static Route (Required — Kali return path)
 ```
@@ -48,9 +48,9 @@ Interfaces → WAN → uncheck "Block bogon networks"
 
 ---
 
-## Ubuntu Bank VMs — Netplan Config
+## Ubuntu Company VMs — Netplan Config
 
-### bank-web (10.10.10.10)
+### company-web-server (10.10.10.10)
 ```yaml
 # /etc/netplan/00-installer-config.yaml
 network:
@@ -79,7 +79,7 @@ network:
   version: 2
 ```
 
-### customer-db (10.20.20.10)
+### company-customer-db (10.20.20.10)
 ```yaml
 network:
   ethernets:
@@ -107,7 +107,7 @@ network:
   version: 2
 ```
 
-### aegis-ADMIN (10.30.30.10)
+### aegis-company-admin (10.30.30.10)
 ```yaml
 network:
   ethernets:
@@ -139,14 +139,14 @@ sudo systemctl restart networking
 # Verify
 ip a show eth0         # should get 192.168.10.x
 ping -c 2 8.8.8.8     # internet ✅
-ping -c 2 10.10.10.10 # bank-web ✅
+ping -c 2 10.10.10.10 # company-web-server ✅
 ```
 
 ---
 
 ## Services to Install
 
-### bank-web (10.10.10.10)
+### company-web-server (10.10.10.10)
 ```bash
 sudo apt update
 sudo apt install -y apache2 php libapache2-mod-php php-mysql \
@@ -159,7 +159,7 @@ sudo apt update
 sudo apt install -y bind9 bind9utils fail2ban openssh-server
 ```
 
-### customer-db (10.20.20.10)
+### company-customer-db (10.20.20.10)
 ```bash
 sudo apt update
 sudo apt install -y mysql-server suricata fail2ban openssh-server
@@ -171,7 +171,7 @@ sudo apt update
 sudo apt install -y slapd ldap-utils fail2ban openssh-server
 ```
 
-### aegis-ADMIN (10.30.30.10)
+### aegis-company-admin (10.30.30.10)
 ```bash
 sudo apt update
 sudo apt install -y python3 python3-pip python3-requests openssh-client

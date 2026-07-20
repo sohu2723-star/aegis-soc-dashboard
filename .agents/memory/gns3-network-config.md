@@ -1,9 +1,9 @@
 ---
-name: GNS3 network config — AEGIS-SecureBank
+name: GNS3 network config — AEGIS-SecureCompany
 description: Confirmed IP assignments, interface mappings, internet fix, and VM setup notes
 ---
 
-# GNS3 Network Configuration — AEGIS-SecureBank
+# GNS3 Network Configuration — AEGIS-SecureCompany
 
 ## Current Topology (v3 — 2026-07-19, ဆရာမ ညွှန်ကြားချက်အတိုင်း)
 
@@ -17,8 +17,8 @@ Internet (NAT cloud / virbr0)
         │ direct cable
 [Kali]  → Router e1 (direct, no switch) — DHCP 192.168.10.x
 [pfSense WAN] 10.0.23.2/30
-  ├─ BANK_WEB   (e1): 10.10.10.1/24 → Public-Service Switch → bank-web (10.10.10.10)
-  ├─ CUSTOMER_DB (e2): 10.20.20.1/24 → Internal-Service Switch → customer-db (10.20.20.20)
+  ├─ BANK_WEB   (e1): 10.10.10.1/24 → Public-Service Switch → company-web-server (10.10.10.10)
+  ├─ CUSTOMER_DB (e2): 10.20.20.1/24 → Internal-Service Switch → company-customer-db (10.20.20.20)
   └─ MGMT       (e3): 10.30.30.1/24 → aegis-forwarder (10.30.30.10)
 ```
 
@@ -29,8 +29,8 @@ Internet (NAT cloud / virbr0)
 | Internet (virbr0) | 192.168.122.0/24 | Router ether1: 192.168.122.2 |
 | Attacker network | 192.168.10.0/24 | Router ether2: 192.168.10.1, Kali: DHCP .2–.100 |
 | Router ↔ pfSense WAN | 10.0.23.0/30 | Router ether3: 10.0.23.1, pfSense WAN: 10.0.23.2 |
-| DMZ (BANK_WEB) | 10.10.10.0/24 | pfSense: 10.10.10.1, bank-web: 10.10.10.10 |
-| Internal (CUSTOMER_DB) | 10.20.20.0/24 | pfSense: 10.20.20.1, customer-db: 10.20.20.20 |
+| DMZ (BANK_WEB) | 10.10.10.0/24 | pfSense: 10.10.10.1, company-web-server: 10.10.10.10 |
+| Internal (CUSTOMER_DB) | 10.20.20.0/24 | pfSense: 10.20.20.1, company-customer-db: 10.20.20.20 |
 | Management | 10.30.30.0/24 | pfSense: 10.30.30.1, aegis-forwarder: 10.30.30.10 |
 
 ## Router MikroTik — Full Config
@@ -45,7 +45,7 @@ Internet (NAT cloud / virbr0)
 /ip firewall filter add chain=forward action=accept place-before=0
 /ip pool add name=kali-pool ranges=192.168.10.2-192.168.10.100
 /ip dhcp-server add name=kali-dhcp interface=ether2 address-pool=kali-pool disabled=no
-/ip dhcp-server network add address=192.168.10.0/24 gateway=192.168.10.1 dns-server=8.8.8.8
+/ip dhcp-server network add address=192.168.10.0/24 gateway=192.168.10.1 company-dns-server=8.8.8.8
 ```
 
 ## Kali — /etc/network/interfaces
@@ -83,8 +83,8 @@ sudo dhclient eth0
 | Router | 192.168.122.1 (virbr0 host bridge) |
 | Kali | 192.168.10.1 (Router ether2) |
 | pfSense | 10.0.23.1 (WANGW) |
-| bank-web | 10.10.10.1 (pfSense BANK_WEB) |
-| customer-db | 10.20.20.1 (pfSense CUSTOMER_DB) |
+| company-web-server | 10.10.10.1 (pfSense BANK_WEB) |
+| company-customer-db | 10.20.20.1 (pfSense CUSTOMER_DB) |
 | aegis-forwarder | 10.30.30.1 (pfSense MGMT) |
 
 ## Removed Nodes
@@ -99,11 +99,11 @@ sudo dhclient eth0
 
 ## VM Software Setup
 
-### bank-web (10.10.10.10) — DONE ✅
+### company-web-server (10.10.10.10) — DONE ✅
 - Apache2, vsftpd, Suricata, Fail2ban installed
 - Web app deployed at http://10.10.10.10
 
-### customer-db (10.20.20.20) — DONE ✅
+### company-customer-db (10.20.20.20) — DONE ✅
 - PostgreSQL installed, bankdb created
 - Remote access enabled (bind 0.0.0.0)
 - ⚠️ MySQL 8.0 bind-address quirk: must append to mysqld.cnf, not sed

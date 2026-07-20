@@ -1,5 +1,5 @@
 ---
-name: Bank services roadmap
+name: Company services roadmap
 description: Planned bank VM services for AEGIS final internship project — what to add, how, and which attacks they enable
 ---
 
@@ -15,11 +15,11 @@ Each new service = new GNS3 VM + new VLAN + new attack surface + new dashboard m
 
 | Service | VM | IP | Status |
 |---|---|---|---|
-| Web Server (Apache2) | bank-web | 10.10.10.10 | ✅ Running |
-| FTP Server (vsftpd) | bank-web | 10.10.10.10 | ✅ Running |
-| Database (PostgreSQL) | customer-db | 10.20.20.20 | ✅ Running |
-| IDS (Suricata) | bank-web + customer-db | both | ✅ Running |
-| Fail2ban | bank-web + customer-db | both | ✅ Running |
+| Web Server (Apache2) | company-web-server | 10.10.10.10 | ✅ Running |
+| FTP Server (vsftpd) | company-web-server | 10.10.10.10 | ✅ Running |
+| Database (PostgreSQL) | company-customer-db | 10.20.20.20 | ✅ Running |
+| IDS (Suricata) | company-web-server + company-customer-db | both | ✅ Running |
+| Fail2ban | company-web-server + company-customer-db | both | ✅ Running |
 
 ---
 
@@ -39,7 +39,7 @@ Each new service = new GNS3 VM + new VLAN + new attack surface + new dashboard m
   ```
 
 #### 2. DNS Server (BIND9)
-- **VM:** Ubuntu (bank-web မှာ ပေါင်းထည့်လည်း ရ)
+- **VM:** Ubuntu (company-web-server မှာ ပေါင်းထည့်လည်း ရ)
 - **VLAN:** 10 (DMZ — public-facing)
 - **Attacks:** DNS amplification, zone transfer, DNS tunneling
 - **Log:** `/var/log/named/queries.log` → watch_dns() function
@@ -89,7 +89,7 @@ Each new service = new GNS3 VM + new VLAN + new attack surface + new dashboard m
 
 #### 6. Active Directory (Samba4)
 - **VM:** Ubuntu + Samba4
-- **VLAN:** 20 (Internal, alongside customer-db)
+- **VLAN:** 20 (Internal, alongside company-customer-db)
 - **Attacks:** Pass-the-hash, Kerberos brute force, LDAP enumeration
 - **Log:** `/var/log/samba/` → watch_ad() function
 - **Dashboard:** Auth failure flood, privilege escalation alert
@@ -118,9 +118,9 @@ Each new service = new GNS3 VM + new VLAN + new attack surface + new dashboard m
 
 ```
 pfSense
-├── em1.10  VLAN 10  → OVS-Public    → bank-web (10.10.10.10)     ✅
+├── em1.10  VLAN 10  → OVS-Public    → company-web-server (10.10.10.10)     ✅
 │                                     → DNS server (10.10.10.20)   📋 planned
-├── em2.20  VLAN 20  → OVS-Internal  → customer-db (10.20.20.20)  ✅
+├── em2.20  VLAN 20  → OVS-Internal  → company-customer-db (10.20.20.20)  ✅
 │                                     → AD/Samba (10.20.20.30)     📋 planned
 ├── em3     MGMT     10.30.30.0/24   → aegis (10.30.30.10)        ✅
 │                                     → mail (10.30.30.20)         📋 planned

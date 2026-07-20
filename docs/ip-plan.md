@@ -1,7 +1,7 @@
-# AEGIS-SecureBank IP Address Plan
+# AEGIS-SecureCompany IP Address Plan
 
 > **Last Updated:** 2026-07-20
-> **Topology Version:** v4 (Final — OVS switches, DNS-Server, LDAP-Server, customer-db IP ပြောင်း)
+> **Topology Version:** v4 (Final — OVS switches, DNS-Server, LDAP-Server, company-customer-db IP ပြောင်း)
 
 ---
 
@@ -12,9 +12,9 @@
 | Internet (virbr0) | 192.168.122.0/24 | GNS3 NAT cloud — Router internet egress |
 | Attacker network | 192.168.10.0/24 | Kali DHCP subnet (Router ether2 ↔ Kali direct) |
 | Router ↔ pfSense WAN | 10.0.23.0/30 | Direct link (R2 ဖြုတ်ပြီ) |
-| DMZ (Public Services) | 10.10.10.0/24 | bank-web, DNS-Server |
-| Internal (Internal Services) | 10.20.20.0/24 | customer-db, LDAP-Server |
-| MGMT | 10.30.30.0/24 | Monitoring segment — aegis-ADMIN |
+| DMZ (Public Services) | 10.10.10.0/24 | company-web-server, DNS-Server |
+| Internal (Internal Services) | 10.20.20.0/24 | company-customer-db, LDAP-Server |
+| MGMT | 10.30.30.0/24 | Monitoring segment — aegis-company-admin |
 
 > ⚠️ **Kali IP က dynamic** (DHCP 192.168.10.2–100)။ Attack events မှာ any IP in 192.168.10.0/24 range က attacker ဖြစ်နိုင်တယ်။
 
@@ -78,18 +78,18 @@
 
 | Switch | Connected to pfSense | VMs |
 |---|---|---|
-| Public-Services (OVS) | e1 (DMZ 10.10.10.1) | bank-web, DNS-Server |
-| Internal-Services (OVS) | e2 (INT 10.20.20.1) | customer-db, LDAP-Server |
+| Public-Services (OVS) | e1 (DMZ 10.10.10.1) | company-web-server, DNS-Server |
+| Internal-Services (OVS) | e2 (INT 10.20.20.1) | company-customer-db, LDAP-Server |
 
-### Bank VMs (Ubuntu Server 22.04)
+### Company VMs (Ubuntu Server 22.04)
 
 | VM | IP | Gateway | Zone | Services |
 |---|---|---|---|---|
-| bank-web | 10.10.10.10/24 | 10.10.10.1 | DMZ | Apache2, ModSecurity, vsftpd, Suricata, Fail2ban, SSH |
+| company-web-server | 10.10.10.10/24 | 10.10.10.1 | DMZ | Apache2, ModSecurity, vsftpd, Suricata, Fail2ban, SSH |
 | DNS-Server | 10.10.10.20/24 | 10.10.10.1 | DMZ | BIND9 DNS, Fail2ban, SSH |
-| customer-db | 10.20.20.10/24 | 10.20.20.1 | Internal | MySQL, Suricata, Fail2ban, SSH |
+| company-customer-db | 10.20.20.10/24 | 10.20.20.1 | Internal | MySQL, Suricata, Fail2ban, SSH |
 | LDAP-Server | 10.20.20.20/24 | 10.20.20.1 | Internal | OpenLDAP (slapd), Fail2ban, SSH |
-| aegis-ADMIN | 10.30.30.10/24 | 10.30.30.1 | MGMT | aegis_forwarder.py (hub mode), SSH |
+| aegis-company-admin | 10.30.30.10/24 | 10.30.30.1 | MGMT | aegis_forwarder.py (hub mode), SSH |
 
 ---
 
@@ -100,11 +100,11 @@
 | Router | 192.168.122.1 (virbr0 host bridge) |
 | Kali | 192.168.10.1 (Router ether2) |
 | pfSense | 10.0.23.1 (WANGW — Router ether3) |
-| bank-web | 10.10.10.1 (pfSense DMZ) |
+| company-web-server | 10.10.10.1 (pfSense DMZ) |
 | DNS-Server | 10.10.10.1 (pfSense DMZ) |
-| customer-db | 10.20.20.1 (pfSense INT) |
+| company-customer-db | 10.20.20.1 (pfSense INT) |
 | LDAP-Server | 10.20.20.1 (pfSense INT) |
-| aegis-ADMIN | 10.30.30.1 (pfSense MGMT) |
+| aegis-company-admin | 10.30.30.1 (pfSense MGMT) |
 
 ---
 
@@ -112,8 +112,8 @@
 
 | VLAN ID | Segment | Switch | VMs |
 |---|---|---|---|
-| 10 | DMZ | Public-Services | bank-web (eth1), DNS-Server (eth2) |
-| 20 | Internal | Internal-Services | customer-db (eth1), LDAP-Server (eth2) |
+| 10 | DMZ | Public-Services | company-web-server (eth1), DNS-Server (eth2) |
+| 20 | Internal | Internal-Services | company-customer-db (eth1), LDAP-Server (eth2) |
 
 ---
 
@@ -124,4 +124,4 @@
 | Router-2 (R2) | MikroTik CHR, 10.0.12.x/10.0.23.1 | 2026-07-16 ဖြုတ်ပြီ |
 | Switch1 | NAT+R1+Kali ကြား switch | 2026-07-19 ဖြုတ်ပြီ |
 | bank-mail | 10.10.10.20 DMZ (v3) | 2026-07-16 ဖြုတ်ပြီ — DNS-Server အဖြစ် replace |
-| teller-pc | 10.20.20.10 Internal (v3) | 2026-07-16 ဖြုတ်ပြီ — customer-db .10 IP ယူ |
+| teller-pc | 10.20.20.10 Internal (v3) | 2026-07-16 ဖြုတ်ပြီ — company-customer-db .10 IP ယူ |

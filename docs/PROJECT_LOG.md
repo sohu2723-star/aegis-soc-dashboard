@@ -1,6 +1,6 @@
 # AEGIS SOC Dashboard — Project Development Log
 
-> **Project:** AEGIS-SecureBank Cybersecurity Lab  
+> **Project:** AEGIS-SecureCompany Cybersecurity Lab  
 > **Type:** Real-device GNS3 Red/Blue Team SOC Dashboard  
 > **Stack:** React + Vite (Vercel) · Express 5 (Render) · PostgreSQL (Supabase) · Python hub agent (AEGIS VM)  
 > **Repo:** https://github.com/sohu2723-star/aegis-soc-dashboard
@@ -28,10 +28,10 @@ DHCP 192.168.10.x
       │
  ┌────┴────────────────┬──────────────────────┐
 [DMZ]               [Internal]             [MGMT]
-[Public-Services     [Internal-Services    [aegis-ADMIN]
+[Public-Services     [Internal-Services    [aegis-company-admin]
  OVS Switch]          OVS Switch]          10.30.30.10
   │         │           │          │       Hub agent
-[bank-web] [DNS-Server] [customer-db] [LDAP-Server]
+[company-web-server] [DNS-Server] [company-customer-db] [LDAP-Server]
 10.10.10.10 10.10.10.20  10.20.20.10  10.20.20.20
 Apache2     BIND9        MySQL        OpenLDAP
 vsftpd      Fail2ban     Suricata     Fail2ban
@@ -40,19 +40,19 @@ Fail2ban
 ```
 
 **v4 changes:** OVS switches added, DNS-Server (10.10.10.20) + LDAP-Server (10.20.20.20) added,  
-customer-db moved to 10.20.20.10, aegis-forwarder renamed to aegis-ADMIN  
+company-customer-db moved to 10.20.20.10, aegis-forwarder renamed to aegis-company-admin  
 **Removed:** Router-2, Switch1, bank-mail, teller-pc
 
 ### Data Flow
 
 ```
-Attacker → R1 → pfSense → bank-web / customer-db
+Attacker → R1 → pfSense → company-web-server / company-customer-db
                                 │
                      Suricata / Fail2ban / SSH logs
                                 │
                     aegis_forwarder.py (--mode hub)
                     on AEGIS VM (10.30.30.10)
-                    SSHes into bank-web + customer-db
+                    SSHes into company-web-server + company-customer-db
                     tails logs remotely
                                 │
                     POST /api/ingest/*  (X-AEGIS-Key)
@@ -88,7 +88,7 @@ Attack detected
 | Frontend | Vercel | https://aegis-soc-dashboard-aegis-dashboard.vercel.app |
 | API Server | Render | https://aegis-api-server-jp3b.onrender.com |
 | Database | Supabase | PostgreSQL pooler (aws-1-ap-southeast-2:6543) |
-| AEGIS Agent | aegis-ADMIN (10.30.30.10) | systemd service — aegis-forwarder (hub mode) |
+| AEGIS Agent | aegis-company-admin (10.30.30.10) | systemd service — aegis-forwarder (hub mode) |
 
 ### Required Secrets
 
@@ -129,8 +129,8 @@ Attack detected
 - Burmese language AI output with English technical terms
 
 ### Phase 4 — Hub Agent (aegis_forwarder.py --mode hub)
-- Single agent on aegis-ADMIN (10.30.30.10) SSHes into bank-web, DNS-Server, customer-db, LDAP-Server
-- Per-host health_services maps: bank-web (suricata/fail2ban/apache2/vsftpd), DNS-Server (bind9/fail2ban), customer-db (suricata/fail2ban/mysql), LDAP-Server (slapd/fail2ban)
+- Single agent on aegis-company-admin (10.30.30.10) SSHes into company-web-server, DNS-Server, company-customer-db, LDAP-Server
+- Per-host health_services maps: company-web-server (suricata/fail2ban/apache2/vsftpd), DNS-Server (bind9/fail2ban), company-customer-db (suricata/fail2ban/mysql), LDAP-Server (slapd/fail2ban)
 - pfSense health monitoring via SSH ping (30s interval)
 - Hub sends offline status for all remote hosts on shutdown
 
@@ -158,8 +158,8 @@ Attack detected
 ## Key Technical Decisions
 
 ### 1. Hub Mode (not per-VM)
-**Decision:** Single hub agent on AEGIS VM SSHes into bank VMs  
-**Why:** Bank VMs cannot reach the internet (pfSense blocks outbound). Hub VM is on MGMT segment with management access.  
+**Decision:** Single hub agent on AEGIS VM SSHes into company VMs  
+**Why:** Company VMs cannot reach the internet (pfSense blocks outbound). Hub VM is on MGMT segment with management access.  
 **Impact:** Only AEGIS VM needs outbound HTTPS to Render API.
 
 ### 2. Supabase Pooler + Custom URL Parser
@@ -222,8 +222,8 @@ wget -O aegis_forwarder.py \
 # Config
 sudo cp aegis_forwarder.local.conf.example aegis_forwarder.local.conf
 sudo nano aegis_forwarder.local.conf
-# Set: AEGIS_URL, AEGIS_KEY, AEGIS_ADMIN_KEY, BANK_WEB_IP, CUSTOMER_DB_IP,
-#      BANK_WEB_SSH_USER, CUSTOMER_DB_SSH_USER, PFSENSE_IP, PFSENSE_API_KEY
+# Set: AEGIS_URL, AEGIS_KEY, AEGIS_ADMIN_KEY, COMPANY_WEB_IP, COMPANY_DB_IP,
+#      COMPANY_WEB_SSH_USER, COMPANY_DB_SSH_USER, PFSENSE_IP, PFSENSE_API_KEY
 
 # Run as service
 sudo systemctl enable --now aegis-forwarder

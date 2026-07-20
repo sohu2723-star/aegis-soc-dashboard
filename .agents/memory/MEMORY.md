@@ -6,11 +6,12 @@
 - [Host label display](host-label-display.md) — HostLabel component in lib/host-utils.tsx; static map + live network_hosts; color by role (defender=green, attacker=red, infra=purple).
 - [UI for Orphaned APIs](ui-orphaned-apis.md) — connections/defense-rules pages built; ui-rules.ts proxy pattern for admin-key-protected endpoints; dashboard Blocked Events + Systems Online KPI cards.
 - [pfSense Suricata IDS setup](pfsense-suricata.md) — Network IDS on pfSense only (not on VMs); _watch_pfsense_suricata() SSHes into pfSense using PFSENSE_SSH_KEY; PFSENSE_SURICATA_LOG configurable; in GLOBAL_COMPONENTS (no hostIp).
-- [Sensor topology final](sensor-topology-final.md) — VM sensors: fail2ban+ssh+http (bank-web), fail2ban+ssh+mysql (customer-db), fail2ban+ssh+bind9 (dns-server), fail2ban+ssh+slapd (ldap-server); pfSense=Suricata IDS only; no VM-level Suricata; Incidents page removed.
+- [Sensor topology final](sensor-topology-final.md) — VM sensors: fail2ban+ssh+http (company-web-server), fail2ban+ssh+mysql (company-customer-db), fail2ban+ssh+bind9 (company-dns-server), fail2ban+ssh+slapd (company-ldap-server); pfSense=Suricata IDS only; no VM-level Suricata; Incidents page removed.
 - [Groq AI features](groq-ai-features.md) — Groq llama-3.3-70b; groq-client.ts wrapper; routes/ai.ts has 4 endpoints; reports AI-summary in `summary` text col (fallback template); Burmese+English mixed output.
 - [Auth system](auth-system.md) — JWT+Google SSO; ADMIN_EMAIL env var (not hardcoded); error messages generic (no email leak); SESSION_SECRET must be set on Render; Google Console needs Vercel URL in authorized origins.
 - [Threat Map topology](threat-map-topology.md) — Telegram node added at x:930,y:420; NOTIFY_EDGES aegis→telegram; alert SSE spawns blue isTg packet; keep-alive pings /api/healthz every 4 min; Architecture page removed.
 - [VM script update method](vm-script-update.md) — git pull မအလုပ်လုပ်ဘူး Ubuntu VM မှာ; wget + GitHub raw URL သုံးရမယ်; local.conf မထိနဲ့ (gitignored).
-- [Cowrie honeypot placement](cowrie-honeypot.md) — bank-web + customer-db ဘဲ; Aegis VM မထည့်; system.ts + forwarder + auto-defense အားလုံး ညှိရမယ်; dashboard stale check bug fixed.
-- [Bank services roadmap](bank-services-roadmap.md) — Final internship project; Email/DNS (priority 1), CCTV/VoIP (priority 2), ATM/AD (priority 3); per-service checklist + VLAN plan.
+- [Cowrie honeypot placement](cowrie-honeypot.md) — company-web-server + company-customer-db ဘဲ; Aegis VM မထည့်; system.ts + forwarder + auto-defense အားလုံး ညှိရမယ်; dashboard stale check bug fixed.
+- [Company services roadmap](company-services-roadmap.md) — Final internship project; Email/DNS (priority 1), CCTV/VoIP (priority 2), ATM/AD (priority 3); per-service checklist + VLAN plan.
 - [Signature text feature](signature-text-feature.md) — Full rule text on dashboard; DB col + API ingest + forwarder auto-lookup (cached SSH) + UI pre block; Supabase migration already run.
+- [Company topology rename](company-rename.md) — bank-web→company-web-server etc.; OBSOLETE_RULE_NAMES updated; legacy aliases in host-utils.tsx kept for old DB events.

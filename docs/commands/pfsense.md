@@ -30,7 +30,7 @@ ifconfig -a | grep "flags\|inet "
 | e0 | em0 | WAN | Router ether3 (direct) | 10.0.23.2/30, GW=10.0.23.1 |
 | e1 | em1 | DMZ | Public-Services OVS Switch | 10.10.10.1/24 |
 | e2 | em2 | INT | Internal-Services OVS Switch | 10.20.20.1/24 |
-| e3 | em3 | MGMT | aegis-ADMIN | 10.30.30.1/24 |
+| e3 | em3 | MGMT | aegis-company-admin | 10.30.30.1/24 |
 
 ---
 

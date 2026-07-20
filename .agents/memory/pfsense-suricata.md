@@ -4,7 +4,7 @@ description: How pfSense Suricata IDS is integrated — SSH log tail, config, se
 ---
 
 ## Rule
-pfSense is the ONLY place Suricata runs — not on individual bank VMs. All network-level IDS alerts come through pfSense EVE JSON.
+pfSense is the ONLY place Suricata runs — not on individual company VMs. All network-level IDS alerts come through pfSense EVE JSON.
 
 **Why:** GNS3 lab has pfSense as the single gateway (10.30.30.1). All inter-zone traffic passes through it, making pfSense the ideal (and only needed) IDS point. Running Suricata on VMs was redundant and caused DB noise.
 
