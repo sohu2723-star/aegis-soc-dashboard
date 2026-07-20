@@ -936,11 +936,12 @@ def watch_ssh():
                 continue   # skip hub's own management SSH
             fail_counts[ip] = fail_counts.get(ip, 0) + 1
             post("ssh", {
-                "src_ip":    ip,
-                "dest_ip":   OWN_IP,   # this VM is the SSH target
-                "username":  user,
-                "status":    "failed",
-                "failures":  fail_counts[ip],
+                "src_ip":         ip,
+                "dest_ip":        OWN_IP,
+                "username":       user,
+                "status":         "failed",
+                "failures":       fail_counts[ip],
+                "signature_text": line.strip(),   # raw auth.log line
             })
 
         m_ok = SSH_SUCCESS_RE.search(line)
@@ -955,7 +956,8 @@ def watch_ssh():
                 "username":       user,
                 "status":         "success",
                 "auth_method":    auth,
-                "prior_failures": prior,   # 0 = legit login; ≥3 = breach after brute force
+                "prior_failures": prior,
+                "signature_text": line.strip(),   # raw auth.log line
             })
 
 
@@ -1048,7 +1050,6 @@ def watch_http_access():
 
         if status in (401, 403):
             login_fails[ip] = login_fails.get(ip, 0) + 1
-            # Emit a medium event so the dashboard shows the failed login attempts
             if login_fails[ip] == 1 or login_fails[ip] % 5 == 0:
                 post("http_access", {
                     "src_ip":         ip,
@@ -1058,10 +1059,10 @@ def watch_http_access():
                     "status_code":    status,
                     "prior_failures": login_fails[ip],
                     "is_success":     False,
+                    "signature_text": line.strip(),   # raw access.log line
                 })
 
         elif status in (200, 302) and method in ("POST", "GET"):
-            # Success after failures = breach; success with no failures = authorized
             prior = login_fails.pop(ip, 0)
             post("http_access", {
                 "src_ip":         ip,
@@ -1071,6 +1072,7 @@ def watch_http_access():
                 "status_code":    status,
                 "prior_failures": prior,
                 "is_success":     True,
+                "signature_text": line.strip(),   # raw access.log line
             })
 
 
@@ -1255,11 +1257,12 @@ def _watch_remote_ssh(host_name: str, host_ip: str):
                 continue
             fail_counts[ip] = fail_counts.get(ip, 0) + 1
             post("ssh", {
-                "src_ip":    ip,
-                "username":  user,
-                "status":    "failed",
-                "failures":  fail_counts[ip],
-                "targetHost": host_ip,
+                "src_ip":         ip,
+                "username":       user,
+                "status":         "failed",
+                "failures":       fail_counts[ip],
+                "targetHost":     host_ip,
+                "signature_text": line.strip(),
             })
             continue
         m_ok = SSH_SUCCESS_RE.search(line)
@@ -1267,13 +1270,14 @@ def _watch_remote_ssh(host_name: str, host_ip: str):
             _, user, ip = m_ok.group(1), m_ok.group(2), m_ok.group(3)
             if ip in _defender_ips:
                 continue
-            prior = fail_counts.pop(ip, 0)   # capture before clearing
+            prior = fail_counts.pop(ip, 0)
             post("ssh", {
                 "src_ip":         ip,
                 "username":       user,
                 "status":         "success",
                 "prior_failures": prior,
                 "targetHost":     host_ip,
+                "signature_text": line.strip(),
             })
 
 
@@ -1385,6 +1389,7 @@ def _watch_remote_http_access(host_name: str, host_ip: str):
                     "prior_failures": login_fails[ip],
                     "is_success":     False,
                     "targetHost":     host_name,
+                    "signature_text": line.strip(),
                 })
 
         elif status in (200, 302) and method in ("POST", "GET"):
@@ -1398,6 +1403,7 @@ def _watch_remote_http_access(host_name: str, host_ip: str):
                 "prior_failures": prior,
                 "is_success":     True,
                 "targetHost":     host_name,
+                "signature_text": line.strip(),
             })
 
 

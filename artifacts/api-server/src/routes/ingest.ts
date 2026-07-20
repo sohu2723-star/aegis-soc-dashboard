@@ -209,7 +209,7 @@ router.post("/ingest/fail2ban", auth, async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 router.post("/ingest/ssh", auth, async (req, res) => {
   // dest_ip: IP of the SSH server being attacked (the Ubuntu VM's IP, e.g. 10.10.10.10)
-  const { src_ip, dest_ip, username, status: st, auth_method, session_id, failures, prior_failures } = req.body;
+  const { src_ip, dest_ip, username, status: st, auth_method, session_id, failures, prior_failures, signature_text } = req.body;
   const failCount    = Number(failures) || 0;
   // prior_failures = how many failed attempts from this IP before this success event
   // 0 = clean login (authorized); ≥3 = brute-force success (breach)
@@ -221,6 +221,8 @@ router.post("/ingest/ssh", auth, async (req, res) => {
     status: st ?? "failed", authMethod: auth_method ?? null,
     sessionId: session_id ?? null, failures: failCount, bannedBy: null,
   });
+
+  const sigText = signature_text ? String(signature_text).slice(0, 2000) : null;
 
   if (st === "success") {
     const isBreach = priorFails >= 3;
@@ -235,6 +237,7 @@ router.post("/ingest/ssh", auth, async (req, res) => {
         : `Authorized SSH login from ${src_ip} as '${username}' (no prior brute-force attempts)`,
       status: isBreach ? "breach" : "allowed",
       layer: "perimeter",
+      signatureText: sigText,
     });
     if (isBreach) {
       await mkAlert(event.id, "critical",
@@ -242,8 +245,6 @@ router.post("/ingest/ssh", auth, async (req, res) => {
     }
 
   } else if (st === "failed") {
-    // SSH brute force — create event on first attempt and every 5th failure
-    // (avoids flooding but keeps dashboard responsive on first hit)
     if (failCount === 1 || failCount % 5 === 0) {
       const severity = failCount >= 5 ? "high" : "medium";
       const event = await insertEvent({
@@ -253,6 +254,7 @@ router.post("/ingest/ssh", auth, async (req, res) => {
         toolUsed:"ssh",
         description:`SSH brute force from ${src_ip} — ${failCount} failed attempt(s) for user '${username ?? "?"}'`,
         status:"detected", layer:"perimeter",
+        signatureText: sigText,
       });
       if (severity === "high") {
         await mkAlert(event.id, "high", `SSH BRUTE FORCE: ${src_ip} — ${failCount} failures targeting '${username ?? "?"}'`);
@@ -270,15 +272,15 @@ router.post("/ingest/ssh", auth, async (req, res) => {
 // Fields: src_ip, dest_ip, url, method, status_code, prior_failures, is_success, targetHost?
 // ─────────────────────────────────────────────────────────────────────────────
 router.post("/ingest/http_access", auth, async (req, res) => {
-  const { src_ip, dest_ip, url, method, status_code, prior_failures, is_success, targetHost } = req.body;
+  const { src_ip, dest_ip, url, method, status_code, prior_failures, is_success, targetHost, signature_text } = req.body;
   if (!src_ip) { res.status(400).json({ error: "src_ip required" }); return; }
 
   const priorFails = Number(prior_failures) || 0;
   const isSuccess  = Boolean(is_success);
   const host       = targetHost ?? dest_ip ?? "bank-web";
+  const sigText    = signature_text ? String(signature_text).slice(0, 2000) : null;
 
   if (isSuccess) {
-    // Auth success — classify as breach if prior failures existed
     const isBreach = priorFails >= 3;
     const event = await insertEvent({
       type:      isBreach ? "web_attack"  : "auth_event",
@@ -291,13 +293,13 @@ router.post("/ingest/http_access", auth, async (req, res) => {
         : `Web login success from ${src_ip} to ${url} (no prior failed attempts — authorized)`,
       status: isBreach ? "breach" : "allowed",
       layer:  "application",
+      signatureText: sigText,
     });
     if (isBreach) {
       await mkAlert(event.id, "critical",
         `🚨 WEB BREACH: ${src_ip} authenticated to ${url} after ${priorFails} failures`);
     }
   } else {
-    // Failed login attempt — emit event on 1st and every 5th attempt
     if (priorFails === 1 || priorFails % 5 === 0) {
       const severity = priorFails >= 5 ? "high" : "medium";
       const event = await insertEvent({
@@ -307,6 +309,7 @@ router.post("/ingest/http_access", auth, async (req, res) => {
         toolUsed: "apache",
         description: `Web login brute force from ${src_ip} → ${url} — ${priorFails} failed attempt(s) (HTTP ${status_code})`,
         status: "detected", layer: "application",
+        signatureText: sigText,
       });
       if (severity === "high") {
         await mkAlert(event.id, "high",

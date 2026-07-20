@@ -304,10 +304,20 @@ export default function Events() {
 
               {/* ── Matched Detection Rule Block ── */}
               {ev.subtype && (
-                <div className="bg-yellow-500/5 border border-yellow-500/20 rounded-lg p-4 mb-5 space-y-3">
+                <div className={`border rounded-lg p-4 mb-5 space-y-3 ${
+                  isBreach(ev) || isAuthorized(ev)
+                    ? "bg-slate-500/5 border-slate-500/20"
+                    : "bg-yellow-500/5 border-yellow-500/20"
+                }`}>
                   {/* Section label */}
-                  <p className="text-[10px] uppercase tracking-widest text-yellow-500/70 font-semibold">
-                    Matched Detection Rule
+                  <p className={`text-[10px] uppercase tracking-widest font-semibold ${
+                    isBreach(ev) || isAuthorized(ev)
+                      ? "text-slate-400/70"
+                      : "text-yellow-500/70"
+                  }`}>
+                    {ev.toolUsed === "ssh" || ev.toolUsed === "apache"
+                      ? "Auth Classification"
+                      : "Matched Detection Rule"}
                   </p>
 
                   {/* Signature name — main hero */}
@@ -357,11 +367,27 @@ export default function Events() {
 
                   {/* Full rule text — shown when available */}
                   {ev.signatureText && (
-                    <div className="pt-2 border-t border-yellow-500/15">
+                    <div className={`pt-2 border-t ${
+                      isBreach(ev) || isAuthorized(ev)
+                        ? "border-slate-500/15"
+                        : "border-yellow-500/15"
+                    }`}>
                       <p className="text-[9px] uppercase text-muted-foreground tracking-widest mb-2">
-                        Full Rule Text
+                        {ev.toolUsed === "ssh"
+                          ? "Raw auth.log Entry"
+                          : ev.toolUsed === "apache"
+                          ? "Raw access.log Entry"
+                          : ev.toolUsed === "fail2ban"
+                          ? "Jail Filter Config"
+                          : "Full Rule Text"}
                       </p>
-                      <pre className="font-mono text-[11px] text-yellow-300/90 bg-black/30 rounded p-3 overflow-x-auto whitespace-pre-wrap break-all leading-relaxed border border-yellow-500/10">
+                      <pre className={`font-mono text-[11px] bg-black/30 rounded p-3 overflow-x-auto whitespace-pre-wrap break-all leading-relaxed border ${
+                        isBreach(ev)
+                          ? "text-red-300/90 border-red-500/10"
+                          : isAuthorized(ev)
+                          ? "text-green-300/90 border-green-500/10"
+                          : "text-yellow-300/90 border-yellow-500/10"
+                      }`}>
                         {ev.signatureText}
                       </pre>
                     </div>

@@ -46,4 +46,20 @@ Three helper functions added above `get_local_ip()`:
 ## Dashboard UI (`artifacts/aegis-dashboard/src/pages/events.tsx`)
 - Block renamed: "Matched Suricata Rule" → "Matched Detection Rule" (covers both Suricata + Fail2ban).
 - New "Full Rule Text" section appears below the metadata grid when `ev.signatureText` is non-null.
-- Styled: `font-mono text-[11px] text-yellow-300/90 bg-black/30 rounded p-3 whitespace-pre-wrap`.
+- Label is contextual by `toolUsed`: ssh → "Raw auth.log Entry", apache → "Raw access.log Entry", fail2ban → "Jail Filter Config", else → "Full Rule Text".
+- Color also contextual: breach=red, authorized=green, else=yellow.
+- Section header: ssh/apache events → "Auth Classification"; others → "Matched Detection Rule".
+
+## SSH ingest (`/ingest/ssh`)
+- Accepts `signature_text` field (raw auth.log line) → stored in `signatureText` column.
+- `prior_failures` field classifies success: 0 = Authorized Login (low/allowed), ≥3 = Brute Force Success (critical/breach).
+
+## HTTP access ingest (`/ingest/http_access`) — NEW endpoint
+- Accepts `signature_text` (raw access.log line), `prior_failures`, `is_success`.
+- success+prior≥3 → Web Login Breach (critical/breach); success+prior=0 → Web Authorized Login (low/allowed).
+- failed → Web Login Brute Force (medium/high) on 1st and every 5th attempt.
+
+## Forwarder (`scripts/src/aegis_forwarder.py`)
+- `watch_ssh()` + `_watch_remote_ssh()`: send `signature_text: line.strip()` on every SSH event (fail + success); capture `prior_failures` before clearing fail_counts on success.
+- `watch_http_access()` + `_watch_remote_http_access()`: watch Apache access.log; track 401/403 on login URLs; send `signature_text: line.strip()` + `prior_failures`.
+- Registered as sensor `http_access` in `_SENSOR_FN` and `MODES`.
