@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { format } from "date-fns";
-import { Search, Filter, ShieldAlert, ShieldCheck, Clock, Monitor, Wifi, FileText, Hash, RefreshCw, Zap, Tag, Skull, CheckCircle2, Terminal, Shield, ChevronRight, Loader2 } from "lucide-react";
+import { Search, Filter, ShieldAlert, ShieldCheck, Clock, Monitor, Wifi, FileText, Hash, RefreshCw, Zap, Tag, Skull, CheckCircle2, Terminal, Shield, ChevronRight, Loader2, Bot, UserCheck, Undo2, Cpu, Globe } from "lucide-react";
 import { HostLabel } from "@/lib/host-utils";
 import { useDeviceContext } from "@/lib/device-context";
 
@@ -36,6 +36,31 @@ const CMD_STATUS_COLORS: Record<string, string> = {
   failed:    "border-red-500/40 text-red-400 bg-red-500/10",
   cancelled: "border-border text-muted-foreground",
 };
+
+// ─── Layer badge helpers ─────────────────────────────────────────────────────
+function getLayerBadge(cmd: EventCommand): { label: string; cls: string; Icon: React.ElementType } {
+  const t = cmd.commandType ?? "";
+  if (t.startsWith("pfsense")) {
+    return { label: "PFSENSE WAN", cls: "border-purple-500/50 text-purple-400 bg-purple-500/10", Icon: Globe };
+  }
+  if (t === "block_ip" || t === "port_block" || t === "rate_limit" || t === "null_route") {
+    return { label: "VM IPTABLES", cls: "border-orange-500/50 text-orange-400 bg-orange-500/10", Icon: Cpu };
+  }
+  return { label: t.toUpperCase(), cls: "border-border text-muted-foreground", Icon: Terminal };
+}
+
+function getOriginBadge(cmd: EventCommand): { label: string; cls: string; Icon: React.ElementType } {
+  if (cmd.ruleName) {
+    return { label: "AUTO-DEFENSE", cls: "border-cyan-500/50 text-cyan-400 bg-cyan-500/10", Icon: Bot };
+  }
+  return { label: "MANUAL", cls: "border-slate-500/50 text-slate-400 bg-slate-500/10", Icon: UserCheck };
+}
+
+// Extract blocked IP from iptables block command for ss-K display
+function extractBlockedIp(commandText: string): string | null {
+  const m = commandText.match(/iptables.*-I INPUT.*-s\s+([\d.]+).*-j DROP/);
+  return m ? m[1] : null;
+}
 
 function useEventCommands(eventId: number | null) {
   return useQuery<EventCommand[]>({
@@ -130,44 +155,88 @@ function DefenseActionsPanel({ eventId }: { eventId: number }) {
       </div>
 
       <div className="divide-y divide-border/50">
-        {cmds.map((cmd) => (
-          <div key={cmd.id} className="px-4 py-3 space-y-2">
-            {/* Chain: Rule → VM */}
-            <div className="flex items-center gap-1.5 flex-wrap">
-              {cmd.ruleName ? (
-                <>
-                  <span className="text-[10px] text-muted-foreground uppercase tracking-widest">Rule</span>
-                  <ChevronRight className="w-3 h-3 text-muted-foreground" />
-                  <span className="text-xs font-semibold text-cyan-300/90">{cmd.ruleName}</span>
-                  <ChevronRight className="w-3 h-3 text-muted-foreground" />
-                </>
-              ) : null}
-              <Badge variant="outline" className="text-[10px] border-primary/30 text-primary/80">{cmd.commandType}</Badge>
-              <span className="text-[10px] text-muted-foreground">on</span>
-              <span className="font-mono text-[10px] text-foreground/70">{cmd.targetVm}</span>
-              <Badge className={`ml-auto text-[9px] ${CMD_STATUS_COLORS[cmd.status] ?? "border-border text-muted-foreground"}`}>
-                {cmd.status}
-              </Badge>
+        {cmds.map((cmd) => {
+          const layer  = getLayerBadge(cmd);
+          const origin = getOriginBadge(cmd);
+          const ssKillIp = extractBlockedIp(cmd.commandText);
+          return (
+            <div key={cmd.id} className="px-4 py-3 space-y-2">
+
+              {/* Row 1: Layer + Origin badges + status */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {/* Layer badge — PFSENSE WAN / VM IPTABLES */}
+                <Badge variant="outline" className={`text-[9px] flex items-center gap-1 ${layer.cls}`}>
+                  <layer.Icon className="w-2.5 h-2.5" />{layer.label}
+                </Badge>
+                {/* Origin badge — AUTO-DEFENSE / MANUAL */}
+                <Badge variant="outline" className={`text-[9px] flex items-center gap-1 ${origin.cls}`}>
+                  <origin.Icon className="w-2.5 h-2.5" />{origin.label}
+                </Badge>
+                <Badge className={`ml-auto text-[9px] ${CMD_STATUS_COLORS[cmd.status] ?? "border-border text-muted-foreground"}`}>
+                  {cmd.status}
+                </Badge>
+              </div>
+
+              {/* Row 2: Rule → VM chain */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {cmd.ruleName && (
+                  <>
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-widest">Rule</span>
+                    <ChevronRight className="w-3 h-3 text-muted-foreground" />
+                    <span className="text-xs font-semibold text-cyan-300/90">{cmd.ruleName}</span>
+                    <ChevronRight className="w-3 h-3 text-muted-foreground" />
+                  </>
+                )}
+                <span className="text-[10px] text-muted-foreground">Target:</span>
+                <span className="font-mono text-[10px] text-foreground/70">{cmd.targetVm}</span>
+              </div>
+
+              {/* Block command */}
+              <div>
+                <p className="text-[9px] uppercase tracking-widest text-muted-foreground mb-1">Block Command</p>
+                <pre className="font-mono text-[11px] bg-black/40 border border-cyan-500/10 rounded px-3 py-2 text-cyan-200/80 overflow-x-auto whitespace-pre-wrap break-all leading-relaxed">
+                  {cmd.commandText}
+                </pre>
+              </div>
+
+              {/* ss -K session kill — auto-runs after iptables block */}
+              {ssKillIp && (
+                <div>
+                  <p className="text-[9px] uppercase tracking-widest text-orange-400/70 mb-1 flex items-center gap-1">
+                    <Zap className="w-2.5 h-2.5" /> Session Kill (auto-run after block)
+                  </p>
+                  <pre className="font-mono text-[11px] bg-orange-950/30 border border-orange-500/15 rounded px-3 py-2 text-orange-300/80 overflow-x-auto whitespace-pre-wrap break-all leading-relaxed">
+                    {`sudo ss -K dst ${ssKillIp}\nsudo ss -K src ${ssKillIp}`}
+                  </pre>
+                </div>
+              )}
+
+              {/* Undo command — shown for reference */}
+              {cmd.undoCommand && (
+                <div>
+                  <p className="text-[9px] uppercase tracking-widest text-green-400/70 mb-1 flex items-center gap-1">
+                    <Undo2 className="w-2.5 h-2.5" /> Unblock Command (undo)
+                  </p>
+                  <pre className="font-mono text-[11px] bg-green-950/30 border border-green-500/15 rounded px-3 py-2 text-green-300/80 overflow-x-auto whitespace-pre-wrap break-all leading-relaxed">
+                    {cmd.undoCommand}
+                  </pre>
+                </div>
+              )}
+
+              {/* Execution time */}
+              {cmd.executedAt && (
+                <p className="text-[10px] text-muted-foreground font-mono">
+                  Executed: {format(new Date(cmd.executedAt), "yyyy-MM-dd HH:mm:ss")}
+                </p>
+              )}
+
+              {/* Error if any */}
+              {cmd.errorMsg && (
+                <p className="text-[10px] text-red-400 font-mono break-all">{cmd.errorMsg}</p>
+              )}
             </div>
-
-            {/* Actual VM command — exact text that ran on the machine */}
-            <pre className="font-mono text-[11px] bg-black/40 border border-cyan-500/10 rounded px-3 py-2 text-cyan-200/80 overflow-x-auto whitespace-pre-wrap break-all leading-relaxed">
-              {cmd.commandText}
-            </pre>
-
-            {/* Execution time */}
-            {cmd.executedAt && (
-              <p className="text-[10px] text-muted-foreground font-mono">
-                Executed: {format(new Date(cmd.executedAt), "yyyy-MM-dd HH:mm:ss")}
-              </p>
-            )}
-
-            {/* Error if any */}
-            {cmd.errorMsg && (
-              <p className="text-[10px] text-red-400 font-mono break-all">{cmd.errorMsg}</p>
-            )}
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

@@ -532,31 +532,41 @@ export default function Defense() {
               {activeBlocks.length === 0 ? (
                 <p className="text-xs text-muted-foreground text-center py-4">No IPs currently blocked</p>
               ) : activeBlocks.map(b => (
-                <div key={b.id} className="flex items-center justify-between bg-background rounded p-2 border border-border/50">
-                  <div className="flex items-center gap-2">
-                    <Lock className="w-3 h-3 text-red-400 shrink-0" />
-                    <div>
-                      <p className="font-mono text-xs text-red-400">{b.ip}</p>
-                      <p className="text-xs text-muted-foreground">{b.reason}</p>
+                <div key={b.id} className="bg-background rounded border border-border/50 overflow-hidden">
+                  {/* Top row: IP + badges + unblock button */}
+                  <div className="flex items-center justify-between p-2">
+                    <div className="flex items-center gap-2">
+                      <Lock className="w-3 h-3 text-red-400 shrink-0" />
+                      <div>
+                        <p className="font-mono text-xs text-red-400">{b.ip}</p>
+                        <p className="text-xs text-muted-foreground">{b.reason}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className={`text-[10px] flex items-center gap-1 ${b.blockedBy === "auto" ? "border-cyan-500/50 text-cyan-400 bg-cyan-500/10" : "border-slate-500/50 text-slate-400 bg-slate-500/10"}`}>
+                        {b.blockedBy === "auto" ? (
+                          <><Bot className="w-2.5 h-2.5" />AUTO</>
+                        ) : (
+                          <><UserCheck className="w-2.5 h-2.5" />MANUAL</>
+                        )}
+                      </Badge>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-6 px-2 text-xs border-green-800 text-green-400 hover:bg-green-900/20"
+                        onClick={() => unblockMutation.mutate(b.ip)}
+                        disabled={unblockMutation.isPending}
+                      >
+                        <Unlock className="w-3 h-3 mr-1" />Unblock
+                      </Button>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="text-xs">
-                      {b.blockedBy === "auto" ? (
-                        <span className="flex items-center gap-1"><Bot className="w-3 h-3" />AUTO</span>
-                      ) : (
-                        <span className="flex items-center gap-1"><UserCheck className="w-3 h-3" />MANUAL</span>
-                      )}
-                    </Badge>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-6 px-2 text-xs border-green-800 text-green-400 hover:bg-green-900/20"
-                      onClick={() => unblockMutation.mutate(b.ip)}
-                      disabled={unblockMutation.isPending}
-                    >
-                      <Unlock className="w-3 h-3 mr-1" />Unblock
-                    </Button>
+                  {/* Unblock commands preview */}
+                  <div className="border-t border-green-500/10 bg-green-950/20 px-3 py-2 space-y-1">
+                    <p className="text-[9px] uppercase tracking-widest text-green-400/60 mb-1.5">Unblock will run:</p>
+                    <pre className="font-mono text-[10px] text-green-300/70 whitespace-pre-wrap break-all leading-relaxed">
+                      {`[VMs]     iptables -D INPUT -s ${b.ip} -j DROP\n[pfSense] easyrule pass WAN ${b.ip}`}
+                    </pre>
                   </div>
                 </div>
               ))}
