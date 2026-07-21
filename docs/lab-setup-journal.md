@@ -1404,6 +1404,17 @@ INTERNAL `/var/db/suricata/suricata_em220/rules/custom.rules`:
 
 ---
 
+## [2026-07-21] — ModSecurity ဖြုတ်ခြင်း (HTTP plaintext → Suricata လုံလောက်)
+
+**Status:** ✅ Done
+**What:** HTTP traffic ဖြစ်တဲ့အတွက် pfSense Suricata က payload အပြည့် မြင်တယ် — ModSecurity ထပ်ထည့်မလိုဘူး
+**How:**
+- `aegis_forwarder.py` — company-web-server sensors မှာ `"http"` (modsec) ဖယ်၊ `"http_access"` ပဲ ထား; `_SENSOR_FN` မှာလည်း ဖယ်
+- `system.ts` — Apache Monitor description update (access.log only)
+**Result:** Build ✅ clean. Final sensor stack: **Suricata (pfSense) + Fail2ban + SSH/HTTP_access/MySQL/DNS/LDAP monitors**
+
+---
+
 ## [2026-07-21] — Cowrie Honeypot ဖယ်ရှားခြင်း (Topology Decision)
 
 **Status:** ✅ Done
