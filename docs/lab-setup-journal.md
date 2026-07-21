@@ -1819,3 +1819,36 @@ Required secrets (Replit Secrets panel မှာ set):
 
 **Result:** Python syntax ✅ clean (no srcIp remaining), all 6 occurrences fixed
 **Next:** Aegis VM မှာ forwarder update (`wget` + `systemctl restart`) — DNS/LDAP events ခု dashboard ရောက်မရောက် test ရမည်
+
+---
+
+### [2026-07-21] — Replit Re-import & Dev Environment Restore
+
+**Status:** ✅ Done
+**What:** GitHub repo ကို Replit ထဲ ထပ် import လုပ်ပြီး development environment restore လုပ်ခဲ့တယ်
+**How:**
+```bash
+pnpm install   # 473 packages restored from lockfile (14.5s)
+```
+**Code state verified:**
+- `OBSOLETE_HOST_IPS = []` ✅ (10.20.20.20 ကို မဖျက်တော့ — LDAP-Server)
+- `sourceIp` field ✅ (srcIp bug ကို ပြင်ပြီးသား)
+- LDAP-Server (10.20.20.20) `system.ts` ထဲ ✅ properly seeded
+
+**Workflows:**
+- **Start application** (port 5000) ✅ Running — login page ပြနေ
+- **API Server** (port 3000) ❌ `SUPABASE_DB_URL` secret မ set ရသေးလို့ fail — Replit Secrets panel မှာ ထည့်ရမည်
+
+**Required secrets (Replit Secrets panel မှာ ထပ် set ရမည်):**
+```
+SUPABASE_DB_URL    ← Supabase → Settings → Database → URI (port 6543)
+AEGIS_INGEST_KEY   ← VM forwarder auth key
+AEGIS_ADMIN_KEY    ← Admin endpoint key
+GROQ_API_KEY       ← (optional) AI summaries
+TELEGRAM_BOT_TOKEN ← (optional) Telegram alerts
+TELEGRAM_CHAT_ID   ← (optional) Telegram chat
+```
+*(SESSION_SECRET ✅ already set)*
+
+**Result:** Frontend ✅ running, API server ⏳ pending secrets
+**Next:** Secrets ထည့်ပြီး API Server workflow restart → Aegis VM forwarder update test
