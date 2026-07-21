@@ -44,7 +44,9 @@ REMOTE_SSH_USER=sithu
 # The forwarder will SSH into these IPs to tail logs.
 # Leave blank or remove a line to skip that VM.
 BANKWEB_IP=10.10.10.10
-CUSTOMERDB_IP=10.20.20.20
+CUSTOMERDB_IP=10.20.20.10
+DNSSERVER_IP=10.10.10.20
+LDAPSERVER_IP=10.20.20.20
 
 # pfSense management IP (reachable from AEGIS VM via OPT2 10.30.30.0/24)
 # pfSense OPT2 interface: em3 → 10.30.30.1/24 (same segment as AEGIS VM 10.30.30.10)

@@ -1538,17 +1538,43 @@ def _watch_remote_bind9(host_name: str, host_ip: str):
 
 
 def _watch_remote_slapd(host_name: str, host_ip: str):
-    """Tail syslog filtered for slapd (OpenLDAP) on ldap-server via SSH."""
-    # slapd logs to syslog on Ubuntu — filter with grep
+    """Tail syslog filtered for slapd (OpenLDAP) on ldap-server via SSH.
+
+    slapd log format:
+      ACCEPT:  slapd[N]: conn=X fd=Y ACCEPT from IP=a.b.c.d:PORT (IP=0.0.0.0:389)
+      BIND:    slapd[N]: conn=X op=Y BIND dn="..." method=128
+      RESULT:  slapd[N]: conn=X op=Y RESULT tag=97 err=49 text=Invalid credentials
+
+    IP is ONLY on the ACCEPT line — track conn→IP mapping so RESULT lines
+    can resolve the source IP correctly.
+    """
     _defender_ips = {h["ip"] for h in REMOTE_HOSTS} | {"10.30.30.10"}
+    # conn_id (str) → src_ip (str) — populated from ACCEPT lines
+    _conn_ip: dict = {}
     print(f"[{host_name}] slapd thread started")
     for line in _ssh_tail(host_name, host_ip, "/var/log/syslog"):
         if "slapd" not in line:
             continue
-        # Auth failure: "conn=X op=Y BIND dn="..." method=128 RESULT tag=97 err=49"
+
+        # Track conn→IP from ACCEPT lines
+        # e.g. slapd[123]: conn=5 fd=15 ACCEPT from IP=192.168.10.99:54321 (IP=0.0.0.0:389)
+        if "ACCEPT from IP=" in line:
+            m_conn = re.search(r"conn=(\d+)", line)
+            m_ip   = re.search(r"ACCEPT from IP=([\d.]+):\d+", line)
+            if m_conn and m_ip:
+                cid = m_conn.group(1)
+                _conn_ip[cid] = m_ip.group(1)
+                # Prune to avoid unbounded growth (keep last 500 conns)
+                if len(_conn_ip) > 500:
+                    for k in list(_conn_ip.keys())[:100]:
+                        del _conn_ip[k]
+            continue
+
+        # Auth failure: RESULT err=49 (Invalid credentials)
         if "err=49" in line or "Invalid credentials" in line:
-            m = re.search(r"([\d.]+)(?::\d+)?", line)
-            src_ip = m.group(1) if m else "unknown"
+            m_conn = re.search(r"conn=(\d+)", line)
+            cid    = m_conn.group(1) if m_conn else None
+            src_ip = _conn_ip.get(cid, "unknown") if cid else "unknown"
             if src_ip in _defender_ips:
                 continue
             post("event", {

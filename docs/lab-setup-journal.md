@@ -686,6 +686,61 @@ ping -c 3 8.8.8.8
 
 ---
 
+## [2026-07-21] — LDAP src_ip Fix + Connectivity Checker Script
+
+**Status:** ✅ Done
+**What:** Previous agent session ကနေ ကျန်ခဲ့တဲ့ issues ၃ ခု fix + full connectivity checker script တည်ဆောက်
+
+**Issues fixed:**
+
+**1. LDAP src_ip "unknown" bug** (`scripts/src/aegis_forwarder.py` — `_watch_remote_slapd`)
+- **Root cause:** slapd RESULT line (`err=49`) မှာ IP မပါဘူး — IP သည် ACCEPT line မှာသာ ပါတယ်
+  ```
+  ACCEPT: slapd[N]: conn=5 fd=15 ACCEPT from IP=192.168.10.99:54321 (IP=0.0.0.0:389)
+  RESULT: slapd[N]: conn=5 op=0 RESULT tag=97 err=49 text=Invalid credentials  ← IP မပါ
+  ```
+- **Old regex:** `r"([\d.]+)(?::\d+)?"` → numbers ကို match ဖြစ်ပေမဲ့ IP မဟုတ်ဘဲ `128` (method), `97` (tag), `49` (err) တွေ match ဖြစ်ပြီး IP extract မရဘဲ `unknown` ဖြစ်တယ်
+- **Fix:** `conn→IP` dictionary tracking — ACCEPT line မှ conn ID နဲ့ IP ကို မှတ်ထား၊ RESULT line မှာ conn ID နဲ့ look up လုပ်
+
+**2. local.conf.example** — `DNSSERVER_IP=10.10.10.20` + `LDAPSERVER_IP=10.20.20.20` + `CUSTOMERDB_IP=10.20.20.10` (v4 IP fix) ထည့်
+
+**3. Connectivity Checker** (`scripts/src/check_connectivity.sh`) — 10 section checker:
+- Ping reachability (6 hosts + internet)
+- SSH passwordless auth (5 hosts: 4 company VMs + pfSense)
+- Port check (SSH/HTTP/DNS/MySQL/LDAP/HTTPS)
+- systemctl service status per VM
+- Log path existence check
+- iptables INPUT rules + pfSense EasyRule table
+- Fail2ban jail status
+- DNS resolution test (bank.local zone)
+- aegis-forwarder service + journal
+- AEGIS API healthz
+
+**BIND9 logging config** (company-dns-server မှာ run ရမည် — `/var/log/named/named.log` မတည်ဆောက်ရသေးဘဲ ဖြစ်ရင်):
+```bash
+sudo mkdir -p /var/log/named && sudo chown bind:bind /var/log/named
+sudo tee -a /etc/bind/named.conf.local << 'EOF'
+logging {
+    channel query_log {
+        file "/var/log/named/named.log" versions 3 size 5m;
+        severity dynamic;
+    };
+    category queries  { query_log; };
+    category default  { query_log; };
+};
+EOF
+sudo systemctl restart named
+```
+
+**Result:** Python syntax ✅ clean. check_connectivity.sh ✅ created (chmod +x).
+**Next:**
+1. Aegis VM မှာ forwarder update: `wget -O /opt/aegis/scripts/src/aegis_forwarder.py https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/scripts/src/aegis_forwarder.py && sudo systemctl restart aegis-forwarder`
+2. local.conf မှာ `DNSSERVER_IP=10.10.10.20` နဲ့ `LDAPSERVER_IP=10.20.20.20` ထည့်
+3. company-dns-server မှာ BIND9 logging config ထည့်
+4. `./check_connectivity.sh` run ပြီး results စစ်
+
+---
+
 ## [2026-07-20] — Attack → Rule → Command Chain: Full Transparency in Dashboard
 
 **Status:** ✅ Done
