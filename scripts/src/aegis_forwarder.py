@@ -68,7 +68,7 @@ PFSENSE_IP      = _cfg("PFSENSE_IP", "10.30.30.1")
 
 # ─── REMOTE HOST IPs — set in aegis_forwarder.local.conf, no hardcoding ───────
 # If not set in conf/env, falls back to empty string → hub mode skips that VM.
-BANKWEB_IP     = _cfg("BANKWEB_IP",     "")   # 10.10.10.10
+COMPANYWEB_IP  = _cfg("COMPANYWEB_IP",  _cfg("BANKWEB_IP", ""))   # 10.10.10.10  (BANKWEB_IP still accepted for old local.conf)
 CUSTOMERDB_IP  = _cfg("CUSTOMERDB_IP",  "")   # 10.20.20.10
 DNSSERVER_IP   = _cfg("DNSSERVER_IP",   "")   # 10.10.10.20
 LDAPSERVER_IP  = _cfg("LDAPSERVER_IP",  "")   # 10.20.20.20
@@ -80,7 +80,7 @@ LDAPSERVER_IP  = _cfg("LDAPSERVER_IP",  "")   # 10.20.20.20
 REMOTE_HOSTS = [h for h in [
     {
         "name": "company-web-server",
-        "ip":   BANKWEB_IP,
+        "ip":   COMPANYWEB_IP,
         "sensors": ["fail2ban", "ssh", "http_access"],
         # services to health-check via SSH systemctl on this VM
         "health_services": [
@@ -88,7 +88,7 @@ REMOTE_HOSTS = [h for h in [
             ("ssh",       "SSH Monitor",     "sensor"),
             ("apache2",   "Apache Monitor",  "sensor"),
         ],
-    } if BANKWEB_IP else None,
+    } if COMPANYWEB_IP else None,
     {
         "name": "company-customer-db",
         "ip":   CUSTOMERDB_IP,
@@ -930,7 +930,7 @@ def watch_ssh():
     # IPs that belong to our own lab infrastructure — never flag as attackers
     OWN_IP = get_local_ip()
     DEFENDER_IPS = {ip for ip in [
-        BANKWEB_IP,    # company-web-server (from conf)
+        COMPANYWEB_IP, # company-web-server (from conf)
         CUSTOMERDB_IP, # company-customer-db (from conf)
         OWN_IP,        # this VM itself
     ] if ip}
