@@ -1207,16 +1207,22 @@ def _watch_pfsense_suricata(log_path: str | None = None):
         log_path = _cfg("PFSENSE_SURICATA_LOG",
                         "/var/db/suricata/suricata_em110/eve.json")
     ssh_key  = os.path.expanduser(PFSENSE_SSH_KEY)
+    # FreeBSD (pfSense) tail -F exits immediately if the file does not exist,
+    # unlike GNU coreutils which retries. Use a sh wait-loop so we keep the SSH
+    # session alive until Suricata creates the eve.json file, then start tailing.
+    remote_cmd = (
+        f"sh -c 'while [ ! -f {log_path} ]; do sleep 5; done; tail -F {log_path} 2>/dev/null'"
+    )
     ssh_cmd  = [
         "ssh", "-T",
         "-i", ssh_key,
         "-o", "StrictHostKeyChecking=no",
         "-o", "ConnectTimeout=10",
-        "-o", "ServerAliveInterval=15",
-        "-o", "ServerAliveCountMax=3",
+        "-o", "ServerAliveInterval=30",
+        "-o", "ServerAliveCountMax=6",
         "-o", "BatchMode=yes",
         f"{PFSENSE_SSH_USER}@{PFSENSE_IP}",
-        f"tail -F {log_path} 2>/dev/null",
+        remote_cmd,
     ]
     print(f"[pfSense-suricata] Starting — {PFSENSE_SSH_USER}@{PFSENSE_IP}:{log_path}")
     while True:
