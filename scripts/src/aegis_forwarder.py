@@ -1515,9 +1515,12 @@ def _watch_remote_bind9(host_name: str, host_ip: str):
     """Tail BIND9 query log on dns-server via SSH and detect DNS attacks."""
     # BIND9 query log path (needs logging category queries { file } in named.conf)
     log_path = "/var/log/named/named.log"
+    # Internal/defender IPs — skip routine queries from our own infrastructure.
+    # Zone transfers (AXFR/IXFR) are always suspicious and bypass this filter.
+    _defender_ips = {h["ip"] for h in REMOTE_HOSTS} | {"10.30.30.10", PFSENSE_IP}
     print(f"[{host_name}] bind9 thread started")
     for line in _ssh_tail(host_name, host_ip, log_path):
-        # Zone transfer attempt: "AXFR" or "IXFR"
+        # Zone transfer attempt: AXFR/IXFR — always alert regardless of source
         if "AXFR" in line or "IXFR" in line:
             m = re.search(r"([\d.]+)#\d+", line)
             src_ip = m.group(1) if m else "unknown"
@@ -1530,10 +1533,13 @@ def _watch_remote_bind9(host_name: str, host_ip: str):
                 "description": f"DNS zone transfer attempt from {src_ip}",
                 "signature_text": line.strip(),
             })
-        # Flood / excessive queries (basic heuristic — forwarder sees repeated lines)
+        # Refused / error queries — skip internal infrastructure (aegis hub, company VMs, pfSense)
+        # Only alert on external sources (attacker 192.168.10.x or unknown IPs)
         elif "query" in line.lower() and ("error" in line.lower() or "refused" in line.lower()):
             m = re.search(r"([\d.]+)#\d+", line)
             src_ip = m.group(1) if m else "unknown"
+            if src_ip in _defender_ips:
+                continue   # routine internal DNS query — not an attack
             post("event", {
                 "source":      "bind9",
                 "type":        "dns_query_refused",
