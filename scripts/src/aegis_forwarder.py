@@ -71,30 +71,28 @@ DNSSERVER_IP   = _cfg("DNSSERVER_IP",   "")   # 10.10.10.20
 LDAPSERVER_IP  = _cfg("LDAPSERVER_IP",  "")   # 10.20.20.20
 
 # Per-host sensor list — controls which log tailer threads are spawned per VM.
-# Available sensors: fail2ban, ssh, http, http_access, mysql, postgresql, bind9, slapd, cowrie
+# Available sensors: fail2ban, ssh, http, http_access, mysql, postgresql, bind9, slapd
 # Only include hosts whose IP is configured (non-empty).
 REMOTE_HOSTS = [h for h in [
     {
         "name": "company-web-server",
         "ip":   BANKWEB_IP,
-        "sensors": ["fail2ban", "ssh", "http", "http_access", "cowrie"],
+        "sensors": ["fail2ban", "ssh", "http", "http_access"],
         # services to health-check via SSH systemctl on this VM
         "health_services": [
-            ("fail2ban",  "Fail2ban",          "sensor"),
-            ("ssh",       "SSH Monitor",       "sensor"),
-            ("apache2",   "Apache Monitor",    "sensor"),
-            ("cowrie",    "Cowrie Honeypot",   "sensor"),
+            ("fail2ban",  "Fail2ban",        "sensor"),
+            ("ssh",       "SSH Monitor",     "sensor"),
+            ("apache2",   "Apache Monitor",  "sensor"),
         ],
     } if BANKWEB_IP else None,
     {
         "name": "company-customer-db",
         "ip":   CUSTOMERDB_IP,
-        "sensors": ["fail2ban", "ssh", "mysql", "cowrie"],
+        "sensors": ["fail2ban", "ssh", "mysql"],
         "health_services": [
-            ("fail2ban",  "Fail2ban",          "sensor"),
-            ("ssh",       "SSH Monitor",       "sensor"),
-            ("mysql",     "MySQL Monitor",     "sensor"),
-            ("cowrie",    "Cowrie Honeypot",   "sensor"),
+            ("fail2ban",  "Fail2ban",      "sensor"),
+            ("ssh",       "SSH Monitor",   "sensor"),
+            ("mysql",     "MySQL Monitor", "sensor"),
         ],
     } if CUSTOMERDB_IP else None,
     {
@@ -1563,51 +1561,6 @@ def _watch_remote_slapd(host_name: str, host_ip: str):
             })
 
 
-def _watch_remote_cowrie(host_name: str, host_ip: str):
-    """Tail Cowrie honeypot JSON log on a remote VM via SSH.
-    Cowrie writes one JSON object per line to /opt/cowrie/var/log/cowrie.json.
-    Any connection to the honeypot is an immediate indicator of compromise — forward all events.
-    """
-    _defender_ips = {h["ip"] for h in REMOTE_HOSTS} | {"10.30.30.10"}
-    log_path = "/opt/cowrie/var/log/cowrie.json"
-    print(f"[{host_name}] cowrie thread started (tailing {log_path})")
-    for line in _ssh_tail(host_name, host_ip, log_path):
-        try:
-            ev = json.loads(line)
-        except Exception:
-            continue
-        eventid  = ev.get("eventid", "")
-        src_ip   = ev.get("src_ip", "unknown")
-        username = ev.get("username", "")
-        password = ev.get("password", "")
-        session  = ev.get("session", "")
-        if src_ip in _defender_ips:
-            continue
-        if not eventid.startswith("cowrie."):
-            continue
-        is_success = eventid == "cowrie.login.success"
-        is_cmd     = eventid == "cowrie.command.input"
-        severity   = "critical" if is_success else "high"
-        if is_success:
-            desc = f"Honeypot: SUCCESSFUL login from {src_ip}. Creds: {username}/{password}. Session: {session}"
-        elif eventid == "cowrie.login.failed":
-            desc = f"Honeypot: Failed login from {src_ip}. Creds: {username}/{password}. Session: {session}"
-        elif is_cmd:
-            desc = f"Honeypot: Command executed from {src_ip}: {ev.get('input', '')[:80]}"
-        else:
-            desc = f"Honeypot: {eventid} from {src_ip}"
-        post("cowrie", {
-            "eventid":   eventid,
-            "src_ip":    src_ip,
-            "username":  username,
-            "password":  password,
-            "session":   session,
-            "dest_ip":   host_ip,
-            "input":     ev.get("input", ""),
-            "timestamp": ev.get("timestamp", ""),
-        })
-
-
 def _remote_heartbeat_loop(hosts: list):
     """Send online heartbeat for every remote company VM every 15s.
     Without this they time out (server marks offline after 45s / 3 missed beats).
@@ -1729,7 +1682,6 @@ def run_hub_mode():
       postgresql — /var/log/postgresql/*.log           (company-customer-db, if used)
       bind9      — /var/log/named/                     (dns-server)
       slapd      — /var/log/syslog (filtered)          (ldap-server)
-      cowrie     — /opt/cowrie/var/log/cowrie.json     (web-server, customer-db)
 
     pfSense Suricata IDS is handled by a dedicated thread (_watch_pfsense_suricata)
     that SSHes into pfSense and tails its EVE JSON log.
@@ -1743,7 +1695,6 @@ def run_hub_mode():
         "postgresql":  _watch_remote_postgresql,
         "bind9":       _watch_remote_bind9,
         "slapd":       _watch_remote_slapd,
-        "cowrie":      _watch_remote_cowrie,
     }
 
     print(f"\n  Hub mode — remote hosts ({len(REMOTE_HOSTS)}):")

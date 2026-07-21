@@ -32,7 +32,7 @@ const GLOBAL_COMPONENTS = [
 // The aegis_forwarder (hub mode) will update these to online/offline via POST /system/status.
 // Match component names exactly with what the forwarder POSTs to /system/status.
 const PER_HOST_SENSORS = [
-  // ── company-web-server (10.10.10.10): Apache/Fail2ban/Cowrie ───────────────
+  // ── company-web-server (10.10.10.10): Apache/Fail2ban ───────────────────────
   {
     component: "Fail2ban",
     layer: "sensor",
@@ -52,13 +52,6 @@ const PER_HOST_SENSORS = [
     layer: "sensor",
     status: "unknown",
     description: "Apache/ModSecurity log watcher — SQLi, XSS, LFI, RFI, directory traversal",
-    hostIp: "10.10.10.10",
-  },
-  {
-    component: "Cowrie Honeypot",
-    layer: "sensor",
-    status: "unknown",
-    description: "SSH/Telnet honeypot — any connection is an immediate indicator of compromise",
     hostIp: "10.10.10.10",
   },
   // ── aegis-company-admin (10.30.30.10): Hub script VM ───────────────────────
@@ -85,7 +78,7 @@ const PER_HOST_SENSORS = [
     hostIp: "10.30.30.10",
   },
 
-  // ── company-customer-db (10.20.20.10): MySQL/Fail2ban/Cowrie ───────────────
+  // ── company-customer-db (10.20.20.10): MySQL/Fail2ban ───────────────────────
   {
     component: "Fail2ban",
     layer: "sensor",
@@ -105,13 +98,6 @@ const PER_HOST_SENSORS = [
     layer: "sensor",
     status: "unknown",
     description: "MySQL log watcher — auth failures, suspicious queries, connection anomalies",
-    hostIp: "10.20.20.10",
-  },
-  {
-    component: "Cowrie Honeypot",
-    layer: "sensor",
-    status: "unknown",
-    description: "SSH/Telnet honeypot — any connection is an immediate indicator of compromise",
     hostIp: "10.20.20.10",
   },
   // ── company-dns-server (10.10.10.20): BIND9/Fail2ban ───────────────────────
@@ -164,6 +150,7 @@ const PER_HOST_SENSORS = [
 // Only deletes rows WHERE hostIp IS NULL to avoid killing valid per-host sensor entries.
 const GLOBAL_OBSOLETE_COMPONENTS = [
   "Snort IDS",
+  "Cowrie Honeypot",  // removed from topology — Suricata + Fail2ban only
   "ModSecurity WAF",
   "AEGIS Dashboard",
   "Kali Linux (Red)",
