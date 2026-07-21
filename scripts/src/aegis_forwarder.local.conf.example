@@ -8,26 +8,31 @@
 #   nano aegis_forwarder.local.conf
 #
 # ── Hub mode (recommended) ─────────────────────────────────────────────────────
-# Run ONE script on the AEGIS VM (10.30.30.10) — handles everything:
-#   • SSHes into bank-web (10.10.10.10) → tails Suricata/Snort/Fail2ban/SSH/HTTP/FTP
-#   • SSHes into customer-db (10.20.20.20) → tails Suricata/Fail2ban/SSH/PostgreSQL
+# Run ONE script on the AEGIS VM (aegis-company-admin, 10.30.30.10) — handles everything:
+#   • SSHes into company-web-server  (10.10.10.10) → tails Suricata/Fail2ban/SSH/HTTP/FTP
+#   • SSHes into company-customer-db (10.20.20.10) → tails Suricata/Fail2ban/SSH/MySQL
+#   • SSHes into company-dns-server  (10.10.10.20) → tails BIND9 query log
+#   • SSHes into company-ldap-server (10.20.20.20) → tails syslog (slapd)
 #   • SSHes into pfSense (10.30.30.1) → runs easyrule/pfctl for firewall commands
 #   • Runs local defense agent to cover ALL VMs from one place
 #
 #   python3 aegis_forwarder.py --mode hub
 #
 # Prerequisites (on AEGIS VM):
-#   1. SSH key-based auth set up to bank-web and customer-db (no password):
-#        ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519  (if not already done)
-#        ssh-copy-id sithu@10.10.10.10
-#        ssh-copy-id sithu@10.20.20.20
+#   1. SSH key-based auth set up to all company VMs (no password):
+#        ssh-keygen -t ed25519 -f ~/.ssh/aegis_id_rsa -N ""
+#        ssh-copy-id -i ~/.ssh/aegis_id_rsa.pub sithu@10.10.10.10   # company-web-server
+#        ssh-copy-id -i ~/.ssh/aegis_id_rsa.pub sithu@10.20.20.10   # company-customer-db
+#        ssh-copy-id -i ~/.ssh/aegis_id_rsa.pub sithu@10.10.10.20   # company-dns-server
+#        ssh-copy-id -i ~/.ssh/aegis_id_rsa.pub sithu@10.20.20.20   # company-ldap-server
 #   2. SSH key for pfSense (separate key recommended):
 #        ssh-keygen -t ed25519 -f ~/.ssh/pfsense_key -N ""
 #        # Then in pfSense: System > User Manager > admin > Authorized SSH Keys → paste public key
 #        # Enable SSH: System > Advanced > Admin Access → Enable Secure Shell
 #        cat ~/.ssh/pfsense_key.pub   # copy this into pfSense
-#   3. sudo without password for iptables on bank VMs (for SSH defense execution):
-#        On bank-web/customer-db: echo "sithu ALL=(root) NOPASSWD: /sbin/iptables" >> /etc/sudoers
+#   3. sudo without password for iptables + fail2ban-client on ALL company VMs:
+#        echo "sithu ALL=(root) NOPASSWD: /sbin/iptables" | sudo tee /etc/sudoers.d/aegis-iptables
+#        echo "sithu ALL=(ALL) NOPASSWD: /usr/bin/fail2ban-client" | sudo tee /etc/sudoers.d/aegis-fail2ban
 #   4. pip3 install requests
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -37,13 +42,17 @@ AEGIS_KEY=
 AEGIS_ADMIN_KEY=
 
 # ── Hub mode settings ─────────────────────────────────────────────────────────
-# SSH user on bank-web and customer-db
+# SSH user on all company VMs
 REMOTE_SSH_USER=sithu
 
-# ── Bank VM IPs — set the actual IPs of your VMs here (no hardcoding in code) ─
+# SSH private key path used for all company VM connections (BatchMode — no password prompt).
+# Default is ~/.ssh/aegis_id_rsa; override here if you used a different key name.
+REMOTE_SSH_KEY=~/.ssh/aegis_id_rsa
+
+# ── Company VM IPs — set the actual IPs of your VMs here (no hardcoding in code) ─
 # The forwarder will SSH into these IPs to tail logs.
 # Leave blank or remove a line to skip that VM.
-BANKWEB_IP=10.10.10.10
+COMPANYWEB_IP=10.10.10.10
 CUSTOMERDB_IP=10.20.20.10
 DNSSERVER_IP=10.10.10.20
 LDAPSERVER_IP=10.20.20.20

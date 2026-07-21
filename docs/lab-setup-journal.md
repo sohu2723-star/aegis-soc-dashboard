@@ -1882,3 +1882,49 @@ TELEGRAM_CHAT_ID   ← (optional) Telegram chat
 4. DNS server: BIND9 logging config run (named.log ဖန်တီး)
 
 **Result:** Code ✅ fixed and committed — Aegis VM မှာ script update လုပ်ရမည်
+
+---
+
+## [2026-07-21] — Replit Secrets Restore + Both Workflows Running
+
+**Status:** ✅ Done
+**What:** Replit re-import ပြီးနောက် secrets အားလုံး re-enter လုပ်ပြီး API server + dashboard နှစ်ခုလုံး run ဖြစ်အောင် ပြန်ဆောက်ခဲ့
+
+**How:**
+Replit Secrets panel မှာ အောက်ပါ secrets အားလုံး set:
+```
+SUPABASE_DB_URL    ← Supabase pooler URI (port 6543)
+AEGIS_INGEST_KEY   ← VM sensor auth key
+AEGIS_ADMIN_KEY    ← Admin endpoint key
+GROQ_API_KEY       ← Groq AI summaries
+TELEGRAM_BOT_TOKEN ← Alert notifications
+TELEGRAM_CHAT_ID   ← Telegram target chat
+SESSION_SECRET     ← JWT signing (already set)
+```
+
+**Result:**
+- **Start application** (port 5000) ✅ Running — AEGIS login page ပြနေ
+- **API Server** (port 3000) ✅ Running — `Server listening port: 3000`, auto-report scheduler started
+- Supabase connection ✅ (SUPABASE_DB_URL accepted by custom URL parser)
+- Google SSO — ⚠️ 403 (Replit dev domain not in Google Console authorized origins — normal, use access key login instead)
+
+**Next:** Aegis VM မှာ VM-side fixes apply လုပ်ရမည် (ကြည့်: [2026-07-22] Pending Lab Fixes section)
+
+---
+
+## [2026-07-21] — local.conf.example Update (v4 Topology + REMOTE_SSH_KEY)
+
+**Status:** ✅ Done
+**What:** `scripts/src/aegis_forwarder.local.conf.example` ကို v4 topology နဲ့ ကိုက်ညီအောင် update လုပ်ခဲ့
+
+**Changes:**
+1. `BANKWEB_IP` → `COMPANYWEB_IP` (BANKWEB_IP ကို ဟောင်းတဲ့ local.conf compatibility အတွက် forwarder script ထဲ fallback ပါဆဲ)
+2. `REMOTE_SSH_KEY=~/.ssh/aegis_id_rsa` entry ထည့် (systemd service mode မှာ SSH agent မရှိလို့ explicit key path လိုသည်)
+3. Prerequisites section update — ပြင်ဆင်ခဲ့တာ:
+   - Company VM names (company-web-server, company-customer-db, company-dns-server, company-ldap-server)
+   - customer-db IP `10.20.20.10` (မှားနေတဲ့ `10.20.20.20` comment fix)
+   - ssh-copy-id commands 4 ခုလုံး ထည့် (DNS + LDAP server ပါ)
+   - sudoers entries for iptables + fail2ban-client နှစ်ခုလုံး ထည့်
+4. "Bank VM IPs" → "Company VM IPs" header rename
+
+**Result:** `local.conf.example` ✅ v4 topology + correct IPs + REMOTE_SSH_KEY — Aegis VM မှာ cp + nano လုပ်ရင် မှားဖို့ ခဲဆင်းတော့မယ်
