@@ -7,7 +7,7 @@ description: Final confirmed sensor assignment per VM — which log watchers run
 
 | VM | IP | Sensors (log watchers) | Health checks |
 |---|---|---|---|
-| company-web-server | 10.10.10.10 | fail2ban, ssh, http (modsecurity) | fail2ban, ssh, apache2 |
+| company-web-server | 10.10.10.10 | fail2ban, ssh, http_access | fail2ban, ssh, apache2 |
 | company-customer-db | 10.20.20.10 | fail2ban, ssh, mysql | fail2ban, ssh, mysql |
 | company-dns-server | 10.10.10.20 | fail2ban, ssh, bind9 | fail2ban, ssh, named |
 | company-ldap-server | 10.20.20.20 | fail2ban, ssh, slapd | fail2ban, ssh, slapd |

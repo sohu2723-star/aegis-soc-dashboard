@@ -51,7 +51,7 @@ const PER_HOST_SENSORS = [
     component: "Apache Monitor",
     layer: "sensor",
     status: "unknown",
-    description: "Apache/ModSecurity log watcher — SQLi, XSS, LFI, RFI, directory traversal",
+    description: "Apache access.log watcher — login brute force, 401/403 patterns, web breach detection",
     hostIp: "10.10.10.10",
   },
   // ── aegis-company-admin (10.30.30.10): Hub script VM ───────────────────────

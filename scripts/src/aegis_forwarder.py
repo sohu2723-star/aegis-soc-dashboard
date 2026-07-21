@@ -71,13 +71,14 @@ DNSSERVER_IP   = _cfg("DNSSERVER_IP",   "")   # 10.10.10.20
 LDAPSERVER_IP  = _cfg("LDAPSERVER_IP",  "")   # 10.20.20.20
 
 # Per-host sensor list — controls which log tailer threads are spawned per VM.
-# Available sensors: fail2ban, ssh, http, http_access, mysql, postgresql, bind9, slapd
+# Available sensors: fail2ban, ssh, http_access, mysql, postgresql, bind9, slapd
+# (http/ModSecurity removed — Suricata on pfSense covers HTTP attacks since traffic is plaintext HTTP)
 # Only include hosts whose IP is configured (non-empty).
 REMOTE_HOSTS = [h for h in [
     {
         "name": "company-web-server",
         "ip":   BANKWEB_IP,
-        "sensors": ["fail2ban", "ssh", "http", "http_access"],
+        "sensors": ["fail2ban", "ssh", "http_access"],
         # services to health-check via SSH systemctl on this VM
         "health_services": [
             ("fail2ban",  "Fail2ban",        "sensor"),
@@ -1677,7 +1678,7 @@ def run_hub_mode():
     Supported sensors per host (via SSH log tail):
       fail2ban   — /var/log/fail2ban.log
       ssh        — /var/log/auth.log
-      http       — /var/log/apache2/modsec_audit.log  (company-web-server)
+      http_access — /var/log/apache2/access.log        (company-web-server — login brute force)
       mysql      — /var/log/mysql/error.log            (company-customer-db)
       postgresql — /var/log/postgresql/*.log           (company-customer-db, if used)
       bind9      — /var/log/named/                     (dns-server)
@@ -1689,7 +1690,6 @@ def run_hub_mode():
     _SENSOR_FN = {
         "fail2ban":    _watch_remote_fail2ban,
         "ssh":         _watch_remote_ssh,
-        "http":        _watch_remote_modsecurity,
         "http_access": _watch_remote_http_access,
         "mysql":       _watch_remote_mysql,
         "postgresql":  _watch_remote_postgresql,
