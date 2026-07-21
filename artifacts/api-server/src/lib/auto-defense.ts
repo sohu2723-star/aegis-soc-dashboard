@@ -438,6 +438,23 @@ export async function seedDefaultRules() {
       actionType: "auto", defenseType: "block_ip",
       targetVm: "company-web-server", priority: 20, isActive: true,
     },
+    // ── Honeypot (Cowrie) — company-web-server + company-customer-db ────────────
+    {
+      name: "Honeypot Hit → Auto Block (company-web-server)",
+      description: "Block any IP that connects to Cowrie honeypot on company-web-server (10.10.10.10). Any connection = immediate IOC.",
+      triggerAttackType: "honeypot", triggerSeverity: "any",
+      triggerThreshold: 1, triggerWindowSecs: 60,
+      actionType: "auto", defenseType: "block_ip",
+      targetVm: "company-web-server", priority: 5, isActive: true,
+    },
+    {
+      name: "Honeypot Hit → Auto Block (company-customer-db)",
+      description: "Block any IP that connects to Cowrie honeypot on company-customer-db (10.20.20.10). Any connection = immediate IOC.",
+      triggerAttackType: "honeypot", triggerSeverity: "any",
+      triggerThreshold: 1, triggerWindowSecs: 60,
+      actionType: "auto", defenseType: "block_ip",
+      targetVm: "company-customer-db", priority: 6, isActive: true,
+    },
     // ── pfSense WAN boundary blocks (aegis_forwarder.py --vm pfsense via SSH) ─
     {
       name: "Critical Attack → pfSense Block",

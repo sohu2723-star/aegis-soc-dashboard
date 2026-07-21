@@ -1404,6 +1404,42 @@ INTERNAL `/var/db/suricata/suricata_em220/rules/custom.rules`:
 
 ---
 
+## [2026-07-21] — Cowrie Honeypot Integration (Forwarder + System Status + Auto-Defense)
+
+**Status:** ✅ Done
+**What:** Cowrie honeypot watcher ကို forwarder၊ system status၊ နှင့် auto-defense rules မှာ ပြည့်ပြည့်စုံစုံ ထည့်သွင်းခဲ့တယ်။ API `/ingest/cowrie` route ရှိပြီးသားဖြစ်ပြီး dashboard display ရှိပြီးဆိုတော့ ဒီ ၃ ဖိုင် ဖြည့်လုပ်မှ pipeline ပြည့်စုံမည်။
+
+**How:**
+
+1. `scripts/src/aegis_forwarder.py`:
+   - `_watch_remote_cowrie(host_name, host_ip)` function ထည့် — `/opt/cowrie/var/log/cowrie.json` SSH tail လုပ်ပြီး `POST /ingest/cowrie` ပို့
+   - REMOTE_HOSTS sensors list မှာ company-web-server + company-customer-db နှစ်ခုလုံးမှာ `"cowrie"` ထည့်
+   - `health_services` မှာ `("cowrie", "Cowrie Honeypot", "sensor")` ထည့် (systemctl status check)
+   - `_SENSOR_FN` map မှာ `"cowrie": _watch_remote_cowrie` entry ထည့်
+
+2. `artifacts/api-server/src/routes/system.ts`:
+   - `GLOBAL_OBSOLETE_COMPONENTS` ထဲက `"Cowrie Honeypot"` ဖယ်ထုတ် (ဒါမရှိမချင်း per-host cowrie rows ကို delete လုပ်နေမည်)
+   - `PER_HOST_SENSORS` မှာ company-web-server (10.10.10.10) + company-customer-db (10.20.20.10) နှစ်ခုလုံးအတွက် `"Cowrie Honeypot"` sensor entry ထည့်
+
+3. `artifacts/api-server/src/lib/auto-defense.ts`:
+   - "Honeypot Hit → Auto Block (company-web-server)" rule ထည့် (priority: 5, threshold: 1, any connection = block)
+   - "Honeypot Hit → Auto Block (company-customer-db)" rule ထည့် (priority: 6, threshold: 1)
+
+**Result:** Build ✅ clean. API server ✅ running (port 3000). Forwarder Python syntax ✅ clean. Full pipeline: Cowrie log → SSH tail → `/ingest/cowrie` → DB → SSE → Dashboard.
+
+**Next:** VM မှာ Cowrie install + enable လုပ်ရမည် —
+```bash
+# company-web-server + company-customer-db နှစ်ခုလုံးမှာ run
+sudo apt install cowrie -y
+sudo systemctl enable cowrie --now
+sudo systemctl status cowrie
+# Log path စစ်
+ls /opt/cowrie/var/log/cowrie.json
+```
+Forwarder update (wget + systemctl restart) ပြီးရင် cowrie thread spawn မဖြစ်မဖြစ် journalctl မှာ စစ်ရမည်။
+
+---
+
 ## [2026-07-21] — Signature Text (Full Rule) Display in Security Events
 
 **Status:** ✅ Done

@@ -4,8 +4,8 @@ description: Which VMs run Cowrie, which files need updating together, and the d
 ---
 
 ## Rule
-Cowrie honeypot runs ONLY on company-web-server (10.10.10.10) and company-customer-db (10.20.20.20).
-Never on Aegis VM (10.30.30.10) — it is a management/forwarding hub, not a Red Team target.
+Cowrie honeypot runs ONLY on company-web-server (10.10.10.10) and company-customer-db (10.20.20.10).
+Never on Aegis VM (10.30.30.10) or LDAP/DNS servers — they are not attacker-reachable honeypot targets.
 If Aegis VM is compromised the forwarder stops → monitoring goes blind.
 
 **Why:** Honeypot only makes sense on attacker-reachable targets. Aegis VM is in the management zone.

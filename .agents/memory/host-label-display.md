@@ -14,7 +14,8 @@ description: How IPs are resolved to device names in the dashboard, and where th
 
 ## Static lab IP map (hardcoded in host-utils.tsx)
 - 10.10.10.10 → company-web-server (defender, green)
-- 10.20.20.20 → company-customer-db (defender, green)
+- 10.20.20.10 → company-customer-db (defender, green)
+- 10.20.20.20 → company-ldap-server (defender, green)
 - 10.30.30.10 → aegis-forwarder (defender, green)
 - 10.0.23.2 → pfSense (infra, purple)
 - 10.0.23.1 → R1 MikroTik (infra, purple)
