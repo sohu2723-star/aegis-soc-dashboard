@@ -664,6 +664,28 @@ ping -c 3 8.8.8.8
 
 ---
 
+## [2026-07-21] — Replit Re-import + TypeScript Fix
+
+**Status:** ✅ Done  
+**What:** Replit မှာ project ပြန် import လုပ်ပြီး environment setup + TypeScript error fix လုပ်ခဲ့တယ်
+
+**How:**
+1. GitHub repo (sohu2723-star/aegis-soc-dashboard) ကို Replit မှာ fresh pull ဆင်းပြီး `pnpm install` run
+2. Secrets set: `SUPABASE_DB_URL`, `AEGIS_INGEST_KEY`, `AEGIS_ADMIN_KEY` (SESSION_SECRET ရှိပြီး)
+3. TypeScript error fix — `artifacts/api-server/src/routes/defense.ts` line 175-176:
+   - Bug: `?.status === "online" ?? null` — `??` operand unreachable (TS2869) — because `undefined === "online"` returns `false`, not `null`
+   - Fix: sensor row ကို variable မှာ ကြိုဆွဲပြီး `r != null ? r.status === "online" : null` ဖြင့် စစ်
+
+**Result:**
+- `pnpm run typecheck` → ✅ 0 errors (api-server + aegis-dashboard)
+- API Server workflow → ✅ running (port 3000)
+- Start application workflow → ✅ running (port 5000)
+- Build warnings (esbuild `??` warning) → warnings only, not errors; safe to ignore
+
+**Next:** Aegis VM မှာ `wget` forwarder update + `systemctl restart aegis-forwarder` → DNS/LDAP sensor threads confirm
+
+---
+
 ## [2026-07-20] — Attack → Rule → Command Chain: Full Transparency in Dashboard
 
 **Status:** ✅ Done
