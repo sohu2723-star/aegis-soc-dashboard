@@ -1852,3 +1852,33 @@ TELEGRAM_CHAT_ID   ← (optional) Telegram chat
 
 **Result:** Frontend ✅ running, API server ⏳ pending secrets
 **Next:** Secrets ထည့်ပြီး API Server workflow restart → Aegis VM forwarder update test
+
+---
+
+### [2026-07-22] — Forwarder SSH Key Fix + CUSTOMERDB_IP Bug Diagnosis
+
+**Status:** ✅ Done (code side) / ⏳ VM-side actions pending
+**What:** Screenshots မှာ remote host 5 ခု မပြ (customer-db ပျောက်) + health check exit 255 issue ဖြေရှင်းခဲ့
+
+**Root Cause 1 (Critical): `CUSTOMERDB_IP=10.20.20.20` in local.conf — WRONG**
+- Forwarder log: `company-customer-db SSH disconnected from 10.20.20.20`
+- 10.20.20.20 = LDAP-Server IP — customer-db thread နဲ့ ldap thread ၂ ခုလုံး same IP ကို SSH ဝင်
+- Fix: Aegis VM မှာ local.conf ထဲ `CUSTOMERDB_IP=10.20.20.10` ပြောင်းရမည်
+
+**Root Cause 2: All company VM SSH commands မှာ `-i` flag မပါ**
+- Health check + log tail + defense exec အားလုံး `~/.ssh/aegis_id_rsa` key ကို explicitly မသုံးဘူး
+- Systemd service အနေနဲ့ run တဲ့အခါ SSH agent မရှိလို့ BatchMode=yes = exit 255
+- **Code fix done:** `REMOTE_SSH_KEY` config ထည့် (default: `~/.ssh/aegis_id_rsa`)
+  - `_ssh_tail()` — `-i REMOTE_SSH_KEY` ထည့်
+  - `_remote_service_health_loop()` — `-i REMOTE_SSH_KEY` ထည့်
+  - `_exec_defense_ssh_remote()` — `-i REMOTE_SSH_KEY` ထည့် (defense + session kill)
+  - `_fetch_fail2ban_regex()` — `-i REMOTE_SSH_KEY` ထည့်
+  - `_fetch_remote_host_info()` — `-i REMOTE_SSH_KEY` ထည့်
+
+**VM-side fixes still needed:**
+1. Aegis VM: `local.conf` ထဲ `CUSTOMERDB_IP=10.20.20.10` ဖြစ်မဖြစ် စစ်/ပြောင်း
+2. Aegis VM: `wget` + `systemctl restart aegis-forwarder` (script update)
+3. DNS server: `sudo systemctl start named && sudo systemctl enable named`
+4. DNS server: BIND9 logging config run (named.log ဖန်တီး)
+
+**Result:** Code ✅ fixed and committed — Aegis VM မှာ script update လုပ်ရမည်

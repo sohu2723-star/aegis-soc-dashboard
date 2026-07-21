@@ -57,8 +57,11 @@ VM_NAME   = _cfg("VM_NAME",   "ubuntu")   # ubuntu | pfsense — used by the def
 # Used when running with --mode hub on the aegis-forwarder VM (10.30.30.10).
 # The hub SSHes into company VMs to tail their logs AND SSHes into pfSense
 # to execute firewall rules via easyrule — all from one script, one machine.
-# Override REMOTE_SSH_USER in aegis_forwarder.local.conf if your user differs.
+# Override REMOTE_SSH_USER / REMOTE_SSH_KEY in aegis_forwarder.local.conf if needed.
 REMOTE_SSH_USER = _cfg("REMOTE_SSH_USER", "sithu")
+# SSH identity file used for all company VM connections (log tail + health checks).
+# Default: ~/.ssh/aegis_id_rsa  Override in local.conf: REMOTE_SSH_KEY=/path/to/key
+REMOTE_SSH_KEY  = os.path.expanduser(_cfg("REMOTE_SSH_KEY", "~/.ssh/aegis_id_rsa"))
 
 # pfSense management IP (reachable from aegis-forwarder via OPT2 segment)
 PFSENSE_IP      = _cfg("PFSENSE_IP", "10.30.30.1")
@@ -251,6 +254,7 @@ def _remote_fail2ban_signature(host_ip: str, jail: str) -> str:
     )
     ssh_cmd = [
         "ssh", "-T",
+        "-i", REMOTE_SSH_KEY,
         "-o", "StrictHostKeyChecking=no",
         "-o", "ConnectTimeout=8",
         "-o", "BatchMode=yes",
@@ -523,6 +527,7 @@ def _exec_defense_ssh_remote(target_ip: str, command: str, cmd_id: int):
     """
     ssh_cmd = [
         "ssh", "-T",
+        "-i", REMOTE_SSH_KEY,
         "-o", "StrictHostKeyChecking=no",
         "-o", "ConnectTimeout=10",
         "-o", "BatchMode=yes",
@@ -544,6 +549,7 @@ def _exec_defense_ssh_remote(target_ip: str, command: str, cmd_id: int):
                 blocked_ip = m.group(1)
                 kill_cmd = [
                     "ssh", "-T",
+                    "-i", REMOTE_SSH_KEY,
                     "-o", "StrictHostKeyChecking=no",
                     "-o", "ConnectTimeout=10",
                     "-o", "BatchMode=yes",
@@ -1087,6 +1093,7 @@ def _ssh_tail(host_name: str, host_ip: str, log_path: str):
     """
     ssh_cmd = [
         "ssh", "-T",
+        "-i", REMOTE_SSH_KEY,
         "-o", "StrictHostKeyChecking=no",
         "-o", "ConnectTimeout=10",
         "-o", "ServerAliveInterval=15",
@@ -1128,6 +1135,7 @@ def _remote_sysinfo(host_ip: str) -> dict:
     )
     ssh_cmd = [
         "ssh", "-T",
+        "-i", REMOTE_SSH_KEY,
         "-o", "StrictHostKeyChecking=no",
         "-o", "ConnectTimeout=8",
         "-o", "BatchMode=yes",
@@ -1630,6 +1638,7 @@ def _remote_service_health_loop(hosts: list):
             full_cmd = f"printf '%s ' {cmds}"
             ssh_cmd = [
                 "ssh", "-T",
+                "-i", REMOTE_SSH_KEY,
                 "-o", "StrictHostKeyChecking=no",
                 "-o", "ConnectTimeout=5",
                 "-o", "BatchMode=yes",
