@@ -975,3 +975,207 @@ sudo tail -f /var/log/suricata/eve.json | grep '"event_type":"alert"'
 ~/.ssh/pfsense_key       ← pfSense private key
 ~/.ssh/pfsense_key.pub   ← pfSense WebGUI User Manager ထဲ paste ထားရ
 ```
+
+---
+
+## အခန်း 13 — Defense Architecture Concepts
+
+> ဤအခန်းသည် AEGIS defense system ၏ design rationale နှင့် component တစ်ခုချင်းစီ၏ role ကို ရှင်းလင်းဖော်ပြသည်။ Panel/judges များအတွက် concept ရှင်းလင်းချက် မှတ်တမ်း ဖြစ်သည်။
+
+---
+
+### 13a. Rule အမျိုးအစား ၃ မျိုး
+
+AEGIS defense system တွင် rule အမျိုးအစား ၃ မျိုး ရှိသည်။ တစ်မျိုးချင်းစီ role မတူ၊ scope မတူ၊ trigger မတူ။
+
+#### ① Fail2ban (VM-local tool)
+
+- Company VM တစ်ခုချင်းစီ၏ **OS level** တွင် run နေသော external security tool
+- `auth.log`, `apache.log` တို့ကို **ကိုယ်တိုင် တိုက်ရိုက် monitor** လုပ်သည်
+- Attack detect ရင် → ထို VM ၏ **iptables မှာ ချက်ချင်း IP block** — AEGIS မပါဘဲ
+- AEGIS နဲ့ ဆက်သွယ်ပုံ — `aegis_forwarder.py` က `fail2ban.log` ကို tail လုပ်ပြီး **event POST** သာ လုပ်ပေးသည်
+
+```
+Fail2ban ban ဖြစ် → fail2ban.log ကျ → forwarder POST /api/ingest/fail2ban
+→ AEGIS evaluateEvent() → pfSense ကိုပါ ထပ်ဆင့် block + Telegram alert
+```
+
+**Role:** VM ၏ first line of defense — AEGIS မသိဘဲ fast local response
+
+---
+
+#### ② Auto-Defense Rules (`defense_rules` table)
+
+- **Render cloud** တွင် run နေသော AEGIS engine
+- Event တစ်ခု ဝင်တိုင်း `evaluateEvent()` က active rules အားလုံးနဲ့ match စစ်သည်
+- Match ဖြစ်ရင် → `defense_commands` queue ထဲ ထည့် → `aegis_forwarder.py` agent ဆွဲ → VM/pfSense တွင် execute
+
+**Match conditions:**
+| Field | ဥပမာ |
+|---|---|
+| `triggerAttackType` | `ssh_brute`, `web_attack`, `ddos`, `port_scan` |
+| `triggerSeverity` | `high`, `critical`, `any` |
+| `triggerThreshold` | 5 ကြိမ် |
+| `triggerWindowSecs` | 60 စက္ကန့် |
+
+**Default Rules:**
+
+| Rule | Trigger | Block နေရာ |
+|---|---|---|
+| SSH Brute Force | 5 ကြိမ်/60s | VM iptables |
+| DDoS → Null Route | 50 event/30s | VM blackhole route |
+| Web Attack (High) | ပထမကြိမ် | company-web-server iptables |
+| Port Scan | ပထမကြိမ် | company-web-server iptables |
+| Critical → pfSense | severity=critical | pfSense WAN easyrule |
+| Web Attack → pfSense | severity=high | pfSense WAN easyrule |
+
+**Mode ၂ မျိုး:**
+- `"auto"` → agent က တိုက်ရိုက် execute
+- `"suggest"` → dashboard မှာ ပြ၊ human confirm မှ execute
+
+**Role:** Pattern-based cross-VM automated response — multi-source event ကို correlate လုပ်ပြီး smart decision
+
+---
+
+#### ③ Firewall Rules (`firewall_rules` table)
+
+- Dashboard ကနေ **admin ကိုယ်တိုင်** ဆောက်တဲ့ structured iptables rules
+- `chain`, `action`, `protocol`, `sourceIp`, `destPort`, `interface` အားလုံး သတ်မှတ်နိုင်
+- **Agent ကို တိုက်ရိုက် မပို့** — DB မှာ save ဘဲ၊ "Export" button နှိပ်မှ bash script ထွက်ပြီး VM မှာ manual apply ရသည်
+- Auto-defense မမမိတဲ့ custom case (port policy, protocol block) အတွက် သုံးသည်
+
+**Role:** Human analyst ၏ judgment-based network policy — system မမြင်တဲ့ threat အတွက်
+
+---
+
+#### ④ Admin Block / Unblock (`blocked_ips` table)
+
+- Dashboard Defense Center မှ IP တစ်ခု **ချက်ချင်း block/unblock**
+- POST တစ်ချက်ဖြင့် → VM iptables + pfSense WAN easyrule **နှစ်ခုလုံး execute**
+- Single IP သို့မဟုတ် CIDR (`192.168.10.0/24`) ထည့်နိုင်သည်
+- Dashboard မှ unblock နိုင် + မှတ်တမ်း (`defense_actions`) ရှိ
+
+**Firewall Rule နဲ့ ကွာတာ:**
+
+| | Admin Block/Unblock | Firewall Rule |
+|--|---|---|
+| Agent execute | ချက်ချင်း | Export မှ manual apply |
+| Scope | IP ဘဲ | IP + port + protocol + chain |
+| Unblock | Dashboard မှ တစ်ချက် | `isActive=false` ဘဲ — VM မဖြုတ် |
+| သုံးရတဲ့ ကိစ္စ | "ဒီ IP ကို ယခုချင်း block" | "ဒီ port policy ကို VM မှာ apply" |
+
+---
+
+### 13b. ဘာကြောင့် Suricata IPS မသုံးဘဲ AEGIS Auto-Defense ဆောက်သလဲ
+
+Suricata တွင် mode ၂ မျိုးရှိသည်—
+
+| Mode | ဘာလုပ်သလဲ |
+|---|---|
+| **IDS** (Detection only) | Alert ဘဲ ပြ — block မလုပ် |
+| **IPS** (Inline Prevention) | Traffic ကြားထဲ ထိုင်ပြီး packet DROP |
+
+ဒီ lab တွင် **IDS mode ဘဲ သုံးသည်** — IPS မသုံးတဲ့ အကြောင်းရင်း—
+
+**① Inline mode = network ဖွဲ့စည်းပုံ ပြန်ဆောက်ရ**
+> Suricata IPS က traffic path ထဲ ဝင်ထိုင်ရသည် (NFQUEUE/bridge mode)။ pfSense က gateway ဖြစ်နေတဲ့ topology တွင် IPS inline ထည့်ဖို့ lab ပြန်ဆောက်ရမည် — complexity မလိုအပ်ဘဲ ဖြစ်တယ်။
+
+**② Single VM ဘဲ ကာကွယ်နိုင်**
+> company-web-server မှာ Suricata IPS run ရင် ထို VM ဘဲ ကာကွယ်နိုင်သည်။ company-customer-db, pfSense WAN ကို cross-block မလုပ်နိုင်။
+
+**③ Multi-source correlation မရ**
+> Suricata IPS က Suricata alert ဘဲ ကြည့်သည်။ AEGIS က Suricata + Fail2ban + SSH + Cowrie အားလုံးကို correlate လုပ်ပြီး threshold ပြည့်မှ block — false positive နည်းသည်။
+
+**④ Visibility မရှိ**
+> Suricata IPS က block လုပ်ပြီး ကိစ္စပြတ်သည် — dashboard မှတ်တမ်း မရှိ၊ unblock မရ၊ Telegram မပို့။ AEGIS က block မှတ်တမ်း + Telegram + AI analysis + Dashboard unblock ပါ ရသည်။
+
+**Suricata IPS + Telegram ရောက်မလား?**
+> ရောက်တယ် — Suricata IPS ကလည်း eve.json မှာ record ကျတယ်၊ forwarder က tail လုပ်ပြီး AEGIS ကို POST လုပ်သည်၊ Telegram ရောက်သည်။ **ဒါပေမယ့် — block ဖြစ်ပြီးမှ AEGIS သိသည်**၊ AEGIS auto-defense မှာတော့ detect ချင်း Telegram ပို့ပြီး block command ကို ထုတ်သည်။
+
+---
+
+### 13c. VM + pfSense Cross-block — ဘာကြောင့် နှစ်ခုလုံး လိုသလဲ
+
+**Defense in Depth** — layer တစ်ခု fail ဖြစ်ရင် နောက် layer က cover လုပ်သည်။
+
+```
+pfSense WAN block  →  Network ဝင်ပေါက်မှာ ပိတ် (boundary defense)
+VM iptables block  →  pfSense bypass ဖြစ်ရင် VM ကိုယ်တိုင် ကာကွယ် (host defense)
+```
+
+| Scenario | pfSense WAN block | VM iptables block |
+|---|---|---|
+| External attacker (normal case) | ✅ ထိ | ✅ ထိ |
+| pfSense down/restart | ❌ ကာမကွယ်နိုင် | ✅ ကာကွယ်နိုင် |
+| Internal pivot (compromised VM) | ❌ မထိ | ✅ ထိ |
+
+pfSense WAN block တစ်ခုဘဲ လုပ်ရင် — pfSense ပျက်ချိန် VM တွေ unprotected ဖြစ်မည်။ VM block တစ်ခုဘဲ လုပ်ရင် — attacker က တခြား VM တွေကို pivot လုပ်နိုင်သေးသည်။
+
+**pfSense block scope:** `easyrule block WAN <ip>` သည် **single IP ဘဲ** block သည်။ Network တစ်ခုလုံး block ချင်ရင် CIDR (`192.168.10.0/24`) ထည့်ရသည် — `sanitizeIp()` က CIDR ကို accept လုပ်သည်။
+
+---
+
+### 13d. External vs Insider Threat Coverage
+
+#### External Attacker (Kali — 192.168.10.x)
+
+```
+Kali → Router → pfSense WAN → VM တွေ
+```
+
+- pfSense WAN block → ✅ network ဝင်ပေါက်မှာ ပိတ်
+- VM Suricata/Fail2ban → ✅ detect + block
+- AEGIS auto-defense → ✅ cross-VM + pfSense
+- Telegram → ✅
+- **Coverage: ပြည့်တယ်**
+
+---
+
+#### Insider Threat အမျိုးအစား ၂ မျိုး
+
+**Case 1 — Compromised VM (pivot attack)**
+
+> Kali က company-web-server hack အောင်မြင်သည်။ ယခု company-web-server (10.10.10.10) ကနေ company-customer-db ကို port scan / brute force လုပ်သည်။
+
+```
+company-web-server (10.10.10.10) → company-customer-db တိုက်
+        │
+pfSense မကြည့် (internal traffic) ← pfSense WAN block မထိ
+        │
+company-customer-db Suricata detect (scan/brute force pattern)
+        │
+AEGIS → 10.10.10.10 ကို company-customer-db မှာ cross-block ✅
+Telegram ✅
+```
+
+**pfSense မထိ — VM cross-block ထိ**
+
+---
+
+**Case 2 — လူ insider (Staff)**
+
+> ကုမ္ပဏီ ဝန်ထမ်းက valid credential သုံးပြီး တိုက်သည်။
+
+```
+Staff → valid SSH login → valid MySQL query
+        │
+Suricata မမိ (attack pattern မဟုတ်)
+Fail2ban မမိ (brute force မဟုတ်)
+AEGIS မသိ → block မလုပ်နိုင် ❌
+```
+
+**ဒီ system တစ်ခုလုံး မထိဘူး** — behavior analytics (UEBA / SIEM) မှ ထိမည်
+
+---
+
+#### Coverage Summary
+
+| Threat အမျိုးအစား | pfSense block | VM Cross-block | Telegram |
+|---|---|---|---|
+| External attacker | ✅ | ✅ | ✅ |
+| Compromised VM (pivot) | ❌ | ✅ | ✅ |
+| Staff insider (valid cred) | ❌ | ❌ | ❌ |
+
+> **ဒီ system ၏ primary target = External attacker**
+> Compromised VM pivot = partial coverage (VM cross-block)
+> လူ insider = out of scope — UEBA/SIEM လိုမည်
