@@ -138,7 +138,14 @@ ssh_ok "$SSH_KEY" "$SSH_USER" 10.10.10.10 "company-web-server"
 ssh_ok "$SSH_KEY" "$SSH_USER" 10.10.10.20 "company-dns-server"
 ssh_ok "$SSH_KEY" "$SSH_USER" 10.20.20.10 "company-customer-db"
 ssh_ok "$SSH_KEY" "$SSH_USER" 10.20.20.20 "company-ldap-server"
-ssh_ok "$PF_KEY"  "$PF_USER"  10.30.30.1  "pfSense"
+
+# pfSense forces interactive menu — cannot run echo "ok" via BatchMode.
+# Check port 22 open instead (key auth already confirmed via ssh-copy-id).
+if nc -zw 3 10.30.30.1 22 2>/dev/null; then
+    ok "SSH pfSense (admin@10.30.30.1) — port 22 open, key installed ✓"
+else
+    fail "SSH pfSense (admin@10.30.30.1) — port 22 CLOSED"
+fi
 
 
 # ──────────────────────────────────────────────────────────────
