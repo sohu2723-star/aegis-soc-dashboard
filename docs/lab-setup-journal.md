@@ -664,6 +664,40 @@ ping -c 3 8.8.8.8
 
 ---
 
+## [2026-07-21] — Replit Re-import #2 + Full State Audit
+
+**Status:** ✅ Done
+**What:** GitHub repo ကို Replit မှာ ထပ်မံ import လုပ်ပြီး environment setup + full code audit လုပ်ခဲ့တယ်
+
+**How:**
+1. `pnpm install` — 473 packages from lockfile (no changes needed)
+2. Secrets set via Replit Secrets panel: `SUPABASE_DB_URL`, `AEGIS_INGEST_KEY`, `AEGIS_ADMIN_KEY` (SESSION_SECRET ရှိပြီး)
+3. Full state audit — docs, journal, session log, all code files ဖတ်ပြီး verify
+
+**Verified in-sync (all ✅):**
+- TypeScript: 0 errors (api-server + aegis-dashboard)
+- `signature_text` column — schema + ingest + UI display
+- Breach/Authorized Login classification — events.tsx
+- LDAP conn→IP tracking — `_watch_remote_slapd()`
+- http_access sensor — company-web-server sensors list
+- Cowrie removed — GLOBAL_OBSOLETE_COMPONENTS + forwarder + auto-defense rules ဖယ်ပြီး
+- ModSecurity removed — forwarder http sensor မပါ
+- OBSOLETE_HOST_IPS = [] — LDAP IP (10.20.20.20) bug fixed
+- connectivity checker script — `scripts/src/check_connectivity.sh` ✅
+
+**Workflows:**
+- Start application → ✅ port 5000 (React/Vite)
+- API Server → ✅ port 3000 (Express + Supabase connected)
+
+**Result:** Code + GitHub (f7b4381) fully in-sync. No pending code changes.
+**Next:**
+1. Aegis VM မှာ forwarder update: `wget -O /opt/aegis/scripts/src/aegis_forwarder.py https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/scripts/src/aegis_forwarder.py && sudo systemctl restart aegis-forwarder`
+2. `aegis_forwarder.local.conf` မှာ `DNSSERVER_IP=10.10.10.20` + `LDAPSERVER_IP=10.20.20.20` ထည့် (မထည့်ရသေးဘဲဆိုရင်)
+3. company-dns-server မှာ BIND9 logging config ထည့်
+4. `./scripts/src/check_connectivity.sh` run ပြီး results စစ်
+
+---
+
 ## [2026-07-21] — Replit Re-import + TypeScript Fix
 
 **Status:** ✅ Done  
