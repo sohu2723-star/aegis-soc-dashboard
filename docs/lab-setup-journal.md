@@ -1555,6 +1555,198 @@ INTERNAL `/var/db/suricata/suricata_em220/rules/custom.rules`:
 
 ---
 
+## [2026-07-22] — Repo Cleanup (836MB → 2.4MB)
+
+**Status:** ✅ Done
+**What:** GitHub repo size ကြီးနေတာကြောင့် Replit import fail/နှေးဖြစ်ခဲ့တယ်။ မလိုအပ်တဲ့ files တွေ ဖယ်ရှားပြီး repo size ကို 836MB → 2.4MB ဖြစ်အောင် လုပ်ခဲ့တယ်
+
+**ဖျက်ခဲ့တာ:**
+| Category | Path | Size |
+|---|---|---|
+| Chat screenshots | `attached_assets/` (275 × .jpg) | 834MB |
+| Dead UI component | `artifacts/aegis-dashboard/src/components/ui/drawer.tsx` | 5KB |
+| Empty placeholders | `artifacts/api-server/src/lib/.gitkeep` | — |
+| Empty placeholders | `artifacts/api-server/src/middlewares/.gitkeep` | — |
+
+**`.gitignore` ထည့်:**
+```
+attached_assets/    # chat screenshots — never commit
+```
+
+**Duplicate code analysis:**
+- `requireAuth` (jwt-auth.ts) = JWT Bearer only → dashboard session middleware
+- `maybeAdmin` (ui-rules.ts) = X-AEGIS-Admin-Key **or** JWT → write API — purpose ကွဲတာမို့ duplicate မဟုတ်ဘူး၊ ထိုင်ထားတာ မှန်တယ်
+
+**Result:** 836MB → **2.4MB** ✅, TypeScript 0 errors ✅, workflows running ✅
+
+---
+
+## [2026-07-22] — Lab Connectivity Check (`check_connectivity.sh`)
+
+**Status:** ✅ Script created + run ပြီး
+**What:** Aegis VM မှ lab hosts အားလုံးကို automated connectivity, service, log, DNS, iptables, fail2ban စစ်ဆေးနိုင်ဖို့ script တစ်ခု ရေးခဲ့တယ်
+
+**Script location:** `scripts/src/check_connectivity.sh`
+
+**VM မှာ run နည်း:**
+```bash
+wget -O ~/check_connectivity.sh \
+  https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/scripts/src/check_connectivity.sh
+chmod +x ~/check_connectivity.sh
+~/check_connectivity.sh
+```
+
+**Script စစ်တာ (10 sections):**
+| Section | ဘာစစ်လဲ |
+|---|---|
+| 1. Ping | VM 5 ခု + internet reachability |
+| 2. SSH | Passwordless key auth (aegis_id_rsa) |
+| 3. Port | HTTP/DNS/MySQL/LDAP/pfSense ports |
+| 4. Service | apache2, named, mysql, slapd, fail2ban (systemctl) |
+| 5. Log paths | auth.log, fail2ban.log, named.log, access.log, mysql/error.log, syslog |
+| 6. iptables | Block rules per VM |
+| 7. fail2ban | Banned IPs per VM |
+| 8. DNS | BIND9 zone resolution (bank.local) |
+| 9. Forwarder | aegis-forwarder service status + last 10 journal lines |
+| 10. API | Render healthz HTTP 200 check |
+
+**pfSense SSH fix (script မှာ):**
+pfSense SSH က interactive menu ထဲ force ဝင်တာကြောင့် `BatchMode=yes` + `echo "ok"` method fail ဖြစ်တယ်
+Fix: pfSense section ကို `nc -zw 3 10.30.30.1 22` port check သာ သုံးပြင်ခဲ့တယ်
+
+**pfSense passwordless key setup:**
+Script က `~/.ssh/pfsense_key` သုံးတယ် — `aegis_id_rsa` ကို copy လုပ်ရမည်
+```bash
+cp ~/.ssh/aegis_id_rsa ~/.ssh/pfsense_key
+chmod 600 ~/.ssh/pfsense_key
+```
+
+**Connectivity test ရလဒ် (2026-07-22):**
+| Check | Status | မှတ်ချက် |
+|---|---|---|
+| Ping all VMs | ✅ | အားလုံး reachable |
+| SSH all 4 VMs | ✅ | Passwordless OK |
+| SSH pfSense port 22 | ✅ | Port open, key installed |
+| Port 80 company-web-server | ❌ | UFW blocking |
+| Port 53 company-dns-server | ❌ | named not installed |
+| Port 3306 company-customer-db | ✅ | MySQL running |
+| Port 389 company-ldap-server | ❌ | slapd inactive |
+| Port 443 pfSense WebGUI | ⚠️ | Interface ကွဲနေနိုင် |
+| apache2, mysql, fail2ban | ✅ | |
+| named (BIND9) | ❌ | Not installed → fix below |
+| slapd | ❌ | Inactive → fix below |
+| named.log | ⚠️ | BIND9 logging config မလုပ်ရသေးဘူး |
+| aegis-forwarder | ❌ | Not started (intentional) |
+| AEGIS API healthz | ✅ | HTTP 200 |
+
+---
+
+## [2026-07-22] — BIND9 Install + Logging Setup (company-dns-server)
+
+**Status:** ✅ Done
+**VM:** `company-dns-server` (10.10.10.20)
+**ဘာကြောင့်:** `named.service not found` = BIND9 install မရသေးဘူး
+
+**Install:**
+```bash
+ssh sithu@10.10.10.20
+sudo apt update
+sudo apt install -y bind9 bind9utils bind9-doc
+sudo systemctl start named
+sudo systemctl enable named
+sudo systemctl status named
+```
+
+**Query Logging Setup:**
+```bash
+sudo mkdir -p /var/log/named
+sudo chown bind:bind /var/log/named
+
+sudo tee -a /etc/bind/named.conf.local << 'EOF'
+logging {
+    channel query_log {
+        file "/var/log/named/named.log" versions 3 size 5m;
+        severity dynamic;
+    };
+    category queries  { query_log; };
+    category default  { query_log; };
+};
+EOF
+
+sudo systemctl restart named
+ls -lh /var/log/named/named.log
+```
+
+**Result:** named.log ✅ ပေါ်လာမည်၊ forwarder `_watch_remote_bind9()` မှ SSH ဝင်ပြီး read နိုင်မည်
+**မှတ်ချက်:** `ls lh` (dash မပါ) = syntax error → `ls -lh` လုပ်ရမည်
+
+---
+
+## [2026-07-22] — slapd Install (company-ldap-server)
+
+**Status:** 🔄 In progress
+**VM:** `company-ldap-server` (10.20.20.20)
+**ဘာကြောင့်:** `slapd — inactive` + port 389 CLOSED
+
+**Install + Start:**
+```bash
+ssh sithu@10.20.20.20
+sudo apt update
+sudo apt install -y slapd ldap-utils
+# Install ဆောင်းရင် admin password တောင်းမည် — မှတ်ထားပါ
+sudo systemctl start slapd
+sudo systemctl enable slapd
+sudo systemctl status slapd
+```
+
+**Verify:**
+```bash
+# Aegis VM မှ
+nc -zv 10.20.20.20 389
+```
+
+**Result:** slapd ✅ running ဖြစ်ရင် forwarder `_watch_remote_slapd()` event detect နိုင်မည်
+
+---
+
+## [2026-07-22] — Pending Lab Fixes (VM-side TODO)
+
+**Status:** 🔄 မပြီးသေးတာတွေ
+
+### Fix 1 — company-web-server: UFW port 80 allow
+```bash
+ssh sithu@10.10.10.10
+sudo ufw allow 80/tcp
+sudo ufw status
+```
+
+### Fix 2 — Fail2ban sudo NOPASSWD (VM 4 ခုလုံး)
+Script section 7 မှာ "Fail2ban status unavailable" = `sudo fail2ban-client status` မှာ password တောင်းတာ
+```bash
+# company-web-server, dns-server, customer-db, ldap-server မှာ run
+echo "sithu ALL=(ALL) NOPASSWD: /usr/bin/fail2ban-client" | sudo tee /etc/sudoers.d/aegis-fail2ban
+```
+
+### Fix 3 — local.conf စစ် + ထည့်
+```bash
+# Aegis VM မှာ
+cat /opt/aegis/scripts/src/aegis_forwarder.local.conf
+# ဒီ lines မရှိရင် ထည့်
+echo "DNSSERVER_IP=10.10.10.20" >> /opt/aegis/scripts/src/aegis_forwarder.local.conf
+echo "LDAPSERVER_IP=10.20.20.20" >> /opt/aegis/scripts/src/aegis_forwarder.local.conf
+```
+
+### Fix 4 — Forwarder update + start (Fix 1-3 ပြီးမှ)
+```bash
+wget -O /opt/aegis/scripts/src/aegis_forwarder.py \
+  https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/scripts/src/aegis_forwarder.py
+sudo systemctl start aegis-forwarder
+sudo systemctl enable aegis-forwarder
+journalctl -u aegis-forwarder -f
+```
+
+---
+
 ## [2026-07-20] — Replit Project Import + Environment Setup
 
 **Status:** ✅ Done

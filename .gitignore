@@ -49,3 +49,6 @@ Thumbs.db
 .local/
 scripts/src/defense_agent.local.conf
 scripts/src/aegis_forwarder.local.conf
+
+# Uploaded chat screenshots (never commit these)
+attached_assets/
