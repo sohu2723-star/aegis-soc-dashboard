@@ -168,12 +168,14 @@ router.get("/defense/status", async (req, res) => {
   const hostIps = [...new Set(liveSensorRows.filter(r => r.hostIp).map(r => r.hostIp as string))];
   const perHostSensors = hostIps.map(hostIp => {
     const rows = liveSensorRows.filter(r => r.hostIp === hostIp);
+    const f2bRow = rows.find(r => r.component.toLowerCase().includes("fail2ban"));
+    const surRow = rows.find(r => r.component.toLowerCase().includes("suricata"));
     return {
       hostIp,
       sensors: rows.map(r => ({ component: r.component, status: r.status })),
       // legacy fields kept for device-scoped ServiceCards in the frontend
-      fail2ban: rows.find(r => r.component.toLowerCase().includes("fail2ban"))?.status === "online" ?? null,
-      suricata: rows.find(r => r.component.toLowerCase().includes("suricata"))?.status === "online" ?? null,
+      fail2ban: f2bRow != null ? f2bRow.status === "online" : null,
+      suricata: surRow != null ? surRow.status === "online" : null,
     };
   });
 
