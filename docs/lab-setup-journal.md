@@ -1957,3 +1957,29 @@ _defender_ips = {h["ip"] for h in REMOTE_HOSTS} | {"10.30.30.10", PFSENSE_IP}
 **File:** `scripts/src/aegis_forwarder.py` — `_watch_remote_bind9()`
 **Result:** aegis VM internal DNS queries → dashboard မပေါ်တော့ / Attacker DNS queries → ပေါ်ဆဲ
 **Next:** Aegis VM မှာ `wget` + `systemctl restart aegis-forwarder` — script update လုပ်ရမည်
+
+---
+
+## [2026-07-22] — pfSense Suricata Watcher: FreeBSD tail -F Fix
+
+**Status:** ✅ Done (code) / ⏳ pfSense Suricata install pending
+**What:** pfSense SSH connect → immediately disconnect (15s loop) ဖြစ်နေတာ ဖြေရှင်းခဲ့
+
+**Root Cause:** pfSense runs FreeBSD. GNU/Linux မှာ `tail -F` on missing file → wait/retry. FreeBSD မှာ `tail -F` on missing file → immediately exit with error. Suricata eve.json မရှိသေးတဲ့အတွက် SSH session ချက်ချင်း ပြတ်ပြီး reconnect loop ဖြစ်နေ.
+
+**Fix:** `_watch_pfsense_suricata()` ထဲ remote command ကို sh wait-loop သို့ ပြောင်း:
+```python
+# Before (exits immediately on FreeBSD if file missing):
+f"tail -F {log_path} 2>/dev/null"
+
+# After (waits for file, then tails — SSH session stays alive):
+f"sh -c 'while [ ! -f {log_path} ]; do sleep 5; done; tail -F {log_path} 2>/dev/null'"
+```
+Also bumped ServerAliveInterval 15→30, ServerAliveCountMax 3→6 for long-lived idle SSH.
+
+**Status after fix:** pfSense SSH stays connected (one stable session), waiting silently until Suricata creates eve.json.
+
+**pfSense-side still needed:** Install + configure Suricata on pfSense:
+- Packages → suricata → Install
+- Interfaces: em1.10 (PUBLIC) + em2.20 (INTERNAL) → Enable + ET Open rules
+- After enable, verify: `ls /var/db/suricata/suricata_em110/eve.json`
