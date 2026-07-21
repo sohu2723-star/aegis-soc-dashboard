@@ -1928,3 +1928,32 @@ SESSION_SECRET     ← JWT signing (already set)
 4. "Bank VM IPs" → "Company VM IPs" header rename
 
 **Result:** `local.conf.example` ✅ v4 topology + correct IPs + REMOTE_SSH_KEY — Aegis VM မှာ cp + nano လုပ်ရင် မှားဖို့ ခဲဆင်းတော့မယ်
+
+---
+
+## [2026-07-22] — DNS Watcher: Internal IP Filter Fix
+
+**Status:** ✅ Done
+**What:** Dashboard Telemetry မှာ `10.30.30.10 → company-dns-server [dns_query_refused]` spam ပေါ်နေတာ ဖြေရှင်းခဲ့
+
+**Root Cause:** `_watch_remote_bind9()` မှာ `_defender_ips` filter မပါ — aegis hub VM (10.30.30.10) ကိုယ်တိုင် DNS query လုပ်တဲ့အခါ (health check, internal resolution) BIND9 refused ဖြေပြီး query log ကျ → forwarder က event အဖြစ် POST → dashboard telemetry မှာ ပေါ်နေ
+
+**Fix:** `_watch_remote_bind9()` ထဲ `_defender_ips` set ထည့် (other watchers pattern နဲ့ ညီ):
+```python
+_defender_ips = {h["ip"] for h in REMOTE_HOSTS} | {"10.30.30.10", PFSENSE_IP}
+```
+- `dns_query_refused` → src_ip in _defender_ips ဆိုရင် skip (internal routine query)
+- `dns_zone_transfer` (AXFR/IXFR) → filter မပါ (always suspicious, any source)
+
+**Filter logic:**
+| Source IP | dns_query_refused | dns_zone_transfer |
+|---|---|---|
+| 10.30.30.10 (aegis hub) | ❌ skip | ✅ alert |
+| 10.10.10.10 (company-web-server) | ❌ skip | ✅ alert |
+| 10.30.30.1 (pfSense) | ❌ skip | ✅ alert |
+| 192.168.10.x (Kali attacker) | ✅ alert | ✅ alert |
+| unknown external IP | ✅ alert | ✅ alert |
+
+**File:** `scripts/src/aegis_forwarder.py` — `_watch_remote_bind9()`
+**Result:** aegis VM internal DNS queries → dashboard မပေါ်တော့ / Attacker DNS queries → ပေါ်ဆဲ
+**Next:** Aegis VM မှာ `wget` + `systemctl restart aegis-forwarder` — script update လုပ်ရမည်
