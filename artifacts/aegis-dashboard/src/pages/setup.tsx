@@ -71,8 +71,8 @@ export default function SetupGuide() {
 
               <p className="text-foreground leading-relaxed">
                 AEGIS-SecureCompany is a real-device Red/Blue team cybersecurity lab built in GNS3.
-                The AEGIS VM (10.30.30.10) runs in <strong>hub mode</strong> — it SSHes into company-web-server and
-                company-customer-db to tail their logs and forward all events to the dashboard.
+                The AEGIS VM (10.30.30.10) runs in <strong>hub mode</strong> — it SSHes into all 4 company VMs
+                (company-web-server, company-dns-server, company-customer-db, company-ldap-server) to tail their logs and forward all events to the dashboard.
                 The dashboard at{" "}
                 <code className="bg-muted px-1.5 rounded text-primary mx-1">aegis-soc-dashboard.vercel.app</code>
                 is monitoring-only — all actual attack and defense happens on the GNS3 virtual machines.
@@ -96,10 +96,11 @@ export default function SetupGuide() {
                      ┌─────────────────┼──────────────┐
                 [DMZ Zone]        [INT Zone]      [MGMT Zone]
                      │                │                │
-               [company-web-server]      [company-customer-db]   [aegis-forwarder]
-           10.10.10.10  10.10.10.20  10.20.20.10  10.20.20.20  10.30.30.10
-           Apache       BIND9        MySQL        OpenLDAP     Hub agent
-           ModSecurity  Fail2ban     Fail2ban     Fail2ban     (SSH → VMs)
+       [DMZ Zone]                        [INT Zone]                 [MGMT]
+  [company-web-server] [company-dns-server]  [company-customer-db] [company-ldap-server]  [aegis]
+    10.10.10.10          10.10.10.20            10.20.20.10           10.20.20.20          10.30.30.10
+    Apache               BIND9                  MySQL                 OpenLDAP             Hub agent
+    ModSecurity          Fail2ban               Fail2ban              Fail2ban             (SSH → VMs)
 
 aegis-forwarder (hub): SSHes into all VMs → tails logs → POST to API`}</pre>
               </div>
@@ -111,7 +112,7 @@ aegis-forwarder (hub): SSHes into all VMs → tails logs → POST to API`}</pre>
                 </div>
                 <div className="bg-cyan-950/30 border border-cyan-500/30 rounded p-3">
                   <p className="font-bold text-cyan-400 mb-1">🛡 Company VMs</p>
-                  <p className="text-muted-foreground text-xs">company-web-server, company-customer-db — Suricata, Fail2ban, service logs</p>
+                  <p className="text-muted-foreground text-xs">company-web-server, company-dns-server, company-customer-db, company-ldap-server — Fail2ban, service logs</p>
                 </div>
                 <div className="bg-green-950/30 border border-green-500/30 rounded p-3">
                   <p className="font-bold text-green-400 mb-1">⊕ pfSense + R1</p>
@@ -263,7 +264,7 @@ sudo ip route add 10.0.0.0/8 via 192.168.10.1`} />
                 4. AEGIS VM Hub Setup (10.30.30.10)
               </h2>
               <p className="text-foreground leading-relaxed">
-                The AEGIS VM is the central hub. It SSHes into company-web-server and company-customer-db to tail their logs,
+                The AEGIS VM is the central hub. It SSHes into all 4 company VMs (company-web-server, company-dns-server, company-customer-db, company-ldap-server) to tail their logs,
                 then forwards all events to the Render API. Only this VM needs outbound HTTPS to the internet.
               </p>
 
@@ -299,7 +300,7 @@ COMPANY_DB_SSH_USER=sithu
 PFSENSE_IP=10.30.30.1
 PFSENSE_API_KEY=your-pfsense-api-key-here`} />
 
-              <CodeBlock language="bash" code={`# 4. Setup SSH key auth (AEGIS VM → company-web-server, company-customer-db)
+              <CodeBlock language="bash" code={`# 4. Setup SSH key auth (AEGIS VM → all 4 company VMs)
 ssh-keygen -t ed25519 -f ~/.ssh/aegis_hub -N ""
 ssh-copy-id -i ~/.ssh/aegis_hub.pub sithu@10.10.10.10
 ssh-copy-id -i ~/.ssh/aegis_hub.pub sithu@10.10.10.20
@@ -444,7 +445,7 @@ ssh sithu@10.20.20.20 "sudo systemctl status slapd"`} />
               <div className="bg-muted/20 border border-border rounded p-4">
                 <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2">Data Flow</p>
                 <pre className="text-xs font-mono text-primary/80 leading-relaxed">{`Attacker (any IP)
-    │  network traffic → R1 → pfSense → company-web-server / company-customer-db
+    │  network traffic → R1 → pfSense → company-web-server / company-dns-server / company-customer-db / company-ldap-server
     ▼
 Suricata / Fail2ban / SSH auth detects
     │

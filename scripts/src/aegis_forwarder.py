@@ -516,7 +516,7 @@ def _dispatch_defense(cmd: dict):
 
 
 def _exec_defense_ssh_remote(target_ip: str, command: str, cmd_id: int):
-    """SSH into a company VM (company-web-server / company-customer-db) and run an iptables command.
+    """SSH into a company VM (company-web-server / company-dns-server / company-customer-db / company-ldap-server) and run an iptables command.
     If the command is an iptables INPUT block, also kill any existing SSH sessions
     from that attacker IP so the block takes effect immediately.
     """
@@ -620,7 +620,7 @@ def defense_agent_loop(hub_mode: bool = False):
     """
     Poll for pending defense commands and execute them. Runs forever.
 
-    In hub_mode: polls for ALL hub VMs (aegis, pfsense, company-web-server, company-customer-db)
+    In hub_mode: polls for ALL hub VMs (aegis, pfsense, company-web-server, company-dns-server, company-customer-db, company-ldap-server)
     and routes each command to the right executor.
     In normal mode: polls only for VM_NAME and runs commands locally.
     """
@@ -739,7 +739,7 @@ def heartbeat_loop():
 
 def send_offline():
     """Send offline status immediately when script shuts down.
-    In hub mode: also marks all remote hosts (company-web-server, company-customer-db) offline
+    In hub mode: also marks all remote hosts (company-web-server, company-dns-server, company-customer-db, company-ldap-server) offline
     so the dashboard reflects the real state immediately, rather than waiting
     for the 45s heartbeat timeout.
     """
@@ -1582,10 +1582,10 @@ def _remote_heartbeat_loop(hosts: list):
 
 def _remote_service_health_loop(hosts: list):
     """SSH into each company VM every 30s and report real service health to AEGIS.
-    Each host uses its own health_services list so company-web-server and company-customer-db
-    get the right set of checks (no postgresql on company-web-server, no apache2 on company-customer-db).
+    Each host uses its own health_services list so all 4 company VMs
+    get the right checks (apache2 only on company-web-server, bind9 only on company-dns-server, mysql only on company-customer-db, slapd only on company-ldap-server).
     """
-    print("[REMOTE SERVICE HEALTH] Monitoring company-web-server & company-customer-db every 30s via SSH")
+    print("[REMOTE SERVICE HEALTH] Monitoring all 4 company VMs every 30s via SSH")
     for h in hosts:
         svcs = [s[0] for s in h.get("health_services", [])]
         print(f"[REMOTE SERVICE HEALTH]   {h['name']}: {', '.join(svcs)}")
@@ -1794,7 +1794,7 @@ if __name__ == "__main__":
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Modes:
-  hub     Run on the AEGIS VM (10.30.30.10): SSHes into company-web-server + company-customer-db to
+  hub     Run on the AEGIS VM (10.30.30.10): SSHes into all 4 company VMs to
           tail their logs, SSHes into pfSense to run easyrule/pfctl commands, and
           runs the defense agent for ALL VMs.  One script, one machine, everything.
   all     Run all local sensors on THIS machine (normal forwarder mode).
@@ -1826,7 +1826,7 @@ Modes:
 ║            AEGIS Forwarder — Blue Team v3                        ║
 ╚══════════════════════════════════════════════════════════════════╝
   Target  : {AEGIS_URL}
-  Mode    : {args.mode}{"  ← hub: covers company-web-server, company-customer-db, pfSense" if _is_hub else ""}
+  Mode    : {args.mode}{"  ← hub: covers company-web-server, company-dns-server, company-customer-db, company-ldap-server, pfSense" if _is_hub else ""}
   VM_NAME : {VM_NAME}
 """)
 

@@ -54,7 +54,7 @@ router.post("/defense/block", async (req, res) => {
   // defense_agent.py / aegis_forwarder.py claims these via GET /defense/commands/pending.
   try {
     const safeIp = sanitizeIp(body.data.ip);
-    // All VMs: iptables — targetVm="all" broadcasts to Aegis + company-web-server + company-customer-db via SSH
+    // All VMs: iptables — targetVm="all" broadcasts to all 4 company VMs + aegis via SSH
     await db.insert(defenseCommandsTable).values({
       targetVm:    "all",
       commandType: "iptables",
