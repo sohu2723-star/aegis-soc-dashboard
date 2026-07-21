@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Server, Activity, AlertTriangle, CheckCircle, HelpCircle, Network, HardDrive, Shield } from "lucide-react";
 import { format } from "date-fns";
 import { useDeviceContext } from "@/lib/device-context";
+import { HostLabel } from "@/lib/host-utils";
 
 export default function SystemStatus() {
   const { selectedIp, selectedDevice } = useDeviceContext();
@@ -135,7 +136,7 @@ export default function SystemStatus() {
                       <div key={hostIp} className="space-y-2">
                         <div className="flex items-center gap-2 text-xs text-muted-foreground/70 font-mono uppercase tracking-wider">
                           <div className="w-2 h-2 rounded-full bg-cyan-400/50" />
-                          Host: {hostIp}
+                          <HostLabel ip={hostIp} showIp={true} />
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pl-4 border-l border-cyan-400/20">
                           {hostSystems.map(sys => <SystemCard key={sys.id} sys={sys} getStatusIcon={getStatusIcon} />)}

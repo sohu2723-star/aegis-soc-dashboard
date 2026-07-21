@@ -12,11 +12,24 @@
 
 import { useDeviceContext, type NetworkHost } from "@/lib/device-context";
 
-// ─── Static fallback — intentionally empty ───────────────────────────────────
-// IPs are fully dynamic: defender VMs register via forwarder heartbeat,
-// attacker IPs come from live log events. No hardcoded IP→label mappings.
-// The live network_hosts DB (priority 1 below) is the only source of truth.
-const STATIC_LABELS: Record<string, { label: string; role: "defender" | "attacker" | "infra" }> = {};
+// ─── Static fallback — known lab IPs ─────────────────────────────────────────
+// These allow hostname display even before VMs register via forwarder heartbeat.
+// Live network_hosts DB (priority 1) still overrides when VMs are online.
+const STATIC_LABELS: Record<string, { label: string; role: "defender" | "attacker" | "infra" }> = {
+  // ── Company VMs ──────────────────────────────────────────────────────────
+  "10.10.10.10": { label: "company-web-server",  role: "defender" },
+  "10.10.10.20": { label: "company-dns-server",  role: "defender" },
+  "10.20.20.10": { label: "company-customer-db", role: "defender" },
+  "10.20.20.20": { label: "company-ldap-server", role: "defender" },
+  "10.30.30.10": { label: "aegis-company-admin", role: "defender" },
+  // ── Network infra ─────────────────────────────────────────────────────────
+  "10.30.30.1":  { label: "pfSense",             role: "infra"    },
+  "10.10.10.1":  { label: "pfSense (PUBLIC gw)", role: "infra"    },
+  "10.20.20.1":  { label: "pfSense (INT gw)",    role: "infra"    },
+  "10.0.23.2":   { label: "pfSense (WAN)",        role: "infra"    },
+  "10.0.23.1":   { label: "R1 ether3",            role: "infra"    },
+  "192.168.122.2": { label: "R1 (Internet)",      role: "infra"    },
+};
 
 // ─── Generic labels stored by ingest routes when no real IP known ─────────────
 const GENERIC_LABELS: Record<string, { label: string; role: "defender" | "attacker" | "infra" }> = {
