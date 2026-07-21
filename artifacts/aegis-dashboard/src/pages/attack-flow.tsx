@@ -7,8 +7,8 @@ const VW = 960;
 const VH = 520;
 
 // ── Node definitions — real lab topology (v4 simplified) ─────────────────────
-// Path: Attacker → R1 → pfSense (OVS switches) → company-web-server / dns-server / company-customer-db / ldap-server
-//       → MGMT: aegis-forwarder (10.30.30.10) → AEGIS Dashboard
+// Path: Attacker → R1 → pfSense (OVS switches) → company-web-server / company-dns-server / company-customer-db / company-ldap-server
+//       → MGMT: aegis-company-admin (10.30.30.10) → AEGIS Dashboard
 const NODES = {
   attacker: {
     x: 55,  y: 260,

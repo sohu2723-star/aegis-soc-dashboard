@@ -179,7 +179,7 @@ function HttpTab({ selectedIp }: { selectedIp: string | null }) {
   );
 }
 
-// DB attack types relevant to this lab (company-customer-db PostgreSQL on 10.20.20.20)
+// DB attack types relevant to this lab (company-customer-db MySQL on 10.20.20.10)
 interface DbAttack {
   id: number; sourceIp: string; targetIp: string; port: number | null;
   attackType: string | null; query: string | null; username: string | null;

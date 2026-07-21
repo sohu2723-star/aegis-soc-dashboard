@@ -402,7 +402,7 @@ export default function Defense() {
                 </p>
               </div>
               <p className="text-[10px] text-muted-foreground/60 mt-1 leading-tight">
-                ubuntu iptables · pfSense API · all active rules
+                company VM iptables · pfSense API · all active rules
               </p>
             </div>
           </CardContent>

@@ -1416,7 +1416,7 @@ def _watch_remote_http_access(host_name: str, host_ip: str):
 
 
 def _watch_remote_postgresql(host_name: str, host_ip: str):
-    """Tail PostgreSQL log on customer-db via SSH and forward auth failures and SQL errors."""
+    """Tail PostgreSQL log on company-customer-db via SSH and forward auth failures and SQL errors."""
     # Default pg log location on Ubuntu (may vary by version)
     log_path = "/var/log/postgresql/postgresql-*.log"
     # Use tail -F with glob expansion via bash
@@ -1478,7 +1478,7 @@ def _watch_remote_postgresql(host_name: str, host_ip: str):
 
 
 def _watch_remote_mysql(host_name: str, host_ip: str):
-    """Tail MySQL error log on customer-db via SSH and forward auth failures."""
+    """Tail MySQL error log on company-customer-db via SSH and forward auth failures."""
     log_path = "/var/log/mysql/error.log"
     _defender_ips = {h["ip"] for h in REMOTE_HOSTS} | {"10.30.30.10"}
     print(f"[{host_name}] mysql thread started")
@@ -1678,8 +1678,8 @@ def run_hub_mode():
       fail2ban   — /var/log/fail2ban.log
       ssh        — /var/log/auth.log
       http       — /var/log/apache2/modsec_audit.log  (company-web-server)
-      mysql      — /var/log/mysql/error.log            (customer-db)
-      postgresql — /var/log/postgresql/*.log           (customer-db, if used)
+      mysql      — /var/log/mysql/error.log            (company-customer-db)
+      postgresql — /var/log/postgresql/*.log           (company-customer-db, if used)
       bind9      — /var/log/named/                     (dns-server)
       slapd      — /var/log/syslog (filtered)          (ldap-server)
 

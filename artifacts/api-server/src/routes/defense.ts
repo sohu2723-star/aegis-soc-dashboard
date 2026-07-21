@@ -201,7 +201,7 @@ router.patch("/defense/settings", async (req, res) => {
   let cancelledCommands = 0;
   if (!body.data.autoDefenseEnabled) {
     // Cancel ALL pending defense commands that were queued by the auto-defense
-    // engine (ubuntu iptables + pfSense API).  Commands that were already
+    // engine (company VM iptables + pfSense API).  Commands that were already
     // claimed by a VM agent (status "running" or "done") are not touched —
     // those cannot be recalled, and the VM agent will execute or skip them
     // based on its own state.  Only "pending" (not yet claimed) commands are

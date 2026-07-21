@@ -171,13 +171,13 @@ router.patch("/network/hosts/:id/offline", async (req, res) => {
   const [updated] = await db.select().from(networkHostsTable).where(eq(networkHostsTable.id, id));
   if (!updated) { res.status(404).json({ error: "Not found" }); return; }
 
-  // Queue iptables block on the Ubuntu VM so attacks actually can't get through
+  // Queue iptables block on all company VMs so attacks actually can't get through
   try {
     const safeIp = sanitizeIp(updated.ip);
     const blockCmd = `iptables -I INPUT -s ${safeIp} -j DROP && iptables -I OUTPUT -d ${safeIp} -j DROP && iptables -I FORWARD -s ${safeIp} -j DROP`;
     const undoCmd  = `iptables -D INPUT -s ${safeIp} -j DROP; iptables -D OUTPUT -d ${safeIp} -j DROP; iptables -D FORWARD -s ${safeIp} -j DROP`;
     await db.insert(defenseCommandsTable).values({
-      targetVm:    "ubuntu",
+      targetVm:    "all",
       commandType: "network_isolate",
       commandText: blockCmd,
       undoCommand:  undoCmd,
@@ -206,12 +206,12 @@ router.patch("/network/hosts/:id/online", async (req, res) => {
   const [updated] = await db.select().from(networkHostsTable).where(eq(networkHostsTable.id, id));
   if (!updated) { res.status(404).json({ error: "Not found" }); return; }
 
-  // Queue iptables unblock on the Ubuntu VM
+  // Queue iptables unblock on all company VMs
   try {
     const safeIp = sanitizeIp(updated.ip);
     const unblockCmd = `iptables -D INPUT -s ${safeIp} -j DROP; iptables -D OUTPUT -d ${safeIp} -j DROP; iptables -D FORWARD -s ${safeIp} -j DROP`;
     await db.insert(defenseCommandsTable).values({
-      targetVm:    "ubuntu",
+      targetVm:    "all",
       commandType: "network_restore",
       commandText: unblockCmd,
       undoCommand:  `iptables -I INPUT -s ${safeIp} -j DROP && iptables -I OUTPUT -d ${safeIp} -j DROP && iptables -I FORWARD -s ${safeIp} -j DROP`,

@@ -542,10 +542,10 @@ TELEGRAM_CHAT_ID=your-chat-id       # your Telegram user/group ID`} />
                 <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2">Defense Agent Flow</p>
                 <pre className="text-xs font-mono text-primary/80 leading-relaxed">{`Attack detected → API auto-defense rule fires
     │
-    INSERT defense_commands {status: "pending", target_vm: "ubuntu"}
+    INSERT defense_commands {status: "pending", target_vm: "company-web-server"}
     │
 aegis_forwarder.py (hub) defense_agent_loop — polls every 5s
-    ├── iptables -I INPUT -s <ATTACKER_IP> -j DROP    (ubuntu)
+    ├── iptables -I INPUT -s <ATTACKER_IP> -j DROP    (company VM via SSH)
     └── pfSense REST API block_ip                     (pfsense)
     │
     PATCH /api/defense/commands/:id/result

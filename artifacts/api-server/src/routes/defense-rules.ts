@@ -34,7 +34,7 @@ router.post("/defense/rules", requireAdmin, async (req, res) => {
       "dns_block","waf_rule","pfsense_block","pfsense_port_block","alert_only",
     ]),
     actionParams:      z.string().optional(),
-    targetVm:          z.enum(["company-web-server","company-customer-db","aegis","pfsense","all"]).default("company-web-server"),
+    targetVm:          z.enum(["company-web-server","company-customer-db","company-dns-server","company-ldap-server","aegis","pfsense","all"]).default("company-web-server"),
     priority:          z.number().int().min(1).max(9999).default(100),
   });
 
@@ -72,7 +72,7 @@ router.patch("/defense/rules/:id", requireAdmin, async (req, res) => {
     actionType:        z.enum(["auto","suggest"]).optional(),
     defenseType:       z.string().optional(),
     actionParams:      z.string().optional(),
-    targetVm:          z.enum(["company-web-server","company-customer-db","aegis","pfsense","all"]).optional(),
+    targetVm:          z.enum(["company-web-server","company-customer-db","company-dns-server","company-ldap-server","aegis","pfsense","all"]).optional(),
   });
 
   const body = schema.safeParse(req.body);
@@ -95,7 +95,7 @@ router.delete("/defense/rules/:id", requireAdmin, async (req, res) => {
 // This avoids the read-then-update race where two pollers fetch the same row.
 
 router.get("/defense/commands/pending", requireAdmin, async (req, res) => {
-  const vm = (req.query.vm as string) ?? "ubuntu";
+  const vm = (req.query.vm as string) ?? "company-web-server";
 
   // Atomic claim via SQL: update status to 'sent' for up to 20 pending rows for this vm
   // PostgreSQL does not support UPDATE...LIMIT — use a subquery instead

@@ -65,11 +65,13 @@ function Ts({ v }: { v: string }) {
 
 // ─── VM name badge ─────────────────────────────────────────────────────────────
 const VM_META: Record<string, { label: string; ip?: string; color: string }> = {
-  "company-web-server":    { label: "company-web-server",    ip: "10.10.10.10",  color: "border-cyan-500/50 text-cyan-300" },
-  "company-customer-db": { label: "company-customer-db", ip: "10.20.20.20",  color: "border-purple-500/50 text-purple-300" },
-  "aegis":       { label: "aegis",       ip: "10.30.30.10",  color: "border-green-500/50 text-green-300" },
-  "pfsense":     { label: "pfSense",                         color: "border-orange-500/50 text-orange-300" },
-  "all":         { label: "all VMs",                         color: "border-yellow-500/50 text-yellow-300" },
+  "company-web-server":  { label: "company-web-server",  ip: "10.10.10.10",  color: "border-cyan-500/50 text-cyan-300" },
+  "company-customer-db": { label: "company-customer-db", ip: "10.20.20.10",  color: "border-purple-500/50 text-purple-300" },
+  "company-dns-server":  { label: "company-dns-server",  ip: "10.10.10.20",  color: "border-blue-500/50 text-blue-300" },
+  "company-ldap-server": { label: "company-ldap-server", ip: "10.20.20.20",  color: "border-violet-500/50 text-violet-300" },
+  "aegis":               { label: "aegis-company-admin", ip: "10.30.30.10",  color: "border-green-500/50 text-green-300" },
+  "pfsense":             { label: "pfSense",                                  color: "border-orange-500/50 text-orange-300" },
+  "all":                 { label: "all VMs",                                  color: "border-yellow-500/50 text-yellow-300" },
 };
 
 function VmBadge({ vm }: { vm: string }) {
@@ -285,8 +287,10 @@ function RulesTab() {
                     <SelectTrigger className="bg-background border-border text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="company-web-server">company-web-server (10.10.10.10)</SelectItem>
-                      <SelectItem value="company-customer-db">company-customer-db (10.20.20.20)</SelectItem>
-                      <SelectItem value="aegis">aegis (10.30.30.10)</SelectItem>
+                      <SelectItem value="company-dns-server">company-dns-server (10.10.10.20)</SelectItem>
+                      <SelectItem value="company-customer-db">company-customer-db (10.20.20.10)</SelectItem>
+                      <SelectItem value="company-ldap-server">company-ldap-server (10.20.20.20)</SelectItem>
+                      <SelectItem value="aegis">aegis-company-admin (10.30.30.10)</SelectItem>
                       <SelectItem value="pfsense">pfsense (WAN firewall — SSH)</SelectItem>
                       <SelectItem value="all">all (every VM)</SelectItem>
                     </SelectContent>

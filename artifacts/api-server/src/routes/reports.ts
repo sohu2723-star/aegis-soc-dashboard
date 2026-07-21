@@ -84,7 +84,7 @@ Defense အခြေအနေ (Defense Status):
 
       summary = await askGroq({
         system: `သင်သည် AEGIS-AI SOC analyst ဖြစ်သည်။ Professional security report ကို မြန်မာဘာသာ (Burmese) ဖြင့် ရေးပါ — technical terms နှင့် IP address သာ English သုံးပါ။ Markdown # headers မသုံးပါနှင့်။
-Lab: company-web-server 10.10.10.10 (DMZ), company-customer-db 10.20.20.20 (Internal), AEGIS VM 10.30.30.10 (MGMT), pfSense 10.30.30.1 (Firewall).
+Lab: company-web-server 10.10.10.10 (DMZ), company-dns-server 10.10.10.20 (DMZ), company-customer-db 10.20.20.10 (Internal), company-ldap-server 10.20.20.20 (Internal), aegis-company-admin 10.30.30.10 (MGMT), pfSense 10.30.30.1 (Firewall).
 STRICT RULES: (1) IP address နှင့် number အားလုံး English digits သာ — မြန်မာဂဏန်း လုံးဝ မသုံးရ။ (2) Response ကို sentence အလယ်မှာ မဖြတ်ရ — sections အားလုံး ပြည့်ပြည့်စုံစုံ ပြောပြီးမှ ဆုံးရမည်။ (3) Attacker သည် မည်သည့် IP မဆို ဖြစ်နိုင်သည် — IP range ကို မယူဆပါနှင့်။`,
         user: aiPrompt,
         maxTokens: 2500,
