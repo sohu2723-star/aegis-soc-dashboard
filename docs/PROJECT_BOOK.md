@@ -1862,3 +1862,208 @@ mysql -h db.goldenmyanmar.trading.com -u gmuser -pgm1234 goldenmyanmardb \
 dig @10.10.10.20 goldenmyanmar.trading.com AXFR
 # "Transfer failed" ထွက်ရမည် (BIND9 ACL မပါရင် all records expose — security risk)
 ```
+
+---
+
+## အခန်း 16 — pfSense Suricata: Broken Symlink & Auto-Discovery (2026-07-22)
+
+### 16a. ပြဿနာ — `/var/log/suricata/eve.json` Broken Symlink
+
+**Background (Section 15b မှ ဆက်):**
+Section 15b မှာ correct log path = `/var/log/suricata/eve.json` ဟု သတ်မှတ်ခဲ့သည်။ ဒါပေမဲ့ Suricata restart ပြီးနောက် ပြဿနာ ပြန်ဖြစ်လာ — connectivity script `MISSING` report ဆက်ပြ နေ။
+
+**pfSense Diagnostics → Command Prompt ၌ စစ်ဆေးချက်:**
+
+```sh
+# eve.json ရှာ (symlink မဟုတ်တဲ့ real file)
+find /var/log/suricata/ -name "eve.json" 2>/dev/null
+```
+
+Output:
+```
+/var/log/suricata/suricata_em2.2062963/eve.json
+/var/log/suricata/eve.json                          ← symlink (broken!)
+/var/log/suricata/suricata_em1.1042709/eve.json
+```
+
+```sh
+ls -la /var/log/suricata/
+```
+
+Output:
+```
+lrwxr-xr-x  eve.json -> /var/log/suricata/suricata_em011157/eve.json   ← မရှိ!
+drwxr-xr-x  suricata_em1.1042709/    ← real log dir
+drwxr-xr-x  suricata_em2.2062963/    ← real log dir
+```
+
+**Root Cause:**
+pfSense Suricata သည် log directory ကို `suricata_<interface>.<PID>/` format နဲ့ ဖန်တီးသည်။ PID = Process ID ဖြစ်ပြီး **Suricata restart တိုင်း ပြောင်းသည်**။
+
+```
+Suricata start → PID 1042709 → /var/log/suricata/suricata_em1.1042709/eve.json
+Suricata restart → PID 2063481 → /var/log/suricata/suricata_em1.2063481/eve.json  (ဟောင်း dir မရှိ)
+```
+
+Root-level symlink `/var/log/suricata/eve.json` သည် ဟောင်း PID directory ကို ညွှန်နေ → broken symlink ဖြစ်နေ။
+
+**Key Concepts:**
+
+| Term | ရှင်းလင်းချက် |
+|---|---|
+| Symlink (Soft Link) | တစ်ဖိုင်က အခြားဖိုင်တစ်ခုကို ညွှန်ပြ shortcut — `ls -la` မှာ `->` နဲ့ ပြ |
+| Broken Symlink | ညွှန်ပြတဲ့ target ဖိုင် မရှိတော့ → `[ -f symlink ]` = false; `find -type f` ကလည်း မတွေ့ |
+| PID (Process ID) | OS မှ process တစ်ခုကို assign တဲ့ unique number — restart ရင် ပြောင်း |
+| `-type f` in find | real file (symlink မဟုတ်) ကိုသာ ရှာ — broken symlink ကို exclude လုပ်မည် |
+
+---
+
+### 16b. Fix — Auto-Discovery Logic (`aegis_forwarder.py`)
+
+**Concept:** Hardcoded path သုံးမည့်အစား SSH ကတဆင့် pfSense မှာ real file ကို dynamic ရှာမည်။
+
+**Code change (`_watch_pfsense_suricata()` function):**
+
+```python
+# ── ဟောင်း (broken symlink ကို check) ──────────────────────────
+remote_cmd = (
+    f"sh -c 'while [ ! -f {log_path} ]; do sleep 5; done; tail -F {log_path} 2>/dev/null'"
+)
+# ပြဿနာ: [ ! -f /var/log/suricata/eve.json ] → broken symlink → always True → infinite wait
+
+# ── သစ် (auto-discover real file) ─────────────────────────────
+remote_cmd = (
+    "sh -c '"
+    f"P={log_path}; "
+    # Step 1: configured path real file မဟုတ်ရင် find နဲ့ ရှာ
+    "[ -f \"$P\" ] || "
+    "  P=$(find /var/log/suricata/ -maxdepth 2 -name eve.json -type f 2>/dev/null | sort | head -1); "
+    # Step 2: မတွေ့သေးရင် 5s wait loop (Suricata မ start ရသေး)
+    "while [ -z \"$P\" ] || [ ! -f \"$P\" ]; do "
+    "  sleep 5; "
+    "  P=$(find /var/log/suricata/ -maxdepth 2 -name eve.json -type f 2>/dev/null | sort | head -1); "
+    "done; "
+    # Step 3: တွေ့ပြီဆိုရင် tail
+    "tail -F \"$P\" 2>/dev/null"
+    "'"
+)
+```
+
+**Logic Flow:**
+```
+forwarder start
+    │
+    ▼
+SSH pfSense → test -f /var/log/suricata/eve.json
+    │
+    ├─ real file ဆိုရင် → tail -F (ချက်ချင်း)
+    │
+    └─ broken/missing ဆိုရင် →
+          find /var/log/suricata/ -maxdepth 2 -name eve.json -type f
+              │
+              ├─ path တွေ့ → tail -F <found_path>
+              │
+              └─ မတွေ့ → sleep 5 → ပြန် find (Suricata start ချိန် wait)
+
+Suricata restart → PID ပြောင်း → old path ပြတ် → tail exit → SSH disconnect
+    → forwarder reconnect 15s → auto-discover new PID path → tail ပြန်စ
+```
+
+**ဘာကြောင့် `sort | head -1` သုံးတာလဲ:**
+`find` result order မသေချာ (filesystem order)။ `sort` ထည့်ရင် `suricata_em1.*/eve.json` ကို ဦးစွာ ရ — em1 = pfSense LAN interface (lab traffic အားလုံး ဖြတ်သန်းတဲ့ interface)။
+
+---
+
+### 16c. Fix — `check_connectivity.sh` Suricata Check
+
+**ဟောင်း logic:**
+```bash
+# Broken symlink စစ် → always MISSING report
+if [ -f /var/log/suricata/eve.json ]; then
+    ls -lh /var/log/suricata/eve.json
+else
+    echo FILE_MISSING
+fi
+```
+
+**သစ် logic:**
+```bash
+# Real file find → PID-based subdir တွေ စစ်
+FOUND=$(find /var/log/suricata/ -maxdepth 2 -name eve.json -type f 2>/dev/null | sort)
+if [ -n "$FOUND" ]; then
+    echo "$FOUND" | while read p; do ls -lh "$p"; done   # ✅ FOUND
+else
+    echo FILE_MISSING   # Suricata မ start ရသေး
+fi
+```
+
+**Output comparison:**
+
+| Scenario | ဟောင်း | သစ် |
+|---|---|---|
+| Symlink broken, real file ရှိ | ⚠ MISSING (wrong!) | ✅ FOUND + ls details |
+| Suricata မ start ရသေး | ⚠ MISSING | ⚠ MISSING (correct) |
+| Symlink OK, real file ရှိ | ✅ FOUND | ✅ FOUND |
+
+---
+
+### 16d. Concept — `systemctl restart` vs `pkill`
+
+**Question ပေါ်ပြီ:** Forwarder script update ပြီးနောက် `pkill` လုပ်ဖို့ လိုလား?
+
+**Answer: မလို။**
+
+```bash
+# pkill (manual process kill) — မလို
+pkill -f aegis_forwarder.py   # ← ဒါ သပ်သပ် run စရာမလို
+
+# systemctl restart — ဒါတစ်ခုတည်း လုံလောက်
+sudo systemctl restart aegis-forwarder
+```
+
+**ဘာကြောင့်:**
+
+```
+systemctl restart = STOP + START
+    │
+    ├─ Step 1: SIGTERM ပို့ → process ကို graceful shutdown ပေး
+    ├─ Step 2: (response မရရင်) SIGKILL ပို့ → force kill
+    └─ Step 3: Service definition မှ command ယူပြီး fresh start
+```
+
+`pkill` သပ်သပ် run ပြီးနောက် `systemctl start` ထပ်မလုပ်ရင် service မ start ဘူး။ `systemctl restart` ကပဲ kill + start နှစ်ခုလုံး တဖြတ်တည်း လုပ်ပေးတယ်။
+
+**Script update workflow (correct sequence):**
+```bash
+# 1. Latest script download (git pull မသုံးနဲ့ — Ubuntu VM မှာ မအလုပ်လုပ်)
+wget -O /opt/aegis/scripts/src/aegis_forwarder.py \
+  https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/scripts/src/aegis_forwarder.py
+
+# 2. Restart (kill + start တဖြတ်တည်း)
+sudo systemctl restart aegis-forwarder
+
+# 3. Live log ကြည့်
+journalctl -u aegis-forwarder -f
+```
+
+**ဘာကြောင့် `git pull` မသုံးတာလဲ:**
+Ubuntu VM မှာ `/opt/aegis/scripts/src/aegis_forwarder.local.conf` ဟူသော machine-specific config file ရှိသည်။ ထို file သည် `.gitignore` ထဲမှာ ရှိပြီး git repository ၏ တစ်စိတ်တစ်ပိုင်း မဟုတ်။ `git pull` ဆိုတာ repository clone တစ်ခု လိုအပ်ပြီး VM မှာ clone မထားတဲ့ အတွက် `wget` နဲ့ ဖိုင်တစ်ခုချင်း download သည်သာ reliable method ဖြစ်သည်။
+
+---
+
+### 16e. pfSense Suricata — Interface Status Confirmed
+
+**Services → Suricata → Interfaces ရဲ့ status:**
+
+| Interface | Suricata Status | Pattern Match | Blocking Mode | Note |
+|---|---|---|---|---|
+| PUBLIC (em1.10) | ✅ Running | AUTO | DISABLED | DMZ traffic (10.10.10.0/24) |
+| INTERNAL (em2.20) | ✅ Running | AUTO | DISABLED | Internal traffic (10.20.20.0/24) |
+
+**em1 vs em2 ဘာကွာလဲ:**
+- **em1.10** = pfSense WAN-facing LAN interface — Kali ↔ Company DMZ traffic ဖြတ်
+- **em2.20** = pfSense Internal interface — Kali ↔ Internal DB/LDAP traffic ဖြတ်
+
+နှစ်ခုလုံး monitor လုပ်တာ ကောင်း — Kali က DMZ ကိုပဲ ဆောက်ရင် em1 ကိုယ်မ္မ Internal ကို ဆောက်ရင် em2 ကိုမ်မ IDS alert ရမည်။
+
+**Forwarder auto-discover result:** `sort | head -1` → `suricata_em1.<PID>/eve.json` ကို ဦးစွာ ရ (alphabetical sort: em1 < em2)။ em1 = PUBLIC interface = Kali attacks ဦးဆုံး ဖြတ်သန်းတဲ့ point ဆိုတော့ priority အမြင့်ဆုံး monitoring point ဖြစ်သည်။
