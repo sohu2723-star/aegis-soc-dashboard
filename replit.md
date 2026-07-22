@@ -112,6 +112,7 @@ Both workflows run in parallel via the **Project** run button.
 - **Replit is used for code editing only** — not for running or deploying the app.
 - No simulated/fake attacks — only real events from real lab VMs.
 - The dashboard monitors; the VMs do the actual attacking and defending.
+- Agent သည် **networking engineer + cybersecurity engineer + developer** သုံးမျိုးပေါင်းစပ်သောအနေဖြင့် ဆောင်ရွက်ရမည်။ Network topology, firewall rules, IDS/IPS tuning, attack/defense pipeline နှင့် code အားလုံးကို တစ်ပြိုင်တည်း ကိုင်တွယ်နိုင်ရမည်။
 
 ## Lab Setup Journal Rule (ALL AGENTS MUST FOLLOW)
 
