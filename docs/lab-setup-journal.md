@@ -2431,6 +2431,82 @@ TELEGRAM_CHAT_ID   ← Telegram target chat
 
 ---
 
+## [2026-07-22] — Replit Import #5 + Full Secrets + Workflows Running
+
+**Status:** ✅ Done
+**What:** GitHub repo ကို Replit မှာ ထပ်မံ import ပြီး development environment (dependencies, secrets, workflows) အားလုံး restore လုပ်ခဲ့သည်။ Docs + code full audit လည်း ပြုလုပ်ခဲ့သည်။
+
+**How:**
+```bash
+pnpm install   # 473 packages installed from lockfile (24s)
+```
+
+Secrets set (Replit Secrets panel):
+```
+SUPABASE_DB_URL    ← Supabase pooler URI (port 6543) ✅
+AEGIS_INGEST_KEY   ← VM sensor auth key ✅
+AEGIS_ADMIN_KEY    ← Admin endpoint key ✅
+GROQ_API_KEY       ← Groq AI summaries ✅
+TELEGRAM_BOT_TOKEN ← Alert notifications ✅
+TELEGRAM_CHAT_ID   ← Telegram target chat ✅
+SESSION_SECRET     ← JWT signing (ရှိပြီးသား ✅)
+```
+
+**Full docs + code audit ပြုလုပ်ခဲ့တာ:**
+- replit.md ✅ — rules, stack, architecture, journal rules အားလုံး ဖတ်ပြီး
+- PROJECT_BOOK.md (2069 lines) ✅ — chapters 1–16 concept ရ
+- lab-setup-journal.md (2443 lines) ✅ — sessions 1–7 + 2026-07-22 entries ဖတ်ပြီး
+- SESSION_LOG.md ✅ — complete
+- Memory files ✅ — all topic files reviewed
+
+**Code state verified — all ✅ in sync:**
+| Item | Status |
+|---|---|
+| v4 topology (6 VMs) | ✅ |
+| OBSOLETE_HOST_IPS = [] | ✅ |
+| REMOTE_SSH_KEY + -i flag on all SSH | ✅ |
+| -o IdentityAgent=none on all SSH | ✅ |
+| pfSense Suricata auto-discover (find+sort+head) | ✅ |
+| DNS _refused_ts rate-limit (5/60s) | ✅ |
+| DNS _defender_ips filter | ✅ |
+| Cowrie auto-defense rules (web-server + customer-db) | ✅ |
+| DNS Monitor (10.10.10.20) + LDAP Monitor (10.20.20.20) in system.ts | ✅ |
+| lab/company-web-server/ PHP files | ✅ |
+| lab/dns-server/ BIND9 zone files | ✅ |
+| lab/ldap-server/ setup.ldif | ✅ |
+| aegis_forwarder.local.conf.example IPs correct | ✅ |
+
+**Bug fixed:** `lab/LAB_SETUP_LOG.md` line 101 — stale `CUSTOMERDB_IP=10.20.20.20` → `10.20.20.10` fix. (10.20.20.20 = LDAP-Server; customer-db = 10.20.20.10)
+
+**Workflows running:**
+- **Start application** (port 5000) ✅ — AEGIS login page ပြနေ
+- **API Server** (port 3000) ✅ — `Server listening port: 3000`, Supabase connected, auto-report scheduler started
+- Google SSO — ⚠️ 403 (Replit dev domain not in Google Console authorized origins — expected, use Access Key login in dev)
+
+**Result:** Replit fully live. Code + docs + environment 100% in sync. No pending code changes.
+
+**Next (VM-side tasks — code ပြင်စရာ မလို):**
+1. `aegis-company-admin`: script update
+   ```bash
+   wget -O /opt/aegis/scripts/src/aegis_forwarder.py \
+     https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/scripts/src/aegis_forwarder.py
+   wget -O /opt/aegis/scripts/src/check_connectivity.sh \
+     https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/scripts/src/check_connectivity.sh
+   chmod +x /opt/aegis/scripts/src/check_connectivity.sh
+   sudo systemctl restart aegis-forwarder
+   journalctl -u aegis-forwarder -f
+   ```
+2. `aegis_forwarder.local.conf` စစ်ပါ — `CUSTOMERDB_IP=10.20.20.10` ဖြစ်ရမည် (10.20.20.20 မဟုတ်)၊ `DNSSERVER_IP=10.10.10.20` + `LDAPSERVER_IP=10.20.20.20` ရှိမရှိ စစ်/ထည့်
+3. `company-web-server`: UFW port 80 allow + PHP app deploy
+4. `company-customer-db`: goldenmyanmardb schema setup (`mysql < lab/company-web-server/setup.sql`)
+5. `company-dns-server`: goldenmyanmar.trading.com zone deploy + BIND9 logging config
+6. `company-ldap-server`: slapd configure + `ldapadd setup.ldif`
+7. pfSense SSH keypair: `ssh-keygen -y -f ~/.ssh/pfsense_key | diff - ~/.ssh/pfsense_key.pub` စစ်၊ mismatch ဆိုရင် regenerate + re-push
+8. `./check_connectivity.sh` run ပြီး PASS/FAIL/WARN results စစ်
+9. Kali ကနေ real attack test → dashboard detect + auto-defense + Telegram confirm
+
+---
+
 ### [2026-07-22] — pfSense Suricata eve.json auto-discovery fix
 
 **Status:** ✅ Done  

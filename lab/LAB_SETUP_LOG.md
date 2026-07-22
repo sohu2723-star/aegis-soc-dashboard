@@ -97,8 +97,8 @@ sudo systemctl enable apache2 && sudo systemctl restart apache2
 cd /opt/aegis/scripts/src
 # Update config
 nano aegis_forwarder.local.conf
-# BANKWEB_IP=10.10.10.10
-# CUSTOMERDB_IP=10.20.20.20
+# COMPANYWEB_IP=10.10.10.10
+# CUSTOMERDB_IP=10.20.20.10
 
 sudo systemctl restart aegis-forwarder
 sudo systemctl status aegis-forwarder

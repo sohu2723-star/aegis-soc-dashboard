@@ -1729,7 +1729,7 @@ AEGIS response:
 
 ## အခန်း 15 — Session Notes: Pending Diagnostics (2026-07-22)
 
-> ဤအခန်းသည် 2026-07-22 session ၏ ကျန်ရှိသော pending items များ မှတ်တမ်းတင်ထားသည်။ ပြီးဆုံးသောအခါ lab-setup-journal.md ထဲ ဆက်ရေးမည်။
+> ဤအခန်းသည် 2026-07-22 session ၏ ကျန်ရှိသော pending items များ မှတ်တမ်းတင်ထားသည်။ Code-side items ✅ ပြည့်ပြည့်ဝဝ Done ဖြစ်ပြီ (Replit import #5 audit confirmed). VM-side items ⏳ ကျန်ဆဲ — lab-setup-journal.md ထဲ ကြည့်ပါ။
 
 ---
 
