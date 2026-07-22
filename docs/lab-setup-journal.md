@@ -2368,6 +2368,41 @@ journalctl -u aegis-forwarder -f
 
 ---
 
+## [2026-07-22] — Replit Re-import #4 + Environment Restore
+
+**Status:** ✅ Done
+**What:** GitHub repo ကို Replit မှာ ထပ်မံ import ပြီး development environment restore လုပ်ခဲ့
+
+**How:**
+```bash
+pnpm install   # 473 packages installed from lockfile (10.4s)
+```
+
+**Secrets re-entered (Replit Secrets panel):**
+```
+SUPABASE_DB_URL    ← Supabase pooler URI (port 6543)
+AEGIS_INGEST_KEY   ← VM sensor auth key
+AEGIS_ADMIN_KEY    ← Admin endpoint key
+GROQ_API_KEY       ← Groq AI summaries
+TELEGRAM_BOT_TOKEN ← Alert notifications
+TELEGRAM_CHAT_ID   ← Telegram target chat
+```
+*(SESSION_SECRET ✅ already set from previous session)*
+
+**Result:**
+- **Start application** (port 5000) ✅ Running — AEGIS login page ပြနေ
+- **API Server** (port 3000) ✅ Running — `Server listening`, Supabase connected, auto-report scheduler started
+
+**Code state:** No pending code changes — all fixes from previous sessions ✅ committed to GitHub main
+
+**Next (VM-side tasks, code ပြင်စရာ မလို):**
+1. aegis-company-admin: forwarder + check_connectivity.sh update via `wget`
+2. VM-side pending fixes apply (BIND9 logging, slapd start, UFW port 80, fail2ban sudoers)
+3. Run `./check_connectivity.sh` + review results
+4. Kali ကနေ real attack test → dashboard detect + auto-defense confirm
+
+---
+
 ### [2026-07-22] — pfSense Suricata eve.json auto-discovery fix
 
 **Status:** ✅ Done  
