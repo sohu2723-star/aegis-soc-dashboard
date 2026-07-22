@@ -1554,32 +1554,32 @@ Also: `ServerAliveInterval` 15→30, `ServerAliveCountMax` 3→6
 
 ---
 
-### 15b. ⏳ Pending: pfSense Suricata eve.json Path
+### 15b. ✅ Resolved: pfSense Suricata eve.json Path (2026-07-22)
 
-**Problem:** Suricata IS running (em1.10 + em2.20 interfaces ✅ green), EVE JSON logging ✅ enabled, but `/var/db/suricata/suricata_em110/eve.json` မရှိ
+**Problem was:** Code used `/var/db/suricata/suricata_em110/eve.json` — wrong path
 
-**Diagnosis needed — pfSense Diagnostics → Command Prompt:**
-```sh
-# Actual log directory structure ကြည့်
-ls -la /var/db/suricata/
+**Confirmed via pfSense Diagnostics → Command Prompt:**
 
-# eve.json ဘယ်မှာ ဆိုတာ find
-find /var/db/suricata -type f -name "eve.json" 2>/dev/null
+| Command | Result |
+|---|---|
+| `ls /var/db/suricata/suricata_em110/` | `rules/` folder only — no eve.json |
+| `ps aux \| grep suricata` | Suricata running ✅ on em1.10 + em2.20 |
+| `ls /var/log/suricata/` | **`eve.json` ← here!** |
+| YAML `default-log-dir` | `/var/log/suricata/suricata_em1.1042709/` (dynamic PID) |
 
-# Suricata process running လား (FreeBSD ps syntax)
-ps aux | grep suricata
+**Key lesson:**
+- `/var/db/suricata/` = rules only — logs မဟုတ်
+- `/var/log/suricata/eve.json` = actual combined log (stable path)
+- Instance subdirs (`suricata_em1.1042709/`) ထဲ PID number သည် Suricata restart တိုင်း ပြောင်း
+
+**Code fix applied:**
+```python
+# aegis_forwarder.py — _default_log
+"/var/log/suricata/eve.json"   # correct ✅ (was /var/db/suricata/suricata_em110/eve.json)
 ```
 
-**Possible causes:**
-| Cause | Check |
-|---|---|
-| Directory naming ကွဲ | `suricata_em1_10` vs `suricata_em110` (dot→underscore?) |
-| Suricata start မဖြစ်ရသေး | ps aux → no suricata process |
-| Traffic မ pass မဖြစ်ရသေး | Suricata run ဖြစ်ပြီး traffic မ detect မချင်း file မဖွင့် |
-| Log output type မမှန် | "FILE" မဟုတ်ဘဲ syslog ဖြစ်နေ |
-
-**Code path to update (after finding real path):**
-`scripts/src/aegis_forwarder.py` → `_watch_pfsense_suricata()` → `log_path` variable
+**Files updated:** `aegis_forwarder.py`, `check_connectivity.sh`, `aegis_forwarder.local.conf.example`
+**Pushed:** GitHub main ✅
 
 ---
 

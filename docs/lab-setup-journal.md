@@ -1983,3 +1983,56 @@ Also bumped ServerAliveInterval 15→30, ServerAliveCountMax 3→6 for long-live
 - Packages → suricata → Install
 - Interfaces: em1.10 (PUBLIC) + em2.20 (INTERNAL) → Enable + ET Open rules
 - After enable, verify: `ls /var/db/suricata/suricata_em110/eve.json`
+
+---
+
+## [2026-07-22] — pfSense Suricata eve.json Actual Path Discovered ✅
+
+**Status:** ✅ Path confirmed + code fixed
+**What:** pfSense Suricata EVE JSON log path ကို diagnostics ဖြင့် confirm လုပ်ကာ code update လုပ်ခဲ့
+
+**Diagnosis Commands Run (pfSense Diagnostics → Command Prompt):**
+```sh
+ls -la /var/db/suricata/
+# Result: suricata_em110/ + suricata_em220/ directories exist — rules only, no eve.json
+
+ls -la /var/db/suricata/suricata_em110/
+# Result: only "rules/" subdir — log files မရှိ
+
+ps aux | grep suricata
+# Result: Suricata IS running on both interfaces:
+#   /usr/local/bin/suricata -i em1.10 -D -c /usr/local/etc/suricata/suricata_42709_em1.10/suricata.yaml
+#   /usr/local/bin/suricata -i em2.20 -D -c /usr/local/etc/suricata/suricata_62963_em2.20/suricata.yaml
+
+ls /var/log/suricata/
+# Result: eve.json ← HERE! Plus suricata_em1.1042709/ suricata_em2.2062963/ suricata_rules_update.log
+
+grep -i "eve|filename|log-dir" /usr/local/etc/suricata/suricata_42709_em1.10/suricata.yaml
+# Result: default-log-dir: /var/log/suricata/suricata_em1.1042709 | filename: eve.json
+```
+
+**Root Cause:**
+- `/var/db/suricata/` = rules directory only (NOT logs)
+- Actual logs → `/var/log/suricata/`
+- Instance subdirs (`suricata_em1.1042709/`) include **dynamic PID numbers** — change on every Suricata restart
+- Root-level `/var/log/suricata/eve.json` exists and is stable
+
+**Code Fix (scripts/src/aegis_forwarder.py):**
+```python
+# Before (WRONG path):
+_default_public   = "/var/db/suricata/suricata_em110/eve.json"
+_default_internal = "/var/db/suricata/suricata_em220/eve.json"
+
+# After (correct):
+_default_log = "/var/log/suricata/eve.json"
+# Single thread monitoring root-level combined log
+```
+
+**Also fixed:**
+- `scripts/src/check_connectivity.sh` — Suricata path check updated
+- `scripts/src/aegis_forwarder.local.conf.example` — correct path documented
+
+**Files changed:** `aegis_forwarder.py`, `check_connectivity.sh`, `aegis_forwarder.local.conf.example`
+**Pushed to:** GitHub main ✅
+
+**Next:** Aegis VM `wget` + `systemctl restart aegis-forwarder` → forwarder connects to pfSense and reads live Suricata alerts
