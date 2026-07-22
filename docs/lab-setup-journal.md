@@ -1986,6 +1986,33 @@ Also bumped ServerAliveInterval 15→30, ServerAliveCountMax 3→6 for long-live
 
 ---
 
+## [2026-07-22] — check_connectivity.sh pfSense Suricata Path Fix ✅
+
+**Status:** ✅ Done
+**What:** `check_connectivity.sh` မှာ pfSense Suricata eve.json path ဟောင်းကြောင်း (`/var/db/suricata/`) ကျန်နေတာ fix လုပ်ခဲ့
+
+**Root Cause:** Previous journal entry မှာ "check_connectivity.sh fixed" လို့ ရေးထားပေမဲ့ actual code ထဲမှာ မပြင်ရသေးဘူး — `aegis_forwarder.py` ပဲ fix ခဲ့တာ
+
+**Fix (scripts/src/check_connectivity.sh):**
+```bash
+# Before (WRONG — rules dir, not logs):
+"ls /var/db/suricata/suricata_em110/eve.json /var/db/suricata/suricata_em220/eve.json 2>&1"
+
+# After (correct):
+"ls -lh /var/log/suricata/eve.json 2>&1 && echo OK || echo MISSING"
+```
+
+**Pushed to:** GitHub main ✅
+
+**Next:** Aegis VM မှာ `check_connectivity.sh` ပါ update လုပ်ရမည် (aegis_forwarder.py နဲ့ အတူ):
+```bash
+wget -O /opt/aegis/scripts/src/check_connectivity.sh \
+  https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/scripts/src/check_connectivity.sh
+chmod +x /opt/aegis/scripts/src/check_connectivity.sh
+```
+
+---
+
 ## [2026-07-22] — pfSense Suricata eve.json Actual Path Discovered ✅
 
 **Status:** ✅ Path confirmed + code fixed
