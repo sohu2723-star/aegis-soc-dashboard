@@ -219,9 +219,20 @@ check_log_exists "$SSH_KEY" "$SSH_USER" 10.20.20.20 "/var/log/syslog"           
 # pfSense (SSH via pf key)
 echo ""
 info "pfSense Suricata eve.json paths (SSH check):"
-ssh_cmd "$PF_KEY" "$PF_USER" 10.30.30.1 \
-    "ls -lh /var/log/suricata/eve.json 2>&1 && echo OK || echo MISSING" \
-    | sed 's/^/    /' || warn "Could not check pfSense Suricata paths"
+if [[ ! -f "$PF_KEY" ]]; then
+    warn "pfSense SSH key not found: $PF_KEY"
+    warn "  → Fix: ssh-keygen -t ed25519 -f ~/.ssh/pfsense_key -N ''"
+    warn "  → Then add public key to pfSense: System → User Manager → admin → Authorized Keys"
+elif ! ssh -i "$PF_KEY" -o BatchMode=yes -o StrictHostKeyChecking=no \
+         -o ConnectTimeout=5 "${PF_USER}@10.30.30.1" echo "ok" >/dev/null 2>&1; then
+    warn "pfSense SSH connection failed (10.30.30.1)"
+    warn "  → Check: pfSense System → Advanced → Admin Access → SSH enabled?"
+    warn "  → Check: ~/.ssh/pfsense_key.pub added to pfSense admin Authorized Keys?"
+else
+    ssh_cmd "$PF_KEY" "$PF_USER" 10.30.30.1 \
+        "ls -lh /var/log/suricata/eve.json 2>&1 && echo OK || echo 'MISSING — Suricata not yet running'" \
+        | sed 's/^/    /' || warn "Remote command failed on pfSense"
+fi
 
 
 # ──────────────────────────────────────────────────────────────
@@ -234,9 +245,21 @@ check_iptables "$SSH_KEY" "$SSH_USER" 10.20.20.20 "company-ldap-server"
 
 echo ""
 info "pfSense WAN blocked hosts (easyrule table):"
-ssh_cmd "$PF_KEY" "$PF_USER" 10.30.30.1 \
-    "pfctl -t EasyRuleBlockHosts -T show 2>/dev/null | head -20" \
-    | sed 's/^/    /' || warn "pfctl table empty or not available"
+if [[ ! -f "$PF_KEY" ]]; then
+    warn "pfSense SSH key missing — skipping pfctl check (see above)"
+elif ! ssh -i "$PF_KEY" -o BatchMode=yes -o StrictHostKeyChecking=no \
+         -o ConnectTimeout=5 "${PF_USER}@10.30.30.1" echo "ok" >/dev/null 2>&1; then
+    warn "pfSense SSH connection failed — skipping pfctl check (see above)"
+else
+    result=$(ssh_cmd "$PF_KEY" "$PF_USER" 10.30.30.1 \
+        "pfctl -t EasyRuleBlockHosts -T show 2>/dev/null | head -20" || echo "")
+    if [[ -z "$result" ]]; then
+        ok "pfSense EasyRuleBlockHosts table — empty (no IPs blocked via easyrule)"
+    else
+        info "pfSense blocked IPs:"
+        echo "$result" | sed 's/^/    /'
+    fi
+fi
 
 
 # ──────────────────────────────────────────────────────────────
