@@ -229,17 +229,20 @@ if [[ ! -f "$PF_KEY" ]]; then
 elif ! nc -z -w5 10.30.30.1 22 2>/dev/null; then
     warn "pfSense port 22 unreachable (10.30.30.1) — check ADMINMANAGEMENT firewall rule"
 else
-    # set -e disabled here: ssh_cmd exits non-zero when remote 'ls' fails
-    # (file not found = exit 1), which would kill the whole script otherwise.
+    # Use explicit /bin/sh -c '...' because pfSense admin shell (/etc/rc.initial)
+    # does not interpret shell redirections (2>&1, pipes) — they get passed as
+    # literal arguments to the command instead of being processed by a shell.
+    # We embed the "file exists?" check inside the remote sh command so the
+    # exit code is always 0 on success, and we detect missing file via output.
     set +e
     pf_suricata=$(ssh_cmd "$PF_KEY" "$PF_USER" 10.30.30.1 \
-        "ls -lh /var/log/suricata/eve.json 2>&1")
-    pf_ls_exit=$?
+        "/bin/sh -c 'if [ -f /var/log/suricata/eve.json ]; then ls -lh /var/log/suricata/eve.json; else echo FILE_MISSING; fi'")
+    pf_ssh_exit=$?
     set -e
 
-    if [[ $pf_ls_exit -ne 0 && -z "$pf_suricata" ]]; then
+    if [[ $pf_ssh_exit -ne 0 && -z "$pf_suricata" ]]; then
         warn "pfSense SSH auth failed — check ~/.ssh/pfsense_key.pub matches pfSense admin Authorized Keys"
-    elif echo "$pf_suricata" | grep -qiE "No such file|cannot access|not found"; then
+    elif [[ "$pf_suricata" == *"FILE_MISSING"* ]] || [[ -z "$pf_suricata" ]]; then
         warn "pfSense: /var/log/suricata/eve.json MISSING — Suricata not yet started on pfSense"
         info "  → pfSense: Services → Suricata → Add interface (WAN) → Start"
     else
