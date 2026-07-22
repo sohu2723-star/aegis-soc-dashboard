@@ -1884,11 +1884,32 @@ def run_hub_mode():
         "slapd":       _watch_remote_slapd,
     }
 
+    # ── Key misconfiguration check ────────────────────────────────────────────
+    _remote_key_exp  = os.path.expanduser(REMOTE_SSH_KEY)
+    _pfsense_key_exp = os.path.expanduser(PFSENSE_SSH_KEY)
+    if _remote_key_exp == _pfsense_key_exp:
+        print()
+        print("╔══════════════════════════════════════════════════════════════════╗")
+        print("║  ⚠  SSH KEY MISCONFIGURATION DETECTED — company VMs will FAIL  ║")
+        print("╠══════════════════════════════════════════════════════════════════╣")
+        print(f"║  REMOTE_SSH_KEY  = {REMOTE_SSH_KEY}")
+        print(f"║  PFSENSE_SSH_KEY = {PFSENSE_SSH_KEY}")
+        print("║  Both point to the SAME file — REMOTE_SSH_KEY should use       ║")
+        print("║  ~/.ssh/aegis_id_rsa, not the pfSense key.                     ║")
+        print("║                                                                  ║")
+        print("║  Fix in aegis_forwarder.local.conf:                            ║")
+        print("║    Remove or correct the REMOTE_SSH_KEY line:                  ║")
+        print("║      REMOTE_SSH_KEY=~/.ssh/aegis_id_rsa                        ║")
+        print("║  Then: systemctl restart aegis-forwarder                       ║")
+        print("╚══════════════════════════════════════════════════════════════════╝")
+        print()
+
     print(f"\n  Hub mode — remote hosts ({len(REMOTE_HOSTS)}):")
     for h in REMOTE_HOSTS:
         sensors_str = ", ".join(h.get("sensors", []))
         print(f"    {h['name']:15s} {h['ip']}  sensors=[{sensors_str}]")
         _remote_register_host(h["name"], h["ip"])
+    print(f"  Company VM SSH: {REMOTE_SSH_USER}@<ip> (key: {REMOTE_SSH_KEY})")
     print(f"  pfSense SSH  : {PFSENSE_SSH_USER}@{PFSENSE_IP} (key: {PFSENSE_SSH_KEY})")
     print(f"  Defense VMs  : {HUB_DEFENSE_VMS}")
     print()
@@ -2010,14 +2031,18 @@ Modes:
 
     _is_hub = args.mode in ("hub", "remote")
 
+    _hub_suffix = "  ← hub: covers company-web-server, company-dns-server, company-customer-db, company-ldap-server, pfSense" if _is_hub else ""
     print(f"""
 ╔══════════════════════════════════════════════════════════════════╗
 ║            AEGIS Forwarder — Blue Team v3                        ║
 ╚══════════════════════════════════════════════════════════════════╝
   Target  : {AEGIS_URL}
-  Mode    : {args.mode}{"  ← hub: covers company-web-server, company-dns-server, company-customer-db, company-ldap-server, pfSense" if _is_hub else ""}
-  VM_NAME : {VM_NAME}
-""")
+  Mode    : {args.mode}{_hub_suffix}
+  VM_NAME : {VM_NAME}""")
+    if _is_hub:
+        print(f"  VM key  : {REMOTE_SSH_KEY}  (company VMs — should be ~/.ssh/aegis_id_rsa)")
+        print(f"  PF key  : {PFSENSE_SSH_KEY}  (pfSense only — should be ~/.ssh/pfsense_key)")
+    print()
 
     # Register this AEGIS VM in Network Monitor on startup
     print("  [*] Registering host with AEGIS...")
