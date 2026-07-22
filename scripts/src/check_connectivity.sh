@@ -220,7 +220,7 @@ check_log_exists "$SSH_KEY" "$SSH_USER" 10.20.20.20 "/var/log/syslog"           
 echo ""
 info "pfSense Suricata eve.json paths (SSH check):"
 ssh_cmd "$PF_KEY" "$PF_USER" 10.30.30.1 \
-    "ls /var/db/suricata/suricata_em110/eve.json /var/db/suricata/suricata_em220/eve.json 2>&1" \
+    "ls -lh /var/log/suricata/eve.json 2>&1 && echo OK || echo MISSING" \
     | sed 's/^/    /' || warn "Could not check pfSense Suricata paths"
 
 
