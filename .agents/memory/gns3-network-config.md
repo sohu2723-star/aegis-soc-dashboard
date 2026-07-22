@@ -1,37 +1,57 @@
 ---
 name: GNS3 network config — AEGIS-SecureCompany
-description: Confirmed IP assignments, interface mappings, internet fix, and VM setup notes
+description: Confirmed IP assignments, interface mappings, and VM setup notes for v4 Final topology
 ---
 
-# GNS3 Network Configuration — AEGIS-SecureCompany
+# GNS3 Network Configuration — AEGIS-SecureCompany v4 (Final)
 
-## Current Topology (v3 — 2026-07-19, ဆရာမ ညွှန်ကြားချက်အတိုင်း)
+## Current Topology (v4 Final — 2026-07-20)
 
 ```
-Internet (NAT cloud / virbr0)
+Internet (NAT cloud / virbr0)  192.168.122.0/24
         │ direct cable
 [Router — MikroTik CHR]
-  ether1: 192.168.122.2/24  ← Internet/virbr0 side
-  ether2: 192.168.10.1/24   ← Kali/Attacker side (DHCP server)
-  ether3: 10.0.23.1/30      ← pfSense WAN link
-        │ direct cable
-[Kali]  → Router e1 (direct, no switch) — DHCP 192.168.10.x
-[pfSense WAN] 10.0.23.2/30
-  ├─ BANK_WEB   (e1): 10.10.10.1/24 → Public-Service Switch → company-web-server (10.10.10.10)
-  ├─ CUSTOMER_DB (e2): 10.20.20.1/24 → Internal-Service Switch → company-customer-db (10.20.20.20)
-  └─ MGMT       (e3): 10.30.30.1/24 → aegis-forwarder (10.30.30.10)
+  e0: 192.168.122.2/24  ← Internet/virbr0 side
+  e1: 192.168.10.1/24   ← Kali/Attacker side (DHCP server)
+  e2: 10.0.23.1/30      ← pfSense WAN link
+
+[Kali] → Router e1 (DHCP from pool 192.168.10.2–100)
+
+[pfSense]
+  e0 (WAN):  10.0.23.2/30
+  e1 (DMZ):  10.10.10.1/24  → Public-Services OVS Switch
+  e2 (INT):  10.20.20.1/24  → Internal-Services OVS Switch
+  e3 (MGMT): 10.30.30.1/24  → aegis-company-admin
+
+Public-Services OVS Switch:
+  → company-web-server  10.10.10.10
+  → company-dns-server  10.10.10.20
+
+Internal-Services OVS Switch:
+  → company-customer-db 10.20.20.10
+  → company-ldap-server 10.20.20.20
 ```
 
-## IP Plan
+## IP Plan (v4 Final)
 
-| Segment | Subnet | Devices |
-|---|---|---|
-| Internet (virbr0) | 192.168.122.0/24 | Router ether1: 192.168.122.2 |
-| Attacker network | 192.168.10.0/24 | Router ether2: 192.168.10.1, Kali: DHCP .2–.100 |
-| Router ↔ pfSense WAN | 10.0.23.0/30 | Router ether3: 10.0.23.1, pfSense WAN: 10.0.23.2 |
-| DMZ (BANK_WEB) | 10.10.10.0/24 | pfSense: 10.10.10.1, company-web-server: 10.10.10.10 |
-| Internal (CUSTOMER_DB) | 10.20.20.0/24 | pfSense: 10.20.20.1, company-customer-db: 10.20.20.20 |
-| Management | 10.30.30.0/24 | pfSense: 10.30.30.1, aegis-forwarder: 10.30.30.10 |
+| Node | IP | Role | Services |
+|---|---|---|---|
+| Internet (virbr0) | 192.168.122.1 | NAT Gateway | Host bridge |
+| Router (e0) | 192.168.122.2 | Internet uplink | MikroTik CHR |
+| Router (e1) | 192.168.10.1 | Attacker gateway | DHCP pool .2–.100 |
+| Router (e2) | 10.0.23.1 | pfSense WAN link | — |
+| Kali | 192.168.10.x (DHCP) | Red Team | Attacker |
+| pfSense WAN | 10.0.23.2 | Firewall/router | — |
+| pfSense DMZ gw | 10.10.10.1 | DMZ gateway | Suricata IDS |
+| pfSense INT gw | 10.20.20.1 | Internal gateway | — |
+| pfSense MGMT gw | 10.30.30.1 | Management gateway | — |
+| company-web-server | 10.10.10.10 | Web server | Apache2, PHP, Fail2ban |
+| company-dns-server | 10.10.10.20 | DNS | BIND9, Fail2ban |
+| company-customer-db | 10.20.20.10 | Database | MySQL, Fail2ban |
+| company-ldap-server | 10.20.20.20 | Auth | OpenLDAP, Fail2ban |
+| aegis-company-admin | 10.30.30.10 | Hub agent | aegis_forwarder.py (hub mode) |
+
+**⚠️ Critical:** company-customer-db = 10.20.20.10 (NOT .20). company-ldap-server = 10.20.20.20.
 
 ## Router MikroTik — Full Config
 
@@ -45,7 +65,7 @@ Internet (NAT cloud / virbr0)
 /ip firewall filter add chain=forward action=accept place-before=0
 /ip pool add name=kali-pool ranges=192.168.10.2-192.168.10.100
 /ip dhcp-server add name=kali-dhcp interface=ether2 address-pool=kali-pool disabled=no
-/ip dhcp-server network add address=192.168.10.0/24 gateway=192.168.10.1 company-dns-server=8.8.8.8
+/ip dhcp-server network add address=192.168.10.0/24 gateway=192.168.10.1 dns-server=8.8.8.8
 ```
 
 ## Kali — /etc/network/interfaces
@@ -62,53 +82,40 @@ iface eth0 inet dhcp
 - WAN firewall rule: allow source `192.168.10.0/24`
 - Default gateway: WANGW (10.0.23.1)
 - WAN interface: uncheck "Block private networks" and "Block bogon networks"
+- Suricata package installed; EVE JSON FILE output enabled; logs at `/var/log/suricata/suricata_em<N>.<PID>/eve.json`
 
-## DHCP Troubleshooting
-
-If MikroTik DHCP shows `address-pool: static-only`:
-```routeros
-/ip dhcp-server set 0 address-pool=kali-pool disabled=no
-```
-
-If Kali has no `dhclient`:
-```bash
-sudo apt install isc-dhcp-client -y
-sudo dhclient eth0
-```
-
-## Default Gateways
+## Default Gateways per VM
 
 | Node | Default Gateway |
 |---|---|
 | Router | 192.168.122.1 (virbr0 host bridge) |
-| Kali | 192.168.10.1 (Router ether2) |
+| Kali | 192.168.10.1 (Router ether1) |
 | pfSense | 10.0.23.1 (WANGW) |
-| company-web-server | 10.10.10.1 (pfSense BANK_WEB) |
-| company-customer-db | 10.20.20.1 (pfSense CUSTOMER_DB) |
-| aegis-forwarder | 10.30.30.1 (pfSense MGMT) |
+| company-web-server | 10.10.10.1 (pfSense DMZ) |
+| company-dns-server | 10.10.10.1 (pfSense DMZ) |
+| company-customer-db | 10.20.20.1 (pfSense INT) |
+| company-ldap-server | 10.20.20.1 (pfSense INT) |
+| aegis-company-admin | 10.30.30.1 (pfSense MGMT) |
 
-## Removed Nodes
+## GNS3 NAT Cloud
+
+- Uses virbr0 bridge: `192.168.122.0/24`
+- DHCP only — GNS3 NAT cloud cannot assign static IPs
+- Router ether1 gets `192.168.122.2` via DHCP (or set static in GNS3 node config)
+
+## Removed Nodes (since v1)
 
 | Node | Removed | Reason |
 |---|---|---|
-| Switch1 (NAT+R1+Kali switch) | 2026-07-19 | ဆရာမ topology change |
+| Switch1 (NAT+R1+Kali switch) | 2026-07-19 | Supervisor topology change |
 | Router-2 (R2) | 2026-07-16 | R1 ↔ pfSense direct |
-| bank-mail | 2026-07-16 | internet မရ |
-| teller-pc | 2026-07-16 | internet မရ |
-| Cowrie honeypot | 2026-07-19 | ဖြုတ်ပြီ |
+| bank-mail | 2026-07-16 | No internet access |
+| teller-pc | 2026-07-16 | No internet access |
+| Cowrie honeypot | 2026-07-19 | Removed — Suricata+Fail2ban only |
 
-## VM Software Setup
+## VM Script Location (aegis-company-admin)
 
-### company-web-server (10.10.10.10) — DONE ✅
-- Apache2, vsftpd, Suricata, Fail2ban installed
-- Web app deployed at http://10.10.10.10
-
-### company-customer-db (10.20.20.20) — DONE ✅
-- PostgreSQL installed, bankdb created
-- Remote access enabled (bind 0.0.0.0)
-- ⚠️ MySQL 8.0 bind-address quirk: must append to mysqld.cnf, not sed
-
-### aegis-forwarder (10.30.30.10)
-- Script: /opt/aegis/scripts/src/aegis_forwarder.py
-- Config: /opt/aegis/scripts/src/aegis_forwarder.local.conf (gitignored)
-- Update via: wget from GitHub raw URL (not git pull)
+- Script: `/opt/aegis/scripts/src/aegis_forwarder.py`
+- Config: `/opt/aegis/scripts/src/aegis_forwarder.local.conf` (gitignored, machine-specific)
+- Update: `wget -O /opt/aegis/scripts/src/aegis_forwarder.py https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/scripts/src/aegis_forwarder.py`
+- **Never use git pull** — VMs cannot reach GitHub directly; use wget from GitHub raw URL.

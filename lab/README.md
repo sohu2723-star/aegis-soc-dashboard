@@ -26,9 +26,11 @@ sudo apt update && sudo apt install -y mysql-server
 wget -O setup.sql https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/lab/company-customer-db/setup.sql
 sudo mysql < setup.sql
 
-# 3. Allow remote connections
-sudo sed -i 's/bind-address.*/bind-address = 0.0.0.0/' /etc/mysql/mysql.conf.d/mysqld.cnf
+# 3. Allow remote connections (MySQL 8.0 — sed မအလုပ်ဘူး၊ append နည်း သုံးရမယ်)
+sudo bash -c 'echo "bind-address = 0.0.0.0" >> /etc/mysql/mysql.conf.d/mysqld.cnf'
+sudo bash -c 'echo "mysqlx-bind-address = 0.0.0.0" >> /etc/mysql/mysql.conf.d/mysqld.cnf'
 sudo systemctl enable mysql && sudo systemctl restart mysql
+# Verify: ss -tlnp | grep 3306 → should show 0.0.0.0:3306
 ```
 
 ## Attack Targets
