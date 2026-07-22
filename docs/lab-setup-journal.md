@@ -2403,6 +2403,34 @@ TELEGRAM_CHAT_ID   ← Telegram target chat
 
 ---
 
+## [2026-07-23] — DNS Query Refused: Rate-Limit Fix (No-Attack Spam)
+
+**Status:** ✅ Done (code) / ⏳ VM script update pending
+**What:** Attack မလုပ်ဘဲ website ကြည့်ရုံနဲ့ `dns_query_refused` MEDIUM events dashboard ထဲ spam ပေါ်နေသော bug ဖြေရှင်းခဲ့
+
+**Root Cause ၂ ခု:**
+1. `10.30.30.10` (aegis hub VM) events — forwarder VM script အဟောင်းဆဲ run နေလို့ (`wget` မလုပ်ရသေး) → ဟောင်း events DB ထဲ ကျန် နေ
+2. `192.168.10.99` (Kali) events — Kali DNS `10.10.10.20` ကို ညွှန်ထားလို့ browser request တစ်ခုချင်း = refused query တစ်ခု = MEDIUM event တစ်ခု — threshold မရှိဘူး
+
+**Fix (`scripts/src/aegis_forwarder.py` — `_watch_remote_bind9()`):**
+- `_refused_ts: dict[str, list[float]]` rate-limit tracker ထည့် (IP → timestamp list)
+- **60s sliding window ထဲ same IP ကနေ ≥ 5 refused queries မှ** MEDIUM alert တစ်ကြိမ်သာ fire ပြီး counter reset
+- Alert မ fire ဘဲ accumulate ထားတဲ့ queries = no event = dashboard clean
+- Zone transfer (AXFR/IXFR) = threshold မပါ = ချက်ချင်း high alert (ဟောင်း behavior ထား)
+
+**Before vs After:**
+| Scenario | Before | After |
+|---|---|---|
+| Kali browse website (1-2 DNS lookups) | MEDIUM event တက် | ❌ မတက် |
+| Kali DNS recon (5+ queries/60s) | MEDIUM event တက် | ✅ MEDIUM event တက် (consolidated) |
+| DNS zone transfer (AXFR) | HIGH alert | ✅ HIGH alert (unchanged) |
+| 10.30.30.10 internal query | ❌ မတက်သင့် (filter ရှိ) | ❌ မတက် |
+
+**Pushed to:** GitHub main ✅
+**VM-side:** `wget` + `systemctl restart aegis-forwarder` လုပ်ရမည်
+
+---
+
 ### [2026-07-22] — pfSense Suricata eve.json auto-discovery fix
 
 **Status:** ✅ Done  
