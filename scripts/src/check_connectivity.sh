@@ -251,7 +251,9 @@ else
         warn "pfSense SSH auth failed — ~/.ssh/pfsense_key.pub does not match pfSense admin Authorized Keys"
         warn "  → pfSense WebGUI: System → User Manager → admin → Authorized SSH Keys → paste public key"
         warn "  → Public key: $(cat "${PF_KEY}.pub" 2>/dev/null | cut -d' ' -f1-2 || echo 'key file missing')"
+        pf_auth_ok=0
     else
+        pf_auth_ok=1
         # ── Step 2: Auth OK — run actual command ──────────────────────────
         # pfSense /etc/rc.initial does not execute arbitrary commands passed
         # via SSH (no-TTY BatchMode).  Wrap in /bin/sh -c so FreeBSD's sh
@@ -289,10 +291,13 @@ if [[ ! -f "$PF_KEY" ]]; then
     warn "pfSense SSH key missing — skipping pfctl check (see above)"
 elif ! nc -z -w5 10.30.30.1 22 2>/dev/null; then
     warn "pfSense port 22 unreachable — skipping pfctl check (see above)"
+elif [[ "${pf_auth_ok:-0}" -eq 0 ]]; then
+    # Auth already failed in Section 5 — don't show a false "empty table" ✅
+    warn "pfSense SSH auth failed — skipping pfctl check (fix key first)"
 else
     set +e
     result=$(ssh_cmd "$PF_KEY" "$PF_USER" 10.30.30.1 \
-        "pfctl -t EasyRuleBlockHosts -T show 2>/dev/null | head -20")
+        "/bin/sh -c 'pfctl -t EasyRuleBlockHosts -T show 2>/dev/null | head -20'")
     set -e
     if [[ -z "$result" ]]; then
         ok "pfSense EasyRuleBlockHosts table — empty (no IPs blocked via easyrule yet)"
