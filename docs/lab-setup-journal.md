@@ -2195,3 +2195,55 @@ ldapadd -x -H ldap://localhost -D "cn=admin,dc=goldenmyanmar,dc=com" -W -f lab/l
 
 **Pushed to:** GitHub main ✅
 **Next:** VM deploy → DNS resolution test (`dig @10.10.10.20 web.goldenmyanmar.trading.com`) → web app test (`curl http://10.10.10.10`) → SQLi attack demo
+
+---
+
+## [2026-07-22] — check_connectivity.sh: SSH Auth Fail Bug Fix + Diagnostics Upgrade
+
+**Status:** ✅ Done
+**What:** `check_connectivity.sh` script မှာ SSH auth fail ဖြစ်ရင် script တစ်ခုလုံး early exit ဖြစ်နေတဲ့ bug fix + diagnostics ပိုကောင်းအောင် upgrade
+
+### Root Cause
+
+`set -euo pipefail` ကို script ထဲ enable လုပ်ထားတဲ့ အတွက် `ssh_ok` function ကနေ `return 1` ပြန်ပေးတဲ့ အခါ script ချက်ချင်း exit ဖြစ်သည်။ SSH auth fail ဖြစ်သော VM တစ်ခုနောက် ကျန် VM တွေ check မဖြစ်ဘဲ report incomplete ဖြစ်တယ်။
+
+```bash
+# ပြဿနာ — set -e + return 1 = script exit
+ssh_ok() {
+    ...
+    else
+        fail "..."
+        return 1   # ← set -e ကြောင့် script ကို abort လုပ်တယ်
+    fi
+}
+```
+
+### Fix Applied
+
+1. **`set -euo pipefail` → `set -uo pipefail`** — `-e` ကို ဖြုတ်လိုက် (pipefail + nounset ထားတယ်)
+2. **`ssh_ok` function** — `return 0` / `return 1` ဖြုတ်ကာ function က always 0 return ဖြစ်အောင် ပြောင်း
+3. **`_ssh_auth_hint()` helper ထည့်** — SSH fail ဖြစ်ရင် actionable hint ပြပေး:
+   - Key file missing → generate + copy-id commands
+   - Wrong permissions → chmod 600
+   - Port closed → systemctl start ssh
+   - Auth denied → ssh-copy-id + public key ပြ
+   - Stale known_hosts → ssh-keygen -R
+4. **Section 0: Pre-flight check ထည့်** — SSH check မပြုလုပ်ခင် key file existence + permissions စစ်
+5. **Pass/Fail/Warn counter ထည့်** — `PASS_COUNT`, `FAIL_COUNT`, `WARN_COUNT` summary at bottom
+6. **goldenmyanmar DNS zone test ထည့်** — Section 8 ထဲ `web/db/ldap.goldenmyanmar.trading.com` expected IP check
+7. **suricata service check ထည့်** — Section 4 ထဲ company-web-server + company-dns-server + company-customer-db + company-ldap-server တွေမှာ `suricata` ပါ စစ်တယ်
+8. **Quick fix hints at bottom** — FAIL_COUNT > 0 ဖြစ်ရင် ssh-copy-id + ssh-keygen -R commands ပြ
+
+### File Changed
+
+`scripts/src/check_connectivity.sh` — 388 → ~388 lines (upgraded)
+
+**Pushed to:** GitHub main ✅
+
+**VM command to update (aegis-company-admin):**
+```bash
+wget -O /opt/aegis/scripts/src/check_connectivity.sh \
+  https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/scripts/src/check_connectivity.sh
+chmod +x /opt/aegis/scripts/src/check_connectivity.sh
+./opt/aegis/scripts/src/check_connectivity.sh
+```

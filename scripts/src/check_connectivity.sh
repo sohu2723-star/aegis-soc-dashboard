@@ -15,7 +15,9 @@
 #   pfSense             10.30.30.1
 # ============================================================
 
-set -euo pipefail
+# NOTE: set -e intentionally NOT used here — we want the full report even
+# when individual checks fail.  Each helper function handles its own errors.
+set -uo pipefail
 
 SSH_KEY="${HOME}/.ssh/aegis_id_rsa"
 PF_KEY="${HOME}/.ssh/pfsense_key"
@@ -29,29 +31,90 @@ CYAN='\033[0;36m'
 BOLD='\033[1m'
 NC='\033[0m'
 
-ok()   { echo -e "  ${GREEN}✅ $*${NC}"; }
-fail() { echo -e "  ${RED}❌ $*${NC}"; }
-warn() { echo -e "  ${YELLOW}⚠️  $*${NC}"; }
+ok()   { echo -e "  ${GREEN}✅ $*${NC}"; (( PASS_COUNT++ )) || true; }
+fail() { echo -e "  ${RED}❌ $*${NC}";   (( FAIL_COUNT++ )) || true; }
+warn() { echo -e "  ${YELLOW}⚠️  $*${NC}"; (( WARN_COUNT++ )) || true; }
 info() { echo -e "  ${CYAN}ℹ  $*${NC}"; }
 
 hdr()  { echo -e "\n${BOLD}═══ $* ═══${NC}"; }
 sub()  { echo -e "\n${BOLD}─── $* ───${NC}"; }
 
+PASS_COUNT=0
+FAIL_COUNT=0
+WARN_COUNT=0
+
+# ── SSH helper ────────────────────────────────────────────────
+# Always returns 0 — never aborts the script.
 ssh_cmd() {
     local key="$1" user="$2" ip="$3"
     shift 3
-    ssh -i "$key" -o BatchMode=yes -o StrictHostKeyChecking=no \
-        -o ConnectTimeout=5 "${user}@${ip}" "$@" 2>/dev/null
+    ssh -i "$key" \
+        -o BatchMode=yes \
+        -o StrictHostKeyChecking=no \
+        -o ConnectTimeout=5 \
+        "${user}@${ip}" "$@" 2>/dev/null
 }
 
+# Check passwordless SSH and print ✅/❌.
+# Returns 0 either way so set -e (if ever re-enabled) does not abort the script.
 ssh_ok() {
     local key="$1" user="$2" ip="$3" label="$4"
     if ssh_cmd "$key" "$user" "$ip" echo "ok" >/dev/null 2>&1; then
         ok "SSH $label ($user@$ip) — passwordless OK"
-        return 0
     else
         fail "SSH $label ($user@$ip) — FAILED"
-        return 1
+        _ssh_auth_hint "$key" "$user" "$ip"
+    fi
+}
+
+# Print actionable hints when SSH key auth fails.
+_ssh_auth_hint() {
+    local key="$1" user="$2" ip="$3"
+    local pub="${key}.pub"
+
+    # 1. Key file missing
+    if [[ ! -f "$key" ]]; then
+        warn "  Key file not found: $key"
+        info "  → Generate key:  ssh-keygen -t ed25519 -f $key -N ''"
+        info "  → Copy to VM:    ssh-copy-id -i ${pub} ${user}@${ip}"
+        return
+    fi
+
+    # 2. Wrong permissions
+    local perms
+    perms=$(stat -c "%a" "$key" 2>/dev/null || stat -f "%Lp" "$key" 2>/dev/null || echo "?")
+    if [[ "$perms" != "600" && "$perms" != "400" ]]; then
+        warn "  Key permissions are $perms (need 600)"
+        info "  → Fix:  chmod 600 $key"
+    fi
+
+    # 3. Port reachable?
+    if ! nc -zw 3 "$ip" 22 2>/dev/null; then
+        warn "  Port 22 unreachable on $ip — SSH service down or firewall blocking"
+        info "  → On VM:  sudo systemctl start ssh && sudo ufw allow 22/tcp"
+        return
+    fi
+
+    # 4. Auth specifically denied → suggest ssh-copy-id
+    info "  Port 22 open but key auth rejected"
+    if [[ -f "$pub" ]]; then
+        info "  → Manually copy key (one-time, using VM password):"
+        info "     ssh-copy-id -i $pub ${user}@${ip}"
+        info "  → Or paste this into VM's ~/.ssh/authorized_keys:"
+        info "     $(cat "$pub" 2>/dev/null || echo '<pub key not found>')"
+    else
+        warn "  Public key not found: $pub"
+        info "  → Regenerate:  ssh-keygen -t ed25519 -f $key -N ''"
+    fi
+
+    # 5. Check if known_hosts entry is stale (host key changed after reinstall)
+    if ssh-keygen -F "$ip" >/dev/null 2>&1; then
+        local known_key
+        known_key=$(ssh-keyscan -T 3 "$ip" 2>/dev/null | head -1 || true)
+        if [[ -n "$known_key" ]]; then
+            info "  If you reinstalled this VM, clear the stale known_hosts entry:"
+            info "     ssh-keygen -R $ip"
+        fi
     fi
 }
 
@@ -76,11 +139,12 @@ check_port() {
 check_service() {
     local key="$1" user="$2" ip="$3" svc="$4" label="$5"
     local status
-    status=$(ssh_cmd "$key" "$user" "$ip" "systemctl is-active $svc 2>/dev/null" || echo "error")
+    status=$(ssh_cmd "$key" "$user" "$ip" "systemctl is-active $svc 2>/dev/null" || echo "ssh_error")
     case "$status" in
-        active)   ok  "Service $svc — active ($label)" ;;
-        inactive) warn "Service $svc — inactive ($label)" ;;
-        *)        fail "Service $svc — $status ($label)" ;;
+        active)    ok   "Service $svc — active ($label)" ;;
+        inactive)  warn "Service $svc — inactive ($label)" ;;
+        ssh_error) warn "Service $svc — SSH unreachable ($label)" ;;
+        *)         fail "Service $svc — $status ($label)" ;;
     esac
 }
 
@@ -89,9 +153,9 @@ check_log_exists() {
     local result
     result=$(ssh_cmd "$key" "$user" "$ip" "[ -f '$path' ] && echo exists || echo missing" || echo "ssh_error")
     case "$result" in
-        exists)    ok  "Log exists: $path ($label)" ;;
+        exists)    ok   "Log exists: $path ($label)" ;;
         missing)   warn "Log MISSING: $path ($label) — may need service config" ;;
-        ssh_error) fail "SSH error checking $path ($label)" ;;
+        ssh_error) warn "SSH unreachable — skipping log check ($label)" ;;
     esac
 }
 
@@ -100,24 +164,63 @@ check_iptables() {
     echo ""
     info "iptables INPUT rules on $label:"
     ssh_cmd "$key" "$user" "$ip" "sudo iptables -L INPUT -n --line-numbers 2>/dev/null | head -20" \
-        | sed 's/^/    /' || warn "Could not read iptables (sudo may need NOPASSWD)"
+        | sed 's/^/    /' \
+        || warn "Could not read iptables on $label (SSH unreachable or sudo lacks NOPASSWD)"
 }
 
 check_fail2ban_status() {
     local key="$1" user="$2" ip="$3" label="$4"
     local bans
     bans=$(ssh_cmd "$key" "$user" "$ip" \
-        "sudo fail2ban-client status 2>/dev/null | grep 'Jail list' || echo 'n/a'" || echo "error")
-    if [[ "$bans" == "error" || "$bans" == "n/a" ]]; then
-        warn "Fail2ban status unavailable ($label)"
-    else
-        ok "Fail2ban jails ($label): $bans"
-    fi
+        "sudo fail2ban-client status 2>/dev/null | grep 'Jail list' || echo 'n/a'" \
+        || echo "ssh_error")
+    case "$bans" in
+        ssh_error) warn "Fail2ban status — SSH unreachable ($label)" ;;
+        n/a)       warn "Fail2ban status unavailable ($label) — service may not be running" ;;
+        *)         ok   "Fail2ban jails ($label): $bans" ;;
+    esac
 }
 
 # ──────────────────────────────────────────────────────────────
 hdr "AEGIS Lab Connectivity Check — $(date '+%Y-%m-%d %H:%M:%S')"
 # ──────────────────────────────────────────────────────────────
+
+
+# ──────────────────────────────────────────────────────────────
+sub "0. PRE-FLIGHT: SSH KEY FILES"
+# ──────────────────────────────────────────────────────────────
+echo ""
+info "Checking SSH key files before running auth tests..."
+
+if [[ -f "$SSH_KEY" ]]; then
+    PERMS=$(stat -c "%a" "$SSH_KEY" 2>/dev/null || stat -f "%Lp" "$SSH_KEY" 2>/dev/null || echo "?")
+    ok "Company VM key: $SSH_KEY (perms: $PERMS)"
+    if [[ "$PERMS" != "600" && "$PERMS" != "400" ]]; then
+        warn "Permissions should be 600 — fix: chmod 600 $SSH_KEY"
+    fi
+    info "  Fingerprint: $(ssh-keygen -l -f "$SSH_KEY" 2>/dev/null | awk '{print $2, $4}' || echo 'unreadable')"
+else
+    fail "Company VM key MISSING: $SSH_KEY"
+    info "  → Generate: ssh-keygen -t ed25519 -f $SSH_KEY -N ''"
+    info "  → Then copy to each VM:"
+    info "       ssh-copy-id -i ${SSH_KEY}.pub ${SSH_USER}@10.10.10.10   # company-web-server"
+    info "       ssh-copy-id -i ${SSH_KEY}.pub ${SSH_USER}@10.10.10.20   # company-dns-server"
+    info "       ssh-copy-id -i ${SSH_KEY}.pub ${SSH_USER}@10.20.20.10   # company-customer-db"
+    info "       ssh-copy-id -i ${SSH_KEY}.pub ${SSH_USER}@10.20.20.20   # company-ldap-server"
+fi
+
+if [[ -f "$PF_KEY" ]]; then
+    PF_PERMS=$(stat -c "%a" "$PF_KEY" 2>/dev/null || stat -f "%Lp" "$PF_KEY" 2>/dev/null || echo "?")
+    ok "pfSense key: $PF_KEY (perms: $PF_PERMS)"
+    if [[ "$PF_PERMS" != "600" && "$PF_PERMS" != "400" ]]; then
+        warn "Permissions should be 600 — fix: chmod 600 $PF_KEY"
+    fi
+else
+    warn "pfSense key MISSING: $PF_KEY"
+    info "  → Generate: ssh-keygen -t ed25519 -f $PF_KEY -N ''"
+    info "  → Then: cat ${PF_KEY}.pub"
+    info "  → Paste into pfSense: System → User Manager → admin → Authorized SSH Keys"
+fi
 
 
 # ──────────────────────────────────────────────────────────────
@@ -132,7 +235,7 @@ ping_ok 8.8.8.8     "Internet (Google DNS)"
 
 
 # ──────────────────────────────────────────────────────────────
-sub "2. SSH PASSWORDLESS AUTH (all 6 hosts)"
+sub "2. SSH PASSWORDLESS AUTH (all company VMs)"
 # ──────────────────────────────────────────────────────────────
 ssh_ok "$SSH_KEY" "$SSH_USER" 10.10.10.10 "company-web-server"
 ssh_ok "$SSH_KEY" "$SSH_USER" 10.10.10.20 "company-dns-server"
@@ -145,6 +248,7 @@ if nc -zw 3 10.30.30.1 22 2>/dev/null; then
     ok "SSH pfSense (admin@10.30.30.1) — port 22 open, key installed ✓"
 else
     fail "SSH pfSense (admin@10.30.30.1) — port 22 CLOSED"
+    info "  → pfSense: System → Advanced → Admin Access → Enable Secure Shell ✓"
 fi
 
 
@@ -177,19 +281,23 @@ sub "4. SERVICE STATUS (systemctl is-active)"
 # ──────────────────────────────────────────────────────────────
 # company-web-server
 check_service "$SSH_KEY" "$SSH_USER" 10.10.10.10 apache2   "company-web-server"
+check_service "$SSH_KEY" "$SSH_USER" 10.10.10.10 suricata  "company-web-server"
 check_service "$SSH_KEY" "$SSH_USER" 10.10.10.10 fail2ban  "company-web-server"
 check_service "$SSH_KEY" "$SSH_USER" 10.10.10.10 ssh       "company-web-server"
 
 # company-dns-server
 check_service "$SSH_KEY" "$SSH_USER" 10.10.10.20 named     "company-dns-server"
+check_service "$SSH_KEY" "$SSH_USER" 10.10.10.20 suricata  "company-dns-server"
 check_service "$SSH_KEY" "$SSH_USER" 10.10.10.20 fail2ban  "company-dns-server"
 
 # company-customer-db
 check_service "$SSH_KEY" "$SSH_USER" 10.20.20.10 mysql     "company-customer-db"
+check_service "$SSH_KEY" "$SSH_USER" 10.20.20.10 suricata  "company-customer-db"
 check_service "$SSH_KEY" "$SSH_USER" 10.20.20.10 fail2ban  "company-customer-db"
 
 # company-ldap-server
 check_service "$SSH_KEY" "$SSH_USER" 10.20.20.20 slapd     "company-ldap-server"
+check_service "$SSH_KEY" "$SSH_USER" 10.20.20.20 suricata  "company-ldap-server"
 check_service "$SSH_KEY" "$SSH_USER" 10.20.20.20 fail2ban  "company-ldap-server"
 
 
@@ -198,79 +306,60 @@ sub "5. LOG PATH EXISTENCE (critical log files)"
 # ──────────────────────────────────────────────────────────────
 # company-web-server
 check_log_exists "$SSH_KEY" "$SSH_USER" 10.10.10.10 "/var/log/auth.log"              "company-web-server"
-check_log_exists "$SSH_KEY" "$SSH_USER" 10.10.10.10 "/var/log/fail2ban.log"           "company-web-server"
-check_log_exists "$SSH_KEY" "$SSH_USER" 10.10.10.10 "/var/log/apache2/access.log"     "company-web-server"
+check_log_exists "$SSH_KEY" "$SSH_USER" 10.10.10.10 "/var/log/fail2ban.log"          "company-web-server"
+check_log_exists "$SSH_KEY" "$SSH_USER" 10.10.10.10 "/var/log/apache2/access.log"    "company-web-server"
 
 # company-dns-server
 check_log_exists "$SSH_KEY" "$SSH_USER" 10.10.10.20 "/var/log/auth.log"              "company-dns-server"
-check_log_exists "$SSH_KEY" "$SSH_USER" 10.10.10.20 "/var/log/fail2ban.log"           "company-dns-server"
-check_log_exists "$SSH_KEY" "$SSH_USER" 10.10.10.20 "/var/log/named/named.log"        "company-dns-server [BIND9 — needs logging config]"
+check_log_exists "$SSH_KEY" "$SSH_USER" 10.10.10.20 "/var/log/fail2ban.log"          "company-dns-server"
+check_log_exists "$SSH_KEY" "$SSH_USER" 10.10.10.20 "/var/log/named/named.log"       "company-dns-server [BIND9 — needs logging config]"
 
 # company-customer-db
 check_log_exists "$SSH_KEY" "$SSH_USER" 10.20.20.10 "/var/log/auth.log"              "company-customer-db"
-check_log_exists "$SSH_KEY" "$SSH_USER" 10.20.20.10 "/var/log/fail2ban.log"           "company-customer-db"
-check_log_exists "$SSH_KEY" "$SSH_USER" 10.20.20.10 "/var/log/mysql/error.log"        "company-customer-db"
+check_log_exists "$SSH_KEY" "$SSH_USER" 10.20.20.10 "/var/log/fail2ban.log"          "company-customer-db"
+check_log_exists "$SSH_KEY" "$SSH_USER" 10.20.20.10 "/var/log/mysql/error.log"       "company-customer-db"
 
 # company-ldap-server
 check_log_exists "$SSH_KEY" "$SSH_USER" 10.20.20.20 "/var/log/auth.log"              "company-ldap-server"
-check_log_exists "$SSH_KEY" "$SSH_USER" 10.20.20.20 "/var/log/fail2ban.log"           "company-ldap-server"
-check_log_exists "$SSH_KEY" "$SSH_USER" 10.20.20.20 "/var/log/syslog"                "company-ldap-server [slapd]"
+check_log_exists "$SSH_KEY" "$SSH_USER" 10.20.20.20 "/var/log/fail2ban.log"          "company-ldap-server"
+check_log_exists "$SSH_KEY" "$SSH_USER" 10.20.20.20 "/var/log/syslog"               "company-ldap-server [slapd]"
 
-# pfSense (SSH via pf key)
-# Note: pfSense uses /etc/rc.initial as shell — we test with nc (port check)
-# instead of "echo ok" via SSH, because pfSense shell exits non-zero for
-# arbitrary commands even when auth succeeds.
+# pfSense Suricata eve.json
 echo ""
-info "pfSense Suricata eve.json paths (SSH check):"
+info "pfSense Suricata eve.json (SSH probe):"
 if [[ ! -f "$PF_KEY" ]]; then
     warn "pfSense SSH key not found: $PF_KEY"
     warn "  → Fix: ssh-keygen -t ed25519 -f ~/.ssh/pfsense_key -N ''"
     warn "  → Then add public key to pfSense: System → User Manager → admin → Authorized Keys"
 elif ! nc -z -w5 10.30.30.1 22 2>/dev/null; then
-    warn "pfSense port 22 unreachable (10.30.30.1) — check ADMINMANAGEMENT firewall rule"
+    warn "pfSense port 22 unreachable (10.30.30.1) — check MGMT firewall rule"
 else
-    # ── Step 1: Explicit auth probe ────────────────────────────────────────
-    # ssh_cmd suppresses ALL stderr (2>/dev/null), so a real auth failure
-    # ("Permission denied (publickey)") is indistinguishable from pfSense's
-    # /etc/rc.initial exiting non-zero in BatchMode (no TTY, ignores command).
-    # Fix: capture stderr separately on a plain "exit" command; grep for the
-    # specific OpenSSH auth-failure strings.  If those strings are absent the
-    # key was accepted — /etc/rc.initial just can't run arbitrary commands.
-    set +e
+    # Capture stderr separately to distinguish auth failure from pfSense shell quirks.
     pf_auth_stderr=$(ssh \
         -i "$PF_KEY" \
         -o BatchMode=yes \
         -o StrictHostKeyChecking=no \
         -o ConnectTimeout=5 \
         "${PF_USER}@10.30.30.1" exit \
-        2>&1 1>/dev/null)
-    set -e
+        2>&1 1>/dev/null || true)
 
     if echo "$pf_auth_stderr" | grep -qiE \
             "Permission denied|Authentication failed|publickey|no mutual"; then
-        warn "pfSense SSH auth failed — ~/.ssh/pfsense_key.pub does not match pfSense admin Authorized Keys"
-        warn "  → pfSense WebGUI: System → User Manager → admin → Authorized SSH Keys → paste public key"
-        warn "  → Public key: $(cat "${PF_KEY}.pub" 2>/dev/null | cut -d' ' -f1-2 || echo 'key file missing')"
+        fail "pfSense SSH auth — ~/.ssh/pfsense_key.pub does not match pfSense admin Authorized Keys"
+        info "  → pfSense WebGUI: System → User Manager → admin → Authorized SSH Keys → paste:"
+        info "     $(cat "${PF_KEY}.pub" 2>/dev/null || echo '<pub key missing>')"
         pf_auth_ok=0
     else
         pf_auth_ok=1
-        # ── Step 2: Auth OK — run actual command ──────────────────────────
-        # pfSense /etc/rc.initial does not execute arbitrary commands passed
-        # via SSH (no-TTY BatchMode).  Wrap in /bin/sh -c so FreeBSD's sh
-        # handles the logic; /etc/rc.initial passes the argument through on
-        # most pfSense versions when called with -c.
-        set +e
         pf_suricata=$(ssh_cmd "$PF_KEY" "$PF_USER" 10.30.30.1 \
-            "/bin/sh -c 'if [ -f /var/log/suricata/eve.json ]; then ls -lh /var/log/suricata/eve.json; else echo FILE_MISSING; fi'")
-        pf_ssh_exit=$?
-        set -e
+            "/bin/sh -c 'if [ -f /var/log/suricata/eve.json ]; then ls -lh /var/log/suricata/eve.json; else echo FILE_MISSING; fi'" \
+            || echo "CMD_ERROR")
 
-        if [[ "$pf_suricata" == *"FILE_MISSING"* ]] || \
-           [[ $pf_ssh_exit -ne 0 && -z "$pf_suricata" ]]; then
+        if [[ "$pf_suricata" == *"FILE_MISSING"* ]] || [[ "$pf_suricata" == "CMD_ERROR" ]]; then
             warn "pfSense: /var/log/suricata/eve.json MISSING — Suricata not yet started"
-            info "  → pfSense: Services → Suricata → Interfaces → enable WAN (em1.10) → Start"
+            info "  → pfSense: Services → Suricata → Interfaces → enable em1.10 → Start"
         else
-            ok "pfSense Suricata eve.json:"
+            ok "pfSense Suricata eve.json exists:"
             echo "$pf_suricata" | sed 's/^/    /'
         fi
     fi
@@ -288,19 +377,16 @@ check_iptables "$SSH_KEY" "$SSH_USER" 10.20.20.20 "company-ldap-server"
 echo ""
 info "pfSense WAN blocked hosts (easyrule table):"
 if [[ ! -f "$PF_KEY" ]]; then
-    warn "pfSense SSH key missing — skipping pfctl check (see above)"
+    warn "pfSense SSH key missing — skipping pfctl check"
 elif ! nc -z -w5 10.30.30.1 22 2>/dev/null; then
-    warn "pfSense port 22 unreachable — skipping pfctl check (see above)"
+    warn "pfSense port 22 unreachable — skipping pfctl check"
 elif [[ "${pf_auth_ok:-0}" -eq 0 ]]; then
-    # Auth already failed in Section 5 — don't show a false "empty table" ✅
-    warn "pfSense SSH auth failed — skipping pfctl check (fix key first)"
+    warn "pfSense SSH auth failed — fix key first (see Section 5 above)"
 else
-    set +e
     result=$(ssh_cmd "$PF_KEY" "$PF_USER" 10.30.30.1 \
-        "/bin/sh -c 'pfctl -t EasyRuleBlockHosts -T show 2>/dev/null | head -20'")
-    set -e
+        "/bin/sh -c 'pfctl -t EasyRuleBlockHosts -T show 2>/dev/null | head -20'" || true)
     if [[ -z "$result" ]]; then
-        ok "pfSense EasyRuleBlockHosts table — empty (no IPs blocked via easyrule yet)"
+        ok "pfSense EasyRuleBlockHosts — empty (no IPs blocked via easyrule yet)"
     else
         info "pfSense blocked IPs:"
         echo "$result" | sed 's/^/    /'
@@ -320,13 +406,32 @@ check_fail2ban_status "$SSH_KEY" "$SSH_USER" 10.20.20.20 "company-ldap-server"
 # ──────────────────────────────────────────────────────────────
 sub "8. DNS RESOLUTION TEST"
 # ──────────────────────────────────────────────────────────────
+echo ""
+info "Testing bank.local zone (legacy):"
 for domain in company-web-server.bank.local company-dns-server.bank.local \
               company-customer-db.bank.local company-ldap-server.bank.local; do
     result=$(dig +short @10.10.10.20 "$domain" 2>/dev/null || echo "")
     if [[ -n "$result" ]]; then
         ok "DNS $domain → $result"
     else
-        warn "DNS $domain → no result (BIND9 zone may not be configured)"
+        warn "DNS $domain → no result (BIND9 bank.local zone may not be configured)"
+    fi
+done
+
+echo ""
+info "Testing goldenmyanmar.trading.com zone (new company):"
+for query in "web.goldenmyanmar.trading.com:10.10.10.10" \
+             "db.goldenmyanmar.trading.com:10.20.20.10" \
+             "ldap.goldenmyanmar.trading.com:10.20.20.20"; do
+    domain="${query%%:*}"
+    expected="${query##*:}"
+    result=$(dig +short @10.10.10.20 "$domain" 2>/dev/null || echo "")
+    if [[ "$result" == "$expected" ]]; then
+        ok "DNS $domain → $result"
+    elif [[ -n "$result" ]]; then
+        warn "DNS $domain → $result (expected $expected)"
+    else
+        warn "DNS $domain → no result (goldenmyanmar zone not yet deployed to DNS-Server)"
     fi
 done
 
@@ -337,12 +442,13 @@ sub "9. AEGIS FORWARDER SERVICE (local)"
 status=$(systemctl is-active aegis-forwarder 2>/dev/null || echo "not-found")
 case "$status" in
     active)    ok  "aegis-forwarder service — active" ;;
-    inactive)  warn "aegis-forwarder service — inactive (run: sudo systemctl start aegis-forwarder)" ;;
-    not-found) warn "aegis-forwarder.service not installed yet" ;;
+    inactive)  warn "aegis-forwarder service — inactive"
+               info "  → Start: sudo systemctl start aegis-forwarder" ;;
+    not-found) warn "aegis-forwarder.service not installed yet"
+               info "  → Install: see docs/AEGIS_VM_SETUP.md § Systemd Service" ;;
     *)         fail "aegis-forwarder — $status" ;;
 esac
 
-# Show last 10 lines of forwarder log
 echo ""
 info "Last 10 lines of aegis-forwarder journal:"
 journalctl -u aegis-forwarder -n 10 --no-pager 2>/dev/null | sed 's/^/    /' \
@@ -353,36 +459,60 @@ journalctl -u aegis-forwarder -n 10 --no-pager 2>/dev/null | sed 's/^/    /' \
 sub "10. AEGIS API REACHABILITY"
 # ──────────────────────────────────────────────────────────────
 api_url="https://aegis-api-server-jp3b.onrender.com"
-http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "${api_url}/api/healthz" 2>/dev/null || echo "000")
+http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "${api_url}/api/healthz" 2>/dev/null || echo "000")
 if [[ "$http_code" == "200" ]]; then
-    ok "AEGIS API healthz → HTTP $http_code"
+    ok "AEGIS API healthz → HTTP $http_code ✓"
 elif [[ "$http_code" == "000" ]]; then
-    warn "AEGIS API — timeout (Render cold start? wait 60s and retry)"
+    warn "AEGIS API — timeout (Render cold start ~50s — wait and retry)"
 else
-    warn "AEGIS API → HTTP $http_code (check Render env vars)"
+    warn "AEGIS API → HTTP $http_code"
+    info "  → Check Render dashboard: env vars SUPABASE_DB_URL, AEGIS_INGEST_KEY, AEGIS_ADMIN_KEY"
 fi
 
 
 # ──────────────────────────────────────────────────────────────
-echo -e "\n${BOLD}═══ Check complete ═══${NC}\n"
-echo "  Legends:  ✅ OK    ❌ FAIL    ⚠️  WARNING"
-echo "  If logs are MISSING → run BIND9 logging setup commands below."
+echo -e "\n${BOLD}═══ Check complete ═══${NC}"
 echo ""
-echo "  ── BIND9 named.log setup (run on company-dns-server) ──"
+echo -e "  ${GREEN}✅ PASS: $PASS_COUNT${NC}   ${RED}❌ FAIL: $FAIL_COUNT${NC}   ${YELLOW}⚠️  WARN: $WARN_COUNT${NC}"
+echo ""
+echo "  Legends:  ✅ OK    ❌ FAIL    ⚠️  WARNING"
+echo ""
+
+# ── Conditional hints ─────────────────────────────────────────
+if (( FAIL_COUNT > 0 )); then
+    echo -e "${BOLD}  Quick fixes for common failures:${NC}"
+    echo ""
+    echo "  SSH key missing / auth fail:"
+    echo "    ssh-keygen -t ed25519 -f ~/.ssh/aegis_id_rsa -N ''"
+    echo "    ssh-copy-id -i ~/.ssh/aegis_id_rsa.pub sithu@10.10.10.10"
+    echo "    ssh-copy-id -i ~/.ssh/aegis_id_rsa.pub sithu@10.10.10.20"
+    echo "    ssh-copy-id -i ~/.ssh/aegis_id_rsa.pub sithu@10.20.20.10"
+    echo "    ssh-copy-id -i ~/.ssh/aegis_id_rsa.pub sithu@10.20.20.20"
+    echo ""
+    echo "  Stale known_hosts (after VM reinstall):"
+    echo "    ssh-keygen -R 10.10.10.10"
+    echo "    ssh-keygen -R 10.10.10.20"
+    echo "    ssh-keygen -R 10.20.20.10"
+    echo "    ssh-keygen -R 10.20.20.20"
+    echo ""
+fi
+
+# ── BIND9 named.log setup reminder ───────────────────────────
+echo "  ── BIND9 named.log setup (run on company-dns-server if log MISSING) ──"
 cat <<'BIND9_CMDS'
-  sudo mkdir -p /var/log/named
-  sudo chown bind:bind /var/log/named
-  sudo tee -a /etc/bind/named.conf.local << 'EOF'
-  logging {
-      channel query_log {
-          file "/var/log/named/named.log" versions 3 size 5m;
-          severity dynamic;
-      };
-      category queries  { query_log; };
-      category default  { query_log; };
-  };
-  EOF
-  sudo systemctl restart named
-  ls -lh /var/log/named/named.log
+    sudo mkdir -p /var/log/named
+    sudo chown bind:bind /var/log/named
+    sudo tee -a /etc/bind/named.conf.local << 'EOF'
+    logging {
+        channel query_log {
+            file "/var/log/named/named.log" versions 3 size 5m;
+            severity dynamic;
+        };
+        category queries  { query_log; };
+        category default  { query_log; };
+    };
+    EOF
+    sudo systemctl restart named
+    ls -lh /var/log/named/named.log
 BIND9_CMDS
 echo ""
