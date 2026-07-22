@@ -2611,3 +2611,62 @@ SESSION_SECRET     ← JWT signing (ရှိပြီးသား ✅)
 - Path တွေ့ပြီးရင် `tail -F` ဆက်တိုက် tail လုပ်  
 **Result:** Suricata restart → PID ပြောင်း → forwarder auto-rediscover ဖြစ်မယ်၊ `PFSENSE_SURICATA_LOG` config ပြင်စရာမလို  
 **Next:** Ubuntu VM မှာ `wget` နဲ့ script update ၊ forwarder restart ၊ `[pfSense-suricata] Connected` ပြန်ထွက်လာသည်အထိ log ကြည့်
+
+---
+
+### [2026-07-23] — Fix: pfSense Suricata SSH Immediate Disconnect
+
+**Status:** ✅ Done — committed `a206721` + pushed to GitHub main
+
+**Symptoms (screenshots):**
+- `[pfSense-suricata] Connected` → `SSH disconnected — reconnecting in 15s` at the SAME second
+- check_connectivity.sh: PASS: 58, FAIL: 1 (pfSense Suricata)
+- `/var/log/suricata/`: `eve.json` symlink broken → `suricata_em011157/` မရှိ; real dirs `suricata_em1.1042709/` + `suricata_em2.2062963/` date Jul 21 (not updated = empty, no eve.json inside)
+- `ClientAliveInterval 30` only (no `ClientAliveCountMax`) on pfSense sshd
+
+**Root Cause 1 — SSH login shell bypass:**
+Previous code passed `"sh -c '...'"` as a SINGLE SSH command arg. SSH wraps it in the remote user's login shell: `exec /etc/rc.initial -c "sh -c '...'"`. pfSense's `/etc/rc.initial` (console menu) exits immediately without a PTY — before our while-loop even starts. → Connection drops in < 1 second.
+
+**Root Cause 2 — EVE JSON likely not enabled:**
+`suricata_em1.1042709/` and `suricata_em2.2062963/` dirs are from Jul 21 and appear empty (current Suricata processes = PIDs 42709, 62963 on em1.10/em2.20 VLAN interfaces). No `eve.json -type f` anywhere → find returns empty → while loop waits (if it runs at all due to Root Cause 1).
+
+**Fix (code — `scripts/src/aegis_forwarder.py`):**
+```python
+# OLD (single arg — goes through pfSense login shell → exits):
+remote_cmd = "sh -c '...'"
+ssh_cmd = [..., PFSENSE_IP, remote_cmd]
+
+# NEW (explicit /bin/sh bypasses login shell):
+ssh_cmd = [..., PFSENSE_IP, "/bin/sh", "-c", shell_script]
+```
+Also:
+- stderr drain thread: SSH errors now visible in `journalctl`
+- `maxdepth 2 → 3` for find (deeper search)
+- `sort | tail -1` (most recent eve.json)
+- Prints `[wait] No eve.json found — enable EVE JSON in pfSense Suricata GUI` every 30s
+
+**VM-side actions required:**
+1. pfSense GUI: Enable EVE JSON for each Suricata interface (see below)
+2. aegis-company-admin: wget + restart forwarder
+
+**pfSense GUI — Enable EVE JSON (REQUIRED):**
+```
+Services → Suricata → Interfaces
+→ Edit em1.10 interface → "EVE JSON Log" tab → ✅ Enable EVE JSON Log → Save
+→ Edit em2.20 interface → "EVE JSON Log" tab → ✅ Enable EVE JSON Log → Save
+→ Apply / Restart Suricata
+```
+Verify: `find /var/log/suricata/ -name eve.json -type f` → should return paths
+
+**aegis-company-admin script update:**
+```bash
+wget -O /opt/aegis/scripts/src/aegis_forwarder.py \
+  https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/scripts/src/aegis_forwarder.py
+sudo systemctl restart aegis-forwarder
+journalctl -u aegis-forwarder -f
+# Expect: [pfSense-suricata] Connected → stays connected (no immediate disconnect)
+# If EVE JSON not yet enabled: "[wait] No eve.json found — enable EVE JSON in pfSense Suricata GUI"
+# If EVE JSON enabled: "[found] Tailing /var/log/suricata/suricata_em1.XXXXX/eve.json"
+```
+
+**Next:** Kali ကနေ nmap/port scan → pfSense Suricata ကဖမ်း → dashboard မှာ alert ပြ confirm လုပ်
