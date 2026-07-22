@@ -1287,25 +1287,42 @@ def _watch_pfsense_suricata(log_path: str | None = None):
     # (e.g. suricata_em1.1042709/eve.json) that change on every Suricata restart.
     # The root-level eve.json is sometimes a broken symlink. If the configured
     # path is missing or a broken symlink, we run `find` to locate the real file.
-    remote_cmd = (
-        "sh -c '"
+    #
+    # IMPORTANT: Pass /bin/sh -c <script> as SEPARATE SSH args, NOT as a single
+    # "sh -c '...'" string. When passed as one arg, SSH wraps it in the remote
+    # user's login shell ($SHELL). On pfSense, admin's shell is /etc/rc.initial
+    # (the pfSense console menu) which exits immediately without a PTY, causing
+    # the connection to drop before our while-loop even starts. By passing
+    # ["/bin/sh", "-c", script] as separate args, SSH invokes /bin/sh directly.
+    shell_script = (
         f"P={log_path}; "
+        # Check if configured path is a real file (not broken symlink)
         "[ -f \"$P\" ] || "
-        "  P=$(find /var/log/suricata/ -maxdepth 2 -name eve.json -type f 2>/dev/null | sort | head -1); "
+        # Try find: search deeper (maxdepth 3) and also skip broken symlinks
+        "  P=$(find /var/log/suricata/ -maxdepth 3 -name eve.json -type f 2>/dev/null"
+        " | sort | tail -1); "
+        # If still not found, print a hint every 30s and keep waiting
+        "C=0; "
         "while [ -z \"$P\" ] || [ ! -f \"$P\" ]; do "
+        "  C=$((C+1)); "
+        "  if [ $((C % 6)) -eq 1 ]; then "
+        "    echo \"[wait] No eve.json found — enable EVE JSON in pfSense Suricata GUI\"; "
+        "  fi; "
         "  sleep 5; "
-        "  P=$(find /var/log/suricata/ -maxdepth 2 -name eve.json -type f 2>/dev/null | sort | head -1); "
+        "  P=$(find /var/log/suricata/ -maxdepth 3 -name eve.json -type f 2>/dev/null"
+        " | sort | tail -1); "
         "done; "
+        "echo \"[found] Tailing $P\"; "
         "tail -F \"$P\" 2>/dev/null"
-        "'"
     )
     ssh_cmd  = [
         "ssh", "-T",
         "-i", ssh_key,
         "-o", "StrictHostKeyChecking=no",
         "-o", "ConnectTimeout=10",
-        # Send keepalive every 10s (not 30s) — pfSense sshd kills idle sessions
-        # faster than the default; 10s interval + 9 misses = 90s grace window.
+        # Send keepalive every 10s — pfSense sshd ClientAliveInterval=30 means
+        # pfSense probes every 30s; our 10s client-side interval keeps the
+        # TCP session alive through NAT/firewall state expiry too.
         "-o", "ServerAliveInterval=10",
         "-o", "ServerAliveCountMax=9",
         # TCP-level keepalive so intermediate NAT/firewall state doesn't expire
@@ -1313,13 +1330,23 @@ def _watch_pfsense_suricata(log_path: str | None = None):
         "-o", "BatchMode=yes",
         "-o", "IdentityAgent=none",
         f"{PFSENSE_SSH_USER}@{PFSENSE_IP}",
-        remote_cmd,
+        # Explicit /bin/sh bypasses pfSense admin's login shell (/etc/rc.initial)
+        "/bin/sh", "-c", shell_script,
     ]
     print(f"[pfSense-suricata] Starting — {PFSENSE_SSH_USER}@{PFSENSE_IP}:{log_path}")
     while True:
         try:
             proc = subprocess.Popen(ssh_cmd, stdout=subprocess.PIPE,
                                     stderr=subprocess.PIPE, text=True)
+            # Drain stderr in background so pipe buffer never fills (SSH errors
+            # print to stderr; without draining, a full buffer would deadlock).
+            def _drain_stderr(p: subprocess.Popen) -> None:
+                for ln in p.stderr:
+                    ln = ln.strip()
+                    if ln:
+                        print(f"[pfSense-suricata] ssh-err: {ln}")
+            threading.Thread(target=_drain_stderr, args=(proc,),
+                             daemon=True, name="pfsense-stderr").start()
             print(f"[pfSense-suricata] Connected")
             _suricata_mark_online()
             for line in proc.stdout:
