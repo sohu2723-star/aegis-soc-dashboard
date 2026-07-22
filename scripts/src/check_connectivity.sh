@@ -411,19 +411,7 @@ check_fail2ban_status "$SSH_KEY" "$SSH_USER" 10.20.20.20 "company-ldap-server"
 sub "8. DNS RESOLUTION TEST"
 # ──────────────────────────────────────────────────────────────
 echo ""
-info "Testing bank.local zone (legacy):"
-for domain in company-web-server.bank.local company-dns-server.bank.local \
-              company-customer-db.bank.local company-ldap-server.bank.local; do
-    result=$(dig +short @10.10.10.20 "$domain" 2>/dev/null || echo "")
-    if [[ -n "$result" ]]; then
-        ok "DNS $domain → $result"
-    else
-        warn "DNS $domain → no result (BIND9 bank.local zone may not be configured)"
-    fi
-done
-
-echo ""
-info "Testing goldenmyanmar.trading.com zone (new company):"
+info "Testing goldenmyanmar.trading.com zone:"
 for query in "web.goldenmyanmar.trading.com:10.10.10.10" \
              "db.goldenmyanmar.trading.com:10.20.20.10" \
              "ldap.goldenmyanmar.trading.com:10.20.20.20"; do

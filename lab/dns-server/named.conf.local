@@ -13,9 +13,4 @@ zone "goldenmyanmar.trading.com" {
     // Lab: comment-out the above to demo AXFR zone-transfer attack
 };
 
-// Legacy bank.local zone — keep for backward compat with any old lab entries
-zone "bank.local" {
-    type master;
-    file "/etc/bind/db.bank.local";
-    allow-transfer { none; };
-};
+// bank.local zone removed — goldenmyanmar.trading.com is the only domain
