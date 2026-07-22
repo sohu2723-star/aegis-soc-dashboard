@@ -217,21 +217,28 @@ check_log_exists "$SSH_KEY" "$SSH_USER" 10.20.20.20 "/var/log/fail2ban.log"     
 check_log_exists "$SSH_KEY" "$SSH_USER" 10.20.20.20 "/var/log/syslog"                "company-ldap-server [slapd]"
 
 # pfSense (SSH via pf key)
+# Note: pfSense uses /etc/rc.initial as shell — we test with nc (port check)
+# instead of "echo ok" via SSH, because pfSense shell exits non-zero for
+# arbitrary commands even when auth succeeds.
 echo ""
 info "pfSense Suricata eve.json paths (SSH check):"
 if [[ ! -f "$PF_KEY" ]]; then
     warn "pfSense SSH key not found: $PF_KEY"
     warn "  → Fix: ssh-keygen -t ed25519 -f ~/.ssh/pfsense_key -N ''"
     warn "  → Then add public key to pfSense: System → User Manager → admin → Authorized Keys"
-elif ! ssh -i "$PF_KEY" -o BatchMode=yes -o StrictHostKeyChecking=no \
-         -o ConnectTimeout=5 "${PF_USER}@10.30.30.1" echo "ok" >/dev/null 2>&1; then
-    warn "pfSense SSH connection failed (10.30.30.1)"
-    warn "  → Check: pfSense System → Advanced → Admin Access → SSH enabled?"
-    warn "  → Check: ~/.ssh/pfsense_key.pub added to pfSense admin Authorized Keys?"
+elif ! nc -z -w5 10.30.30.1 22 2>/dev/null; then
+    warn "pfSense port 22 unreachable (10.30.30.1) — check ADMINMANAGEMENT firewall rule"
 else
-    ssh_cmd "$PF_KEY" "$PF_USER" 10.30.30.1 \
-        "ls -lh /var/log/suricata/eve.json 2>&1 && echo OK || echo 'MISSING — Suricata not yet running'" \
-        | sed 's/^/    /' || warn "Remote command failed on pfSense"
+    pf_suricata=$(ssh_cmd "$PF_KEY" "$PF_USER" 10.30.30.1 \
+        "ls -lh /var/log/suricata/eve.json 2>&1" || echo "SSH_AUTH_FAILED")
+    if [[ "$pf_suricata" == "SSH_AUTH_FAILED" ]]; then
+        warn "pfSense SSH auth failed — check ~/.ssh/pfsense_key.pub matches pfSense admin Authorized Keys"
+    elif echo "$pf_suricata" | grep -q "No such file"; then
+        warn "pfSense: /var/log/suricata/eve.json MISSING — Suricata not yet running on pfSense"
+    else
+        ok "pfSense Suricata eve.json:"
+        echo "$pf_suricata" | sed 's/^/    /'
+    fi
 fi
 
 
@@ -247,14 +254,13 @@ echo ""
 info "pfSense WAN blocked hosts (easyrule table):"
 if [[ ! -f "$PF_KEY" ]]; then
     warn "pfSense SSH key missing — skipping pfctl check (see above)"
-elif ! ssh -i "$PF_KEY" -o BatchMode=yes -o StrictHostKeyChecking=no \
-         -o ConnectTimeout=5 "${PF_USER}@10.30.30.1" echo "ok" >/dev/null 2>&1; then
-    warn "pfSense SSH connection failed — skipping pfctl check (see above)"
+elif ! nc -z -w5 10.30.30.1 22 2>/dev/null; then
+    warn "pfSense port 22 unreachable — skipping pfctl check (see above)"
 else
     result=$(ssh_cmd "$PF_KEY" "$PF_USER" 10.30.30.1 \
-        "pfctl -t EasyRuleBlockHosts -T show 2>/dev/null | head -20" || echo "")
+        "pfctl -t EasyRuleBlockHosts -T show 2>/dev/null | head -20" 2>/dev/null || echo "")
     if [[ -z "$result" ]]; then
-        ok "pfSense EasyRuleBlockHosts table — empty (no IPs blocked via easyrule)"
+        ok "pfSense EasyRuleBlockHosts table — empty (no IPs blocked via easyrule yet)"
     else
         info "pfSense blocked IPs:"
         echo "$result" | sed 's/^/    /'
