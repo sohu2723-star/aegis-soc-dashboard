@@ -2431,6 +2431,57 @@ TELEGRAM_CHAT_ID   ← Telegram target chat
 
 ---
 
+## [2026-07-22] — Fix: pfSense Suricata SSH Keepalive + 60s Offline Debounce
+
+**Status:** ✅ Done — committed + pushed to GitHub main
+**What:** pfSense Suricata IDS SSH connection ကို connect/disconnect/retrying loop ဖြစ်နေ — dashboard မှာ status flapping ဖြစ်နေ။
+
+**Root Causes:**
+1. **pfSense sshd idle timeout** — `ServerAliveInterval=30s` မလောက်; pfSense FreeBSD sshd က idle SSH session ကို `30s × CountMax` မတိုင်ခင် ဖြတ်ပစ်နိုင်သည်
+2. **Dashboard flapping** — disconnect ဖြစ်တိုင်း ချက်ချင်း "offline" POST ဖြစ်နေ; 15s retry မှ reconnect ဖြစ်ရင် "online" → "offline" → "online" ဆက်တိုက်ပြောင်းနေ
+3. **Health loop race** — `_pfsense_health_loop()` မှာ Suricata status ကို 30s တိုင်း raw count ကြည့်ပြီး POST — debounce timer နဲ့ conflict ဖြစ်နေ
+
+**Fixes:**
+```
+SSH keepalive:
+  ServerAliveInterval:  30s → 10s  (pfSense sshd အတွက် လောက်ပြီ)
+  ServerAliveCountMax:  6  → 9    (90s grace window)
+  TCPKeepAlive=yes               (NAT/firewall state expiry ကာကွယ်)
+  IdentityAgent=none             (agent cache conflict ရှောင်)
+
+Status debounce (60s):
+  _suricata_mark_offline():  timer 60s စတင်; reconnect ရင် cancel
+  _suricata_mark_online():   pending timer cancel; online POST
+  → dashboard 60s အတွင်း reconnect ဖြစ်ရင် flap မဖြစ်
+
+Health loop:
+  _pfsense_health_loop(): Suricata IDS POST ဖယ်ထုတ် (debounce system သာ handle)
+```
+
+**Result:** ✅ Committed (`03d0c66`) → ✅ Pushed to GitHub main
+
+**Next (VM-side — forwarder `wget` + restart):**
+```bash
+wget -O /opt/aegis/scripts/src/aegis_forwarder.py \
+  https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/scripts/src/aegis_forwarder.py
+sudo systemctl restart aegis-forwarder
+journalctl -u aegis-forwarder -f
+# expect: [pfSense-suricata] Connected → ကျောင်ကျာနေနဲ့ stable
+# 60s reconnect မရင်မှ dashboard offline ပြမည်
+```
+
+**pfSense side စစ်ကြည့်ဖို့ (ဆက်ဖြစ်နေရင်):**
+```sh
+# pfSense shell / Diagnostics → Command Prompt
+grep ClientAlive /etc/ssh/sshd_config
+# ClientAliveInterval သေးရင် → System > Advanced > Secure Shell မှာ မပြောင်းနိုင်
+# ဒါမှမဟုတ် pfSense Suricata package ကိုယ်တိုင် crash/restart ဖြစ်နေတာ စစ်ရမည်:
+ps aux | grep suricata
+ls -la /var/log/suricata/
+```
+
+---
+
 ## [2026-07-22] — Fix: Duplicate Sensor Rows + Wrong-Host Sensor + pfSense Suricata UNKNOWN Status
 
 **Status:** ✅ Done — committed + pushed to GitHub main  
