@@ -2670,3 +2670,25 @@ journalctl -u aegis-forwarder -f
 ```
 
 **Next:** Kali ကနေ nmap/port scan → pfSense Suricata ကဖမ်း → dashboard မှာ alert ပြ confirm လုပ်
+
+---
+
+### [2026-07-22] — Replit Project Import & Dev Environment Setup
+
+**Status:** ✅ Done  
+**What:** GitHub ကနေ Replit သို့ project import လုပ်ပြီး dev environment ကို အပြည့်အစုံ setup လုပ်ခဲ့သည်။  
+**How:**
+1. `pnpm install` — workspace dependencies အားလုံး install (473 packages)
+2. Replit Secrets panel မှာ `SUPABASE_DB_URL`, `AEGIS_INGEST_KEY`, `AEGIS_ADMIN_KEY` ထည့်သွင်း
+3. `ADMIN_EMAIL=copy2723@gmail.com` shared env var အဖြစ် set
+4. Workflows နှစ်ခု start:
+   - **Start application** → Vite frontend, port 5000 ✅
+   - **API Server** → Express build + start, port 3000 ✅
+5. Dashboard login page ပေါ်လာ confirm ✅
+
+**Result:**
+- API Server: `Server listening port: 3000` + `Auto-report scheduler starting` — Supabase connection အောင်မြင်
+- Frontend: AEGIS SOC login page rendering correctly
+- Google SSO 403 = expected (Replit dev domain not in Google Console origins) — Access Key login သုံးနိုင်
+
+**Next:** Secrets များ Render production env မှာလည်း set ထားရမည် (`SUPABASE_DB_URL`, `AEGIS_INGEST_KEY`, `AEGIS_ADMIN_KEY`)
