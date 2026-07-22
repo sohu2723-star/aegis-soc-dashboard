@@ -2333,6 +2333,41 @@ journalctl -u aegis-forwarder -f
 
 ---
 
+## [2026-07-22] — Replit Re-import #3 + Full State Audit
+
+**Status:** ✅ Done
+**What:** GitHub repo ကို Replit မှာ ထပ်မံ import + environment setup + full code/docs audit
+
+**How:**
+1. `pnpm install` — 473 packages installed from lockfile
+2. Secrets set: `SUPABASE_DB_URL`, `AEGIS_INGEST_KEY`, `AEGIS_ADMIN_KEY` (SESSION_SECRET ရှိပြီး)
+3. Full audit: replit.md, SYSTEM_ARCHITECTURE.md, PROJECT_BOOK.md, lab-setup-journal.md (2345 lines), SESSION_LOG.md, forwarder source, API routes, dashboard pages
+
+**Verified in-sync (all ✅):**
+- Topology v4 Final — company-web-server(10.10.10.10), DNS-Server(10.10.10.20), company-customer-db(10.20.20.10), LDAP-Server(10.20.20.20), aegis-company-admin(10.30.30.10)
+- Forwarder: `-o IdentityAgent=none` SSH fix ✅, pfSense Suricata auto-discover ✅, LDAP conn→IP tracking ✅
+- check_connectivity.sh: SSH early-exit bug fix ✅, goldenmyanmar DNS zone test ✅
+- Behavioral analysis: Breach vs Authorized Login classification ✅
+- Defense chain transparency: Attack→Rule→Command dashboard ✅
+- host-utils.tsx: all v4 IPs + label aliases ✅
+- system.ts: DNS Monitor + LDAP Monitor sensors ✅
+
+**Workflows:**
+- Start application → ✅ port 5000 (React/Vite)
+- API Server → ✅ port 3000 (Express + Supabase connected)
+
+**Result:** Code + Replit fully in-sync. No pending code changes.
+
+**Next (VM-side tasks, code ပြင်စရာ မလို):**
+1. aegis-company-admin မှာ forwarder update: `wget -O /opt/aegis/scripts/src/aegis_forwarder.py https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/scripts/src/aegis_forwarder.py && sudo systemctl restart aegis-forwarder`
+2. aegis-company-admin မှာ check_connectivity.sh update: `wget -O /opt/aegis/scripts/src/check_connectivity.sh https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/scripts/src/check_connectivity.sh && chmod +x /opt/aegis/scripts/src/check_connectivity.sh`
+3. `aegis_forwarder.local.conf` မှာ `DNSSERVER_IP=10.10.10.20` + `LDAPSERVER_IP=10.20.20.20` ထည့် (မထည့်ရသေးဘဲဆိုရင်)
+4. company-dns-server မှာ BIND9 logging config ထည့် (`/var/log/named/named.log`)
+5. `./check_connectivity.sh` run ပြီး results စစ်
+6. Kali ကနေ real attack test ဆင်း → dashboard detect + auto-defense confirm
+
+---
+
 ### [2026-07-22] — pfSense Suricata eve.json auto-discovery fix
 
 **Status:** ✅ Done  
