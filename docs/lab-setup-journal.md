@@ -1986,6 +1986,49 @@ Also bumped ServerAliveInterval 15→30, ServerAliveCountMax 3→6 for long-live
 
 ---
 
+## [2026-07-22] — check_connectivity.sh pfSense SSH Key Guard + Better Error Messages ✅
+
+**Status:** ✅ Done
+**What:** pfSense SSH section မှာ key မရှိရင် misleading warning အစား ရှင်းရှင်းလင်းလင်း ပြပြီး fix instructions ပါ ပြအောင် ပြင်ခဲ့
+
+**Root Cause:** `~/.ssh/pfsense_key` မရှိရင် ssh_cmd fail → pipefail → `|| warn "Could not check pfSense Suricata paths"` ပဲ ပြ — ဘာပြဿနာဆိုတာ မသိနိုင်ဘူး
+
+**Fix:**
+```bash
+# Before: မသိနိုင်တဲ့ generic warning
+|| warn "Could not check pfSense Suricata paths"
+
+# After: key check → connection check → real error
+if [[ ! -f "$PF_KEY" ]]; then
+    warn "pfSense SSH key not found: ~/.ssh/pfsense_key"
+    warn "  → Fix: ssh-keygen -t ed25519 -f ~/.ssh/pfsense_key -N ''"
+    warn "  → Then add public key to pfSense: System → User Manager → admin → Authorized Keys"
+elif ! ssh connection test; then
+    warn "pfSense SSH connection failed"
+    warn "  → Check SSH enabled in pfSense + public key added?"
+else
+    # actual check
+fi
+# Same guard logic for pfctl table check too
+```
+
+**Also fixed:** `pfctl table empty` → now shows ✅ "empty (no IPs blocked)" instead of ⚠️ warning
+
+**Pushed to:** GitHub main ✅
+
+**VM-side fix needed (pfSense SSH key setup):**
+```bash
+# Aegis VM မှာ — key မရှိရင် generate
+ls ~/.ssh/pfsense_key || ssh-keygen -t ed25519 -f ~/.ssh/pfsense_key -N ""
+cat ~/.ssh/pfsense_key.pub   # ← copy this
+
+# pfSense Web UI:
+# System → User Manager → admin → Authorized SSH Keys → paste public key → Save
+# System → Advanced → Admin Access → Secure Shell → Enable SSH ✅
+```
+
+---
+
 ## [2026-07-22] — check_connectivity.sh pfSense Suricata Path Fix ✅
 
 **Status:** ✅ Done
