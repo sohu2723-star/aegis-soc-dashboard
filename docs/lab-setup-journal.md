@@ -2330,3 +2330,16 @@ wget -O /opt/aegis/scripts/src/aegis_forwarder.py \
 sudo systemctl restart aegis-forwarder
 journalctl -u aegis-forwarder -f
 ```
+
+---
+
+### [2026-07-22] — pfSense Suricata eve.json auto-discovery fix
+
+**Status:** ✅ Done  
+**What:** pfSense Suricata log path `/var/log/suricata/eve.json` သည် broken symlink ဖြစ်နေ (`suricata_em011157/eve.json` မရှိ)၊ real files တွေက PID-based subdirectories မှာပဲ ရှိ — `suricata_em1.1042709/eve.json` နဲ့ `suricata_em2.2062963/eve.json`။ Suricata restart တိုင်း PID ပြောင်းတော့ path ပြောင်း၊ forwarder path missing error ဖြစ်နေ။  
+**How:** `_watch_pfsense_suricata()` မှာ `remote_cmd` ကို auto-discover logic ထည့်ပြင်—  
+- Configured path `-f` test fail ရင် `find /var/log/suricata/ -maxdepth 2 -name eve.json -type f | sort | head -1` နဲ့ real path ရှာ  
+- Path မတွေ့သေးရင် 5s loop နဲ့ ထပ်ရှာ (Suricata မ start ရသေးလို့ wait)  
+- Path တွေ့ပြီးရင် `tail -F` ဆက်တိုက် tail လုပ်  
+**Result:** Suricata restart → PID ပြောင်း → forwarder auto-rediscover ဖြစ်မယ်၊ `PFSENSE_SURICATA_LOG` config ပြင်စရာမလို  
+**Next:** Ubuntu VM မှာ `wget` နဲ့ script update ၊ forwarder restart ၊ `[pfSense-suricata] Connected` ပြန်ထွက်လာသည်အထိ log ကြည့်

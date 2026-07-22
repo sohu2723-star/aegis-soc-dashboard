@@ -8,17 +8,18 @@ pfSense is the ONLY place Suricata runs — not on individual company VMs. All n
 
 **Why:** GNS3 lab has pfSense as the single gateway (10.30.30.1). All inter-zone traffic passes through it, making pfSense the ideal (and only needed) IDS point.
 
-## Actual eve.json Path (CONFIRMED 2026-07-22)
+## Actual eve.json Path (CONFIRMED 2026-07-22, updated)
 
-**CORRECT:** `/var/log/suricata/eve.json`
-**WRONG (old assumption):** `/var/db/suricata/suricata_em110/eve.json`
+**Root symlink is broken** — `/var/log/suricata/eve.json` points to `suricata_em011157/eve.json` which no longer exists.  
+**Real files** (PID-based, change on every Suricata restart):
+- `/var/log/suricata/suricata_em1.<PID>/eve.json`
+- `/var/log/suricata/suricata_em2.<PID>/eve.json`
 
 Key findings from pfSense diagnostics:
-- `/var/db/suricata/` = **rules only** (not logs). suricata_em110/ and suricata_em220/ subdirs contain only a `rules/` folder.
-- Actual logs → `/var/log/suricata/`
-- pfSense Suricata process uses config from `/usr/local/etc/suricata/suricata_<PID>_em1.10/suricata.yaml`
-- `default-log-dir` in YAML = `/var/log/suricata/suricata_em1.<PID>/` — instance subdirs use **dynamic PID numbers** that change on every Suricata restart
-- Root-level `/var/log/suricata/eve.json` is the stable combined log path
+- `/var/db/suricata/` = **rules only** (not logs)
+- Actual logs → `/var/log/suricata/suricata_em<N>.<PID>/eve.json`
+- PID number changes every time Suricata restarts — hardcoded paths break
+- **Fix**: `_watch_pfsense_suricata()` now auto-discovers via `find /var/log/suricata/ -maxdepth 2 -name eve.json -type f | sort | head -1` when configured path is missing/broken
 
 ## How it works
 - `_watch_pfsense_suricata()` in `aegis_forwarder.py` — spawned as one daemon thread in hub mode

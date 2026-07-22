@@ -1218,10 +1218,23 @@ def _watch_pfsense_suricata(log_path: str | None = None):
                         "/var/log/suricata/eve.json")
     ssh_key  = os.path.expanduser(PFSENSE_SSH_KEY)
     # FreeBSD (pfSense) tail -F exits immediately if the file does not exist,
-    # unlike GNU coreutils which retries. Use a sh wait-loop so we keep the SSH
-    # session alive until Suricata creates the eve.json file, then start tailing.
+    # unlike GNU coreutils which retries.
+    #
+    # Auto-discovery: pfSense Suricata writes logs to PID-based subdirectories
+    # (e.g. suricata_em1.1042709/eve.json) that change on every Suricata restart.
+    # The root-level eve.json is sometimes a broken symlink. If the configured
+    # path is missing or a broken symlink, we run `find` to locate the real file.
     remote_cmd = (
-        f"sh -c 'while [ ! -f {log_path} ]; do sleep 5; done; tail -F {log_path} 2>/dev/null'"
+        "sh -c '"
+        f"P={log_path}; "
+        "[ -f \"$P\" ] || "
+        "  P=$(find /var/log/suricata/ -maxdepth 2 -name eve.json -type f 2>/dev/null | sort | head -1); "
+        "while [ -z \"$P\" ] || [ ! -f \"$P\" ]; do "
+        "  sleep 5; "
+        "  P=$(find /var/log/suricata/ -maxdepth 2 -name eve.json -type f 2>/dev/null | sort | head -1); "
+        "done; "
+        "tail -F \"$P\" 2>/dev/null"
+        "'"
     )
     ssh_cmd  = [
         "ssh", "-T",
