@@ -240,16 +240,39 @@ WebGUI → System → Advanced → Admin Access
 
 ### 4e. pfSense SSH Key ထည့် (password မတောင်းဘဲ access ဖို့)
 
-```
-WebGUI → System → User Manager → admin → Edit
-→ Authorized SSH Keys box ထဲ aegis-company-admin ရဲ့ public key paste
-→ Save
+pfSense သည် standard `ssh-copy-id` ကို support မလုပ် (shell က `/etc/rc.initial` menu ဖြစ်တာကြောင့်)။
+
+**Recommended Method — scp + Diagnostics Command Prompt** (Browser paste line-break ပြဿနာ မဖြစ်):
+
+**① Aegis VM မှာ key verify + push:**
+```bash
+# Key file တစ်ကြောင်းတည်းဆိုတာ confirm
+wc -l ~/.ssh/pfsense_key.pub   # 1 ထွက်ရမည်
+
+# Key pair မကိုက်မကိုက် verify (generate အသစ်ပြီးမှ မဖြစ်ဖို့ စစ်ပါ)
+ssh-keygen -y -f ~/.ssh/pfsense_key | diff - ~/.ssh/pfsense_key.pub && echo "MATCH" || echo "MISMATCH"
+
+# pfSense ထဲ scp နဲ့ push (password auth သုံး)
+scp ~/.ssh/pfsense_key.pub admin@10.30.30.1:/tmp/pfsense_key.pub
 ```
 
-*AEGIS VM ကနေ public key ကြည့်ဖို့:*
-```bash
-cat ~/.ssh/pfsense_key.pub
+**② pfSense WebGUI → Diagnostics → Command Prompt:**
+```sh
+mkdir -p /root/.ssh && chmod 700 /root/.ssh && cat /tmp/pfsense_key.pub > /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys
 ```
+→ Execute နှိပ် — output မပေါ်ရင် OK (error မပါမချင်း success)
+
+**③ Test (agent bypass):**
+```bash
+ssh -i ~/.ssh/pfsense_key \
+    -o IdentityAgent=none \
+    -o BatchMode=yes \
+    -o StrictHostKeyChecking=no \
+    admin@10.30.30.1 exit
+echo "Exit: $?"   # 0 ထွက်ရမည်
+```
+
+*ဘာကြောင့် WebGUI paste မသုံးဘဲ scp သုံးသလဲ:* Browser မှတဆင့် paste လုပ်ရင် `ssh-ed25519 AAAA...` key တစ်ကြောင်းကို ၂ ကြောင်း split ဖြစ်သွားတတ်သည်။ pfSense ကတနည်းနဲ့ partial key ကို read ပြီး auth fail ဖြစ်သည်။ scp + Command Prompt သည် file ကို raw transfer လုပ်သောကြောင့် format မပျက်။
 
 ---
 
@@ -470,15 +493,102 @@ ssh-copy-id -i ~/.ssh/aegis_id_rsa.pub sithu@10.20.20.10
 ssh-copy-id -i ~/.ssh/aegis_id_rsa.pub sithu@10.20.20.20
 ```
 
-### pfSense SSH Key ထည့်နည်း
-pfSense ကို ssh-copy-id မသုံးနိုင် — WebGUI မှတဆင့် ထည့်ရသည်:
+### pfSense SSH Key ထည့်နည်း (Correct Method)
+
+pfSense အတွက် Section 4e တွင် ဖော်ပြထားသော **scp + Diagnostics Command Prompt** method ကို သုံးပါ။ WebGUI paste method သည် browser line-break ကြောင့် key corrupt ဖြစ်တတ်သည်။
+
+---
+
+### SSH Keypair Mismatch — ဘာကြောင့် ဖြစ်တာလဲ?
+
+#### Error message
+```
+identity_sign: private key /home/sithu/.ssh/pfsense_key contents do not match public key
+```
+
+#### Concept
+SSH key pair ဆိုသည်မှာ private key + public key ကွင်းဆက်ဖြစ်ပြီး တစ်ပြိုင်နက် generate လုပ်မှ match ဖြစ်သည်။
+
+```
+generate တစ်ကြိမ်တည်း → private key A ↔ public key A   (match ✅)
+
+ပြဿနာ ဖြစ်တတ်တဲ့ scenarios:
+  - Private key ကို overwrite လုပ်ပြီး public key ကို မ overwrite (သို့)
+  - Public key ကို တစ်ဖိုင်မှ copy၊ private key က တစ်ခြား generate မှ
+  → private key B ↔ public key A   (mismatch ❌)
+```
+
+#### Verify
 ```bash
-cat ~/.ssh/pfsense_key.pub   # ဒီ output ကို copy
+ssh-keygen -y -f ~/.ssh/pfsense_key | diff - ~/.ssh/pfsense_key.pub && echo "MATCH" || echo "MISMATCH"
+# ssh-keygen -y : private key ကနေ public key ထုတ် (private key ကို test လုပ်)
+# diff          : derive ထုတ်တဲ့ public key နဲ့ .pub file ကို နှိုင်းယှဉ်
 ```
+
+#### Fix
+```bash
+# Keypair အသစ် generate (ဟောင်းတဲ့ mismatched files ကို overwrite)
+ssh-keygen -t ed25519 -f ~/.ssh/pfsense_key -N "" -C "sithu@Aegis-admin"
+# overwrite prompt ပေါ်ရင် y နှိပ်
+
+# Verify ထပ်စစ်
+ssh-keygen -y -f ~/.ssh/pfsense_key | diff - ~/.ssh/pfsense_key.pub && echo "MATCH OK"
+
+# ပြီးရင် Section 4e method နဲ့ pfSense ထဲ key ထည့်
 ```
-WebGUI → System → User Manager → admin → Edit
-→ Authorized SSH Keys → paste → Save
+
+---
+
+### SSH Agent Refused Operation — ဘာကြောင့် ဖြစ်တာလဲ?
+
+#### Error message
 ```
+sign_and_send_pubkey: signing failed for ED25519 "key" from agent: agent refused operation
+```
+
+#### Concept
+SSH Agent (`ssh-agent`) သည် private key တွေကို memory ထဲ cache လုပ်ထားသော background process ဖြစ်သည်။
+
+```
+ssh-agent cache ထဲ key ရှိနေတာ → SSH က file ကို bypass ကာ agent ကိုသာ သုံး
+Agent refuse ဖြစ်ရတဲ့ အကြောင်းများ:
+  ① Key ကို passphrase ပါပါ cache လုပ်ထားပြီး passphrase expire/lost
+  ② Key ကို confirm constraint (-c flag) နဲ့ add ထားလို့ interactive confirm မဖြစ်
+  ③ Agent ထဲ key ရှိပေမဲ့ private file ကိုက်မကိုက် internal validation fail
+  ④ Agent socket stale (session restart ပြဿနာ)
+```
+
+#### `-i` flag ပါပေမဲ့ ဘာကြောင့် agent ကို သုံးနေတာလဲ?
+```
+ssh -i ~/.ssh/pfsense_key → key file ကနေ public key extract → agent ထဲ match ရှာ
+Agent မှာ match ရှိတဲ့ key ကို sign ဖို့ request → agent refuse → fail (file fallback မလုပ်)
+```
+
+#### Fix ၂ နည်း
+
+**Option A — IdentityAgent=none (ချက်ချင်း fix)**
+```bash
+# Agent ကို လုံးဝ bypass — key file ကို တိုက်ရိုက် သုံး
+ssh -i ~/.ssh/pfsense_key \
+    -o IdentityAgent=none \
+    -o BatchMode=yes \
+    admin@10.30.30.1 exit
+```
+
+**Option B — Agent ကို restart**
+```bash
+# Agent kill ပြီး session အသစ် start
+eval $(ssh-agent -k)    # ဟောင်း agent ကို kill
+eval $(ssh-agent)       # အသစ် start
+ssh-add ~/.ssh/pfsense_key  # key ထည့်
+
+# Test
+ssh -i ~/.ssh/pfsense_key -o BatchMode=yes admin@10.30.30.1 exit
+```
+
+> **AEGIS forwarder အတွက် note:** `aegis_forwarder.py` သည် SSH command တိုင်းတွင် `-i key_file` နဲ့ `-o IdentityAgent=none` သုံးသောကြောင့် agent ပြဿနာ မသက်ဆိုင်
+
+---
 
 ### Known Hosts ပြဿနာ ဖြေရှင်းနည်း
 
@@ -945,6 +1055,68 @@ ssh-keygen -f "/home/sithu/.ssh/known_hosts" -R "<IP>"
 # -R : Remove host entry
 ```
 
+### pfSense SSH Auth Fail — Permission denied (publickey)
+
+**Symptom:**
+```
+admin@10.30.30.1: Permission denied (publickey,password,keyboard-interactive)
+```
+
+**ဆင့်ဆင့် diagnose:**
+
+**① Key pair match စစ်ဦး (အရေးကြီးဆုံး)**
+```bash
+ssh-keygen -y -f ~/.ssh/pfsense_key | diff - ~/.ssh/pfsense_key.pub && echo "MATCH" || echo "MISMATCH"
+```
+→ `MISMATCH` ရရင် → keypair generate အသစ် လုပ်ရမည်:
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/pfsense_key -N "" -C "sithu@Aegis-admin"
+# overwrite → y
+```
+
+**② pfSense ထဲ key ရောက်မရောက် စစ်**
+
+pfSense WebGUI → Diagnostics → Command Prompt:
+```sh
+cat /root/.ssh/authorized_keys
+```
+→ `ssh-ed25519 AAAA...` တစ်ကြောင်းတည်း ပေါ်ရမည်
+→ ၂ ကြောင်း သို့မဟုတ် မပေါ်ရင် → key ကို re-install လုပ်ရမည် (Section 4e method)
+
+**③ Agent bypass နဲ့ test**
+```bash
+ssh -i ~/.ssh/pfsense_key \
+    -o IdentityAgent=none \
+    -o BatchMode=yes \
+    -o StrictHostKeyChecking=no \
+    admin@10.30.30.1 exit
+echo "Exit: $?"
+```
+
+**Root causes summary:**
+
+| Error message | ဘာဖြစ်တာလဲ | Fix |
+|---|---|---|
+| `identity_sign: private key contents do not match public key` | Keypair mismatch | Generate အသစ် + pfSense re-install |
+| `agent refused operation` + Permission denied | Agent cache conflict | `-o IdentityAgent=none` သုံး |
+| `Permission denied` (agent error မပါ) | pfSense authorized_keys မှားနေ | scp + Diagnostics Command Prompt |
+
+### pfSense SSH Key Install — Browser Paste Line-break ပြဿနာ
+
+**Symptom:** WebGUI Authorized SSH Keys box ထဲ paste ပြီး Save လုပ်သောလည်း auth fail ဆက်ဖြစ်နေ
+
+**ဘာကြောင့်:** Browser clipboard မှ paste လုပ်ရင် `ssh-ed25519 AAAA...TjWCt sithu@Aegis-admin` ဟုသော တစ်ကြောင်းကို ၂ ကြောင်းခွဲသောကြောင့် pfSense က valid key မဟုတ်ဟု ပယ်ချသည်
+
+**Correct fix:**
+```bash
+# Aegis VM မှာ scp နဲ့ push (format ပျက်မည် မဟုတ်)
+scp ~/.ssh/pfsense_key.pub admin@10.30.30.1:/tmp/pfsense_key.pub
+```
+pfSense WebGUI → **Diagnostics → Command Prompt** (User Manager မဟုတ်):
+```sh
+cat /tmp/pfsense_key.pub > /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys
+```
+
 ---
 
 ## Quick Reference Card
@@ -997,7 +1169,54 @@ sudo tail -f /var/log/suricata/eve.json | grep '"event_type":"alert"'
 ~/.ssh/aegis_id_rsa      ← Company VMs (company-web-server, DNS, company-customer-db, LDAP) private key
 ~/.ssh/aegis_id_rsa.pub  ← Public key (VM တွေ authorized_keys ထဲ ထည့်ထားရ)
 ~/.ssh/pfsense_key       ← pfSense private key
-~/.ssh/pfsense_key.pub   ← pfSense WebGUI User Manager ထဲ paste ထားရ
+~/.ssh/pfsense_key.pub   ← pfSense /root/.ssh/authorized_keys ထဲ ထည့်ထားရ (scp + Diagnostics method)
+```
+
+### pfSense SSH Commands
+
+```bash
+# Keypair match verify
+ssh-keygen -y -f ~/.ssh/pfsense_key | diff - ~/.ssh/pfsense_key.pub && echo "MATCH"
+
+# Key push to pfSense (password auth)
+scp ~/.ssh/pfsense_key.pub admin@10.30.30.1:/tmp/pfsense_key.pub
+
+# pfSense Diagnostics → Command Prompt မှာ:
+# cat /tmp/pfsense_key.pub > /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys
+
+# Auth test (agent bypass)
+ssh -i ~/.ssh/pfsense_key -o IdentityAgent=none -o BatchMode=yes -o StrictHostKeyChecking=no admin@10.30.30.1 exit
+echo "Exit: $?"   # 0 = OK
+
+# pfSense authorized_keys content စစ်
+# pfSense WebGUI → Diagnostics → Command Prompt:
+# cat /root/.ssh/authorized_keys
+```
+
+### check_connectivity.sh — Full Lab Diagnostic Script
+
+```bash
+# aegis-company-admin မှာ run (latest version download)
+wget -O ~/check_connectivity.sh \
+  https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/scripts/src/check_connectivity.sh
+chmod +x ~/check_connectivity.sh
+./check_connectivity.sh
+```
+
+Script သည် section ၁၀ ခု check လုပ်သည်:
+```
+0. Pre-flight: SSH key file existence + permissions
+1. Ping reachability (all hosts)
+2. SSH passwordless auth (all company VMs + pfSense)
+3. Port check (22/80/53/3306/389/443)
+4. Service status (apache2/named/mysql/slapd/suricata/fail2ban)
+5. Log file existence (auth.log/fail2ban.log/named.log/mysql/syslog)
+6. iptables blocked IPs per VM + pfSense EasyRuleBlockHosts
+7. Fail2ban banned IPs per VM
+8. DNS resolution (bank.local + goldenmyanmar.trading.com zones)
+9. aegis-forwarder service status + journal
+10. AEGIS API healthz check
+→ PASS/FAIL/WARN count summary at end
 ```
 
 ---

@@ -258,6 +258,7 @@ def _remote_fail2ban_signature(host_ip: str, jail: str) -> str:
         "-o", "StrictHostKeyChecking=no",
         "-o", "ConnectTimeout=8",
         "-o", "BatchMode=yes",
+        "-o", "IdentityAgent=none",
         f"{REMOTE_SSH_USER}@{host_ip}",
         remote_cmd,
     ]
@@ -301,6 +302,7 @@ def _lookup_pfsense_rule(sid: int) -> str | None:
         "-o", "StrictHostKeyChecking=no",
         "-o", "ConnectTimeout=8",
         "-o", "BatchMode=yes",
+        "-o", "IdentityAgent=none",
         f"{PFSENSE_SSH_USER}@{PFSENSE_IP}",
         grep_cmd,
     ]
@@ -421,6 +423,7 @@ def _exec_defense_pfsense_ssh(command: str, cmd_id: int):
         "-o", "StrictHostKeyChecking=no",
         "-o", "ConnectTimeout=10",
         "-o", "BatchMode=yes",
+        "-o", "IdentityAgent=none",
         f"{PFSENSE_SSH_USER}@{PFSENSE_IP}",
         command,
     ]
@@ -468,6 +471,7 @@ def _exec_defense_pfsense(payload_json: str, cmd_id: int):
             "-o", "StrictHostKeyChecking=no",
             "-o", "ConnectTimeout=10",
             "-o", "BatchMode=yes",
+            "-o", "IdentityAgent=none",
             f"{PFSENSE_SSH_USER}@{PFSENSE_IP}",
         ]
 
@@ -531,6 +535,7 @@ def _exec_defense_ssh_remote(target_ip: str, command: str, cmd_id: int):
         "-o", "StrictHostKeyChecking=no",
         "-o", "ConnectTimeout=10",
         "-o", "BatchMode=yes",
+        "-o", "IdentityAgent=none",
         f"{REMOTE_SSH_USER}@{target_ip}",
         f"sudo {command}",
     ]
@@ -553,6 +558,7 @@ def _exec_defense_ssh_remote(target_ip: str, command: str, cmd_id: int):
                     "-o", "StrictHostKeyChecking=no",
                     "-o", "ConnectTimeout=10",
                     "-o", "BatchMode=yes",
+                    "-o", "IdentityAgent=none",
                     f"{REMOTE_SSH_USER}@{target_ip}",
                     f"sudo ss -K dst {blocked_ip} 2>/dev/null; sudo ss -K src {blocked_ip} 2>/dev/null; true",
                 ]

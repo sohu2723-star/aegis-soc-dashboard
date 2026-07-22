@@ -2247,3 +2247,86 @@ wget -O /opt/aegis/scripts/src/check_connectivity.sh \
 chmod +x /opt/aegis/scripts/src/check_connectivity.sh
 ./opt/aegis/scripts/src/check_connectivity.sh
 ```
+
+---
+
+## [2026-07-22] — pfSense SSH Auth Fail: Diagnosis + Fix + Project Book Update
+
+**Status:** ✅ Done
+
+### ပြဿနာ (symptoms)
+
+`check_connectivity.sh` run ရင် pfSense SSH auth fail ဖြစ်နေ:
+```
+admin@10.30.30.1: Permission denied (publickey,password,keyboard-interactive)
+sign_and_send_pubkey: signing failed for ED25519 "..." from agent: agent refused operation
+identity_sign: private key /home/sithu/.ssh/pfsense_key contents do not match public key
+```
+
+### Root Cause (အဆင့်ဆင့် စစ်ထွက်ခဲ့တာ)
+
+**Root cause: SSH keypair mismatch**
+`~/.ssh/pfsense_key` (private) နဲ့ `~/.ssh/pfsense_key.pub` (public) မတိုက်ဆိုင်ဘူး — previous session တစ်ခုတည်းတည်းမှာ file တစ်ဖိုင်ကိုသာ overwrite ဖြစ်သွားမည် ဟု ခန့်မှန်းရ
+
+**Secondary cause: SSH agent interference**
+Agent ထဲ mismatched key ကို cache လုပ်ထားတာကြောင့် `-i` flag ပါပေမဲ့ SSH က agent ကိုဦးစိုက်ကြိုးစားပြီး agent refuse ဖြစ်သည်
+
+### Concepts ရရှိ
+
+| Concept | သဘောတရား |
+|---|---|
+| Keypair mismatch | Private + Public key တစ်ပြိုင်နက် generate မမှုရင် match မဖြစ်၊ SSH sign fail |
+| Agent refused operation | SSH agent ထဲ key cache ရှိတာ agent refuse → `-i` flag ပါပေမဲ့ agent priority ကြောင့် fail |
+| `-o IdentityAgent=none` | Agent ကို လုံးဝ bypass ကာ key file ကိုသာ တိုက်ရိုက် သုံး |
+| pfSense WebGUI paste bug | Browser copy-paste → key တစ်ကြောင်း ၂ ကြောင်း split → pfSense reject |
+| scp + Diagnostics fix | scp ကနေ raw file transfer → pfSense Command Prompt မှ install → format ပျက်မည် မဟုတ် |
+
+### Fix (VM မှာ လုပ်ရမည်)
+
+```bash
+# 1. Keypair စစ်
+ssh-keygen -y -f ~/.ssh/pfsense_key | diff - ~/.ssh/pfsense_key.pub && echo "MATCH" || echo "MISMATCH"
+
+# 2. Mismatch ဆိုရင် အသစ် generate
+ssh-keygen -t ed25519 -f ~/.ssh/pfsense_key -N "" -C "sithu@Aegis-admin"
+
+# 3. pfSense ထဲ push
+scp ~/.ssh/pfsense_key.pub admin@10.30.30.1:/tmp/pfsense_key.pub
+
+# 4. pfSense WebGUI → Diagnostics → Command Prompt:
+# cat /tmp/pfsense_key.pub > /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys
+
+# 5. Test (agent bypass)
+ssh -i ~/.ssh/pfsense_key -o IdentityAgent=none -o BatchMode=yes -o StrictHostKeyChecking=no admin@10.30.30.1 exit
+echo "Exit: $?"   # 0 ရရင် OK
+```
+
+### Code Changes
+
+**`scripts/src/aegis_forwarder.py`** — SSH blocks ၆ ခုလုံးမှာ `-o IdentityAgent=none` ထည့်:
+- `_fetch_fail2ban_signature()` SSH call
+- `_lookup_pfsense_rule()` SSH call
+- `_exec_defense_pfsense_ssh()` SSH call
+- `_exec_defense_pfsense()` ssh_base
+- `_exec_defense_ssh_remote()` main SSH call
+- `_exec_defense_ssh_remote()` kill_cmd SSH call
+
+**`docs/PROJECT_BOOK.md`** — New concepts ထည့်:
+- Section 4e: scp + Diagnostics method (WebGUI paste method ကို replace)
+- Section 7: Keypair mismatch concept + verify + fix subsection ထည့်
+- Section 7: SSH Agent Refused Operation concept + IdentityAgent=none subsection ထည့်
+- Section 7: pfSense SSH Key ထည့်နည်း ← correct method ညွှန်
+- Section 12: pfSense SSH auth fail troubleshooting table ထည့်
+- Section 12: Browser paste line-break bug ထည့်
+- Quick Reference: pfSense SSH commands block ထည့်
+- Quick Reference: check_connectivity.sh reference ထည့်
+
+**Pushed to:** GitHub main ✅
+
+**VM forwarder update command:**
+```bash
+wget -O /opt/aegis/scripts/src/aegis_forwarder.py \
+  https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/scripts/src/aegis_forwarder.py
+sudo systemctl restart aegis-forwarder
+journalctl -u aegis-forwarder -f
+```
