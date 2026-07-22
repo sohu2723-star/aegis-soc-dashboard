@@ -351,15 +351,19 @@ else
         pf_auth_ok=0
     else
         pf_auth_ok=1
+        # Root-level /var/log/suricata/eve.json may be a broken symlink.
+        # Use find to locate real eve.json files in PID-based subdirectories
+        # (e.g. suricata_em1.<PID>/eve.json) — these change on every Suricata restart.
         pf_suricata=$(ssh_cmd "$PF_KEY" "$PF_USER" 10.30.30.1 \
-            "/bin/sh -c 'if [ -f /var/log/suricata/eve.json ]; then ls -lh /var/log/suricata/eve.json; else echo FILE_MISSING; fi'" \
+            "/bin/sh -c 'FOUND=\$(find /var/log/suricata/ -maxdepth 2 -name eve.json -type f 2>/dev/null | sort); if [ -n \"\$FOUND\" ]; then echo \"\$FOUND\" | while read p; do ls -lh \"\$p\"; done; else echo FILE_MISSING; fi'" \
             || echo "CMD_ERROR")
 
         if [[ "$pf_suricata" == *"FILE_MISSING"* ]] || [[ "$pf_suricata" == "CMD_ERROR" ]]; then
-            warn "pfSense: /var/log/suricata/eve.json MISSING — Suricata not yet started"
+            warn "pfSense: No Suricata eve.json found in /var/log/suricata/ — Suricata not yet started"
             info "  → pfSense: Services → Suricata → Interfaces → enable em1.10 → Start"
+            info "  → Note: /var/log/suricata/eve.json symlink may be broken — real logs in PID subdirs"
         else
-            ok "pfSense Suricata eve.json exists:"
+            ok "pfSense Suricata eve.json found:"
             echo "$pf_suricata" | sed 's/^/    /'
         fi
     fi
