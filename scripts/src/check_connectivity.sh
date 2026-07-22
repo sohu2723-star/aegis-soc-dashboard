@@ -229,12 +229,17 @@ if [[ ! -f "$PF_KEY" ]]; then
 elif ! nc -z -w5 10.30.30.1 22 2>/dev/null; then
     warn "pfSense port 22 unreachable (10.30.30.1) — check ADMINMANAGEMENT firewall rule"
 else
+    # Run ls; capture both stdout+stderr and exit code separately
     pf_suricata=$(ssh_cmd "$PF_KEY" "$PF_USER" 10.30.30.1 \
-        "ls -lh /var/log/suricata/eve.json 2>&1" || echo "SSH_AUTH_FAILED")
-    if [[ "$pf_suricata" == "SSH_AUTH_FAILED" ]]; then
+        "ls -lh /var/log/suricata/eve.json 2>&1")
+    pf_ls_exit=$?
+    if [[ $pf_ls_exit -ne 0 && -z "$pf_suricata" ]]; then
+        # No output + non-zero = genuine auth/connection failure
         warn "pfSense SSH auth failed — check ~/.ssh/pfsense_key.pub matches pfSense admin Authorized Keys"
-    elif echo "$pf_suricata" | grep -q "No such file"; then
-        warn "pfSense: /var/log/suricata/eve.json MISSING — Suricata not yet running on pfSense"
+    elif echo "$pf_suricata" | grep -qiE "No such file|cannot access|not found"; then
+        # File missing is expected if Suricata not yet started
+        warn "pfSense: /var/log/suricata/eve.json MISSING — Suricata not yet configured/started on pfSense"
+        info "  → pfSense: Services → Suricata → Add interface (WAN) → Save → Start"
     else
         ok "pfSense Suricata eve.json:"
         echo "$pf_suricata" | sed 's/^/    /'
