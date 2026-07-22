@@ -2431,6 +2431,49 @@ TELEGRAM_CHAT_ID   ← Telegram target chat
 
 ---
 
+## [2026-07-22] — Fix: Duplicate Sensor Rows + Wrong-Host Sensor + pfSense Suricata UNKNOWN Status
+
+**Status:** ✅ Done — committed + pushed to GitHub main  
+**What:** Previous agent session မှာ quota ကုန်သွားလို့ uncommitted ကျန်ခဲ့တဲ့ 3 root cause fixes ကို ပြီးဆုံးအောင် apply ပြီး push ခဲ့သည်။
+
+**Root Causes (screenshots ကြည့်ပြီး diagnose):**
+
+**① pfSense Firewall + Fail2ban — Duplicate rows in `system_status` DB**  
+Same `(component, hostIp)` pair rows DB ထဲ ၂ ကြောင်းနှစ်ကြောင်း ပေါ်နေ — forwarder restart တိုင်း re-register ဖြစ်ပြီး duplicate ဖြစ်တာ  
+→ `purgeStaleRows()` မှာ dedup logic ထည့်: highest-id row ကိုသာ keep, ကျန်တာ delete
+
+**② MySQL Monitor on LDAP server (10.20.20.20) — Wrong-host sensor row**  
+`MySQL Monitor` sensor row ကို LDAP server IP (10.20.20.20) နဲ့ register ဖြစ်နေ — ဟောင်း forwarder version က wrong host မှာ ထည့်ခဲ့တာ  
+→ `purgeStaleRows()` မှာ `seededComponents` set ထပ်ထည့်: per-host sensor name တစ်ခုရှိပြီး (hostIp, component) pair မမှန်ရင် → delete
+
+**③ pfSense Suricata IDS — Dashboard မှာ "UNKNOWN" ဆက်ပြနေ**  
+`_watch_pfsense_suricata()` က SSH connect ဖြစ်ပေမဲ့ `/api/system/status` ကို status POST မလုပ်ဘူး  
+→ `_suricata_connected_count` counter + lock ထည့်; `_suricata_mark_online()` / `_suricata_mark_offline()` helper functions ထည့်; SSH connect မှာ online, disconnect မှာ offline POST; `_pfsense_health_loop()` မှာပါ 30s တိုင်း Suricata IDS status report ထည့်
+
+**How:**
+```
+system.ts    — purgeStaleRows(): dedup (Fix 1) + seededComponents wrong-host purge (Fix 2)
+forwarder.py — _suricata_connected_count + lock (module-level)
+               _post_pfsense_suricata_status() helper
+               _suricata_mark_online() / _suricata_mark_offline()
+               _watch_pfsense_suricata(): mark online after connect, offline on disconnect/error
+               _pfsense_health_loop(): post pfSense Suricata IDS status every 30s
+```
+
+**Result:** ✅ Committed (`3c1a263`) → ✅ Pushed to GitHub main  
+Both workflows restarted cleanly: API Server port 3000 ✅ / Dashboard port 5000 ✅
+
+**Next (VM-side — forwarder `wget` + restart):**
+```bash
+wget -O /opt/aegis/scripts/src/aegis_forwarder.py \
+  https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/scripts/src/aegis_forwarder.py
+sudo systemctl restart aegis-forwarder
+journalctl -u aegis-forwarder -f
+# confirm: "[pfSense-suricata] Connected" + pfSense Suricata IDS → "online"
+```
+
+---
+
 ## [2026-07-22] — Replit Import #5 + Full Secrets + Workflows Running
 
 **Status:** ✅ Done
