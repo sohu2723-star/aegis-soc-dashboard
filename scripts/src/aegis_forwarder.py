@@ -1349,36 +1349,55 @@ def _watch_pfsense_suricata(log_path: str | None = None):
                              daemon=True, name="pfsense-stderr").start()
             print(f"[pfSense-suricata] Connected")
             _suricata_mark_online()
-            for line in proc.stdout:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    evt = json.loads(line)
-                    etype = evt.get("event_type")
-                    evt["targetHost"] = "pfsense"   # stamp source for dashboard
-                    if etype == "alert":
-                        # Attach full rule text so dashboard can show it.
-                        # Priority: 1) EVE JSON already has alert.rule field (Suricata ≥7 with rule logging)
-                        #           2) grep the rules files on pfSense by SID
-                        alert_obj = evt.get("alert", {})
-                        if not alert_obj.get("rule"):
-                            sid = alert_obj.get("signature_id")
-                            if sid:
-                                rule_text = _lookup_pfsense_rule(int(sid))
-                                if rule_text:
-                                    alert_obj["rule"] = rule_text
-                                    evt["alert"] = alert_obj
-                        post("suricata", evt)
-                    elif etype == "tls":
-                        post("suricata/tls", {
-                            "src_ip":    evt.get("src_ip"),
-                            "dest_ip":   evt.get("dest_ip"),
-                            "dest_port": evt.get("dest_port"),
-                            "tls":       evt.get("tls", {}),
-                        })
-                except json.JSONDecodeError:
-                    pass
+
+            # Keepalive: re-post "online" every 60 s while SSH tail is active.
+            # Without this, system.ts stale-timeout (2 min) marks Suricata as
+            # "offline" even though the tail is still running — because the
+            # forwarder only posts "online" once on connect, not periodically.
+            _ka_stop = threading.Event()
+            def _keepalive_loop(stop_evt: threading.Event) -> None:
+                while not stop_evt.wait(60):
+                    _post_pfsense_suricata_status("online")
+            _ka_thread = threading.Thread(
+                target=_keepalive_loop, args=(_ka_stop,),
+                daemon=True, name="pfsense-suricata-ka",
+            )
+            _ka_thread.start()
+
+            try:
+                for line in proc.stdout:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        evt = json.loads(line)
+                        etype = evt.get("event_type")
+                        evt["targetHost"] = "pfsense"   # stamp source for dashboard
+                        if etype == "alert":
+                            # Attach full rule text so dashboard can show it.
+                            # Priority: 1) EVE JSON already has alert.rule field (Suricata ≥7 with rule logging)
+                            #           2) grep the rules files on pfSense by SID
+                            alert_obj = evt.get("alert", {})
+                            if not alert_obj.get("rule"):
+                                sid = alert_obj.get("signature_id")
+                                if sid:
+                                    rule_text = _lookup_pfsense_rule(int(sid))
+                                    if rule_text:
+                                        alert_obj["rule"] = rule_text
+                                        evt["alert"] = alert_obj
+                            post("suricata", evt)
+                        elif etype == "tls":
+                            post("suricata/tls", {
+                                "src_ip":    evt.get("src_ip"),
+                                "dest_ip":   evt.get("dest_ip"),
+                                "dest_port": evt.get("dest_port"),
+                                "tls":       evt.get("tls", {}),
+                            })
+                    except json.JSONDecodeError:
+                        pass
+            finally:
+                _ka_stop.set()   # stop keepalive before marking offline
+
             proc.wait()
             _suricata_mark_offline()
             print("[pfSense-suricata] SSH disconnected — reconnecting in 15s")
