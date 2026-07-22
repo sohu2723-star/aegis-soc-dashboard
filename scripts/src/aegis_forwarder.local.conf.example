@@ -69,17 +69,21 @@ PFSENSE_IP=10.30.30.1
 PFSENSE_SSH_KEY=/root/.ssh/pfsense_key
 PFSENSE_SSH_USER=admin
 
-# pfSense Suricata EVE JSON log paths (lab topology v4 — PUBLIC + INTERNAL interfaces)
-# Hub mode spawns one watcher thread per path.
-# Default (if not set): /var/db/suricata/suricata_em110/eve.json + /var/db/suricata/suricata_em220/eve.json
-#   em1.10 = PUBLIC  (bank-web 10.10.10.10 + DNS-Server 10.10.10.20)
-#   em2.20 = INTERNAL (customer-db 10.20.20.10 + LDAP-Server 10.20.20.20)
+# pfSense Suricata EVE JSON log path
+# pfSense Suricata package (FreeBSD) writes EVE JSON to /var/log/suricata/eve.json
+# (root-level combined log for all interfaces).
 #
-# To override both paths at once (comma-separated):
-# PFSENSE_SURICATA_LOGS=/var/db/suricata/suricata_em110/eve.json,/var/db/suricata/suricata_em220/eve.json
+# NOTE: /var/db/suricata/ contains rules only — NOT logs.
+#       Instance subdirs (e.g. suricata_em1.1042709/) use dynamic PID numbers
+#       that change on every Suricata restart, so the stable root path is used.
 #
-# To override with a single path only:
-# PFSENSE_SURICATA_LOG=/var/db/suricata/suricata_em110/eve.json
+# Default (if not set): /var/log/suricata/eve.json
+#
+# To override with a single path:
+# PFSENSE_SURICATA_LOG=/var/log/suricata/eve.json
+#
+# To monitor multiple interface logs explicitly (comma-separated):
+# PFSENSE_SURICATA_LOGS=/var/log/suricata/eve.json,/var/log/suricata/suricata_em2.2062963/eve.json
 
 # Legacy REST API vars — no longer used for execution; kept for backward compat.
 # PFSENSE_API_URL=http://10.30.30.1/api/v1

@@ -1194,18 +1194,22 @@ def _watch_pfsense_suricata(log_path: str | None = None):
     Call this once per Suricata interface (PUBLIC em1.10 + INTERNAL em2.20).
 
     aegis_forwarder.local.conf examples:
-        # Single custom path (overrides both defaults):
-        PFSENSE_SURICATA_LOG = /var/db/suricata/suricata_em110/eve.json
+        # Single custom path (overrides default):
+        PFSENSE_SURICATA_LOG = /var/log/suricata/eve.json
         # Two paths — comma-separated (hub mode spawns one thread per path):
-        PFSENSE_SURICATA_LOGS = /var/db/suricata/suricata_em110/eve.json,/var/db/suricata/suricata_em220/eve.json
+        PFSENSE_SURICATA_LOGS = /var/log/suricata/eve.json,/var/log/suricata/suricata_em2.2062963/eve.json
 
-    Defaults (lab topology v4):
-        PUBLIC  (em1.10): /var/db/suricata/suricata_em110/eve.json  (company-web-server + DNS)
-        INTERNAL(em2.20): /var/db/suricata/suricata_em220/eve.json  (company-customer-db + LDAP)
+    Defaults (lab topology v4 — pfSense FreeBSD):
+        pfSense Suricata package writes EVE JSON to /var/log/suricata/eve.json
+        (root-level combined log). Instance subdirectory names include a dynamic
+        PID number (e.g. suricata_em1.1042709) that changes on every restart,
+        so the stable root path /var/log/suricata/eve.json is used as default.
+
+        NOTE: /var/db/suricata/ holds rules only — logs go to /var/log/suricata/
     """
     if log_path is None:
         log_path = _cfg("PFSENSE_SURICATA_LOG",
-                        "/var/db/suricata/suricata_em110/eve.json")
+                        "/var/log/suricata/eve.json")
     ssh_key  = os.path.expanduser(PFSENSE_SSH_KEY)
     # FreeBSD (pfSense) tail -F exits immediately if the file does not exist,
     # unlike GNU coreutils which retries. Use a sh wait-loop so we keep the SSH
@@ -1800,11 +1804,13 @@ def run_hub_mode():
     if _pf_logs_raw:
         _pf_log_paths = [p.strip() for p in _pf_logs_raw.split(",") if p.strip()]
     else:
-        # Default: lab topology v4 — PUBLIC (em1.10) + INTERNAL (em2.20)
-        _default_public   = "/var/db/suricata/suricata_em110/eve.json"
-        _default_internal = "/var/db/suricata/suricata_em220/eve.json"
+        # Default: /var/log/suricata/eve.json — pfSense writes a root-level
+        # combined EVE JSON log. Instance subdirs include dynamic PID numbers
+        # (e.g. suricata_em1.1042709) that change on restart — use root path.
+        # Monitor once (single thread) to avoid duplicate events.
+        _default_log = "/var/log/suricata/eve.json"
         _single = _cfg("PFSENSE_SURICATA_LOG", "")
-        _pf_log_paths = [_single, _single] if _single else [_default_public, _default_internal]
+        _pf_log_paths = [_single] if _single else [_default_log]
     _pf_iface_labels = ["PUBLIC(em1.10)", "INTERNAL(em2.20)"] + ["extra"] * 8
     for idx, _lp in enumerate(_pf_log_paths):
         _label = _pf_iface_labels[idx] if idx < len(_pf_iface_labels) else f"iface{idx}"
