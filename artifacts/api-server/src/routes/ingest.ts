@@ -103,6 +103,15 @@ router.post("/ingest/event", auth, async (req, res) => {
   const { source, type, subtype, severity: s, sourceIp, targetHost, toolUsed, description, layer, blocked = false, signature_text } = req.body;
   if (!sourceIp || !description) { res.status(400).json({ error: "sourceIp and description required" }); return; }
 
+  // Defender infrastructure IPs (hub 10.30.30.10, company VMs) must never
+  // appear as attackers. The hub SSHes into company VMs to tail logs; those
+  // SSH connections can trigger LDAP/MySQL/SSH auth log entries that the
+  // forwarder mistakenly forwards as attack events.
+  if (isDefenderIp(sourceIp)) {
+    res.status(200).json({ ok: true, skipped: "defender_ip" });
+    return;
+  }
+
   const event = await insertEvent({
     type: type ?? source ?? "network_attack", subtype: subtype ?? "Unknown",
     severity: sev(s), sourceIp, targetHost: targetHost ?? "internal-network",
@@ -166,6 +175,14 @@ router.post("/ingest/fail2ban", auth, async (req, res) => {
   // maxretry / findtime / bantime: optional jail config for rule display
   const { ip, jail, failures, target_ip, filter_regex, maxretry, findtime, bantime } = req.body;
 
+  // Hub (10.30.30.10) repeatedly SSHes into company VMs to tail logs.
+  // If SSH key auth fails or the connection is slow, fail2ban can mistakenly
+  // ban the hub itself. Skip any event or block for defender-subnet IPs.
+  if (isDefenderIp(ip)) {
+    res.status(200).json({ ok: true, skipped: "defender_ip" });
+    return;
+  }
+
   await db.insert(sshSessionsTable).values({
     sourceIp: ip ?? "unknown", status:"failed",
     failures: Number(failures) || 5, bannedBy:"fail2ban",
@@ -210,6 +227,16 @@ router.post("/ingest/fail2ban", auth, async (req, res) => {
 router.post("/ingest/ssh", auth, async (req, res) => {
   // dest_ip: IP of the SSH server being attacked (the Ubuntu VM's IP, e.g. 10.10.10.10)
   const { src_ip, dest_ip, username, status: st, auth_method, session_id, failures, prior_failures, signature_text } = req.body;
+
+  // Hub (aegis-company-admin, 10.30.30.10) SSHes into all company VMs every 15s
+  // to tail their logs. Those legitimate connections appear in auth.log and get
+  // forwarded back as "SSH Brute Force" events — which is wrong.
+  // Drop silently; defender connections are NOT attack events.
+  if (isDefenderIp(src_ip)) {
+    res.status(200).json({ ok: true, skipped: "defender_hub_connection" });
+    return;
+  }
+
   const failCount    = Number(failures) || 0;
   // prior_failures = how many failed attempts from this IP before this success event
   // 0 = clean login (authorized); ≥3 = brute-force success (breach)
