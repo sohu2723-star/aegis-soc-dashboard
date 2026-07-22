@@ -30,9 +30,11 @@ from datetime import datetime
 
 # ── pfSense Suricata IDS connection state (shared across suricata threads) ──────
 # Tracks how many _watch_pfsense_suricata threads are currently SSH-connected.
-# _pfsense_health_loop reads this every 30s to post "pfSense Suricata IDS" status.
+# Uses a 60s debounce before posting "offline" to avoid dashboard flapping on
+# brief reconnects (Suricata restart, SSH keepalive timeout, etc.).
 _suricata_connected_count: int = 0
 _suricata_count_lock = threading.Lock()
+_suricata_offline_timer: threading.Timer | None = None   # debounce timer
 
 # ─── LOCAL CONFIG FILE (set-once, not committed to git) ───────────────────────
 # Real keys go in aegis_forwarder.local.conf next to this script (gitignored),
@@ -1220,21 +1222,39 @@ def _post_pfsense_suricata_status(status: str) -> None:
 
 
 def _suricata_mark_online() -> None:
-    """Increment connected-thread counter; post 'online' on first connection."""
-    global _suricata_connected_count
+    """Increment connected-thread counter; post 'online' on first connection.
+    Also cancels any pending offline debounce timer so brief reconnects don't
+    flip the dashboard to offline at all.
+    """
+    global _suricata_connected_count, _suricata_offline_timer
     with _suricata_count_lock:
+        # Cancel any pending "offline" debounce — we're back online
+        if _suricata_offline_timer is not None:
+            _suricata_offline_timer.cancel()
+            _suricata_offline_timer = None
+        was_zero = _suricata_connected_count == 0
         _suricata_connected_count += 1
-        if _suricata_connected_count == 1:
+        if was_zero:
+            # First thread connected (or reconnected after debounce expired) → online
             _post_pfsense_suricata_status("online")
 
 
 def _suricata_mark_offline() -> None:
-    """Decrement counter; post 'offline' when all threads are disconnected."""
-    global _suricata_connected_count
+    """Decrement counter; start a 60s debounce timer before posting 'offline'.
+    If any thread reconnects within 60s, the timer is cancelled and the dashboard
+    never sees a flap. Only sustained disconnection (>60s) posts 'offline'.
+    """
+    global _suricata_connected_count, _suricata_offline_timer
     with _suricata_count_lock:
         _suricata_connected_count = max(0, _suricata_connected_count - 1)
         if _suricata_connected_count == 0:
-            _post_pfsense_suricata_status("offline")
+            # Start debounce: post offline only if still disconnected after 60s
+            if _suricata_offline_timer is not None:
+                _suricata_offline_timer.cancel()
+            t = threading.Timer(60.0, _post_pfsense_suricata_status, args=("offline",))
+            t.daemon = True
+            t.start()
+            _suricata_offline_timer = t
 
 
 def _watch_pfsense_suricata(log_path: str | None = None):
@@ -1284,9 +1304,14 @@ def _watch_pfsense_suricata(log_path: str | None = None):
         "-i", ssh_key,
         "-o", "StrictHostKeyChecking=no",
         "-o", "ConnectTimeout=10",
-        "-o", "ServerAliveInterval=30",
-        "-o", "ServerAliveCountMax=6",
+        # Send keepalive every 10s (not 30s) — pfSense sshd kills idle sessions
+        # faster than the default; 10s interval + 9 misses = 90s grace window.
+        "-o", "ServerAliveInterval=10",
+        "-o", "ServerAliveCountMax=9",
+        # TCP-level keepalive so intermediate NAT/firewall state doesn't expire
+        "-o", "TCPKeepAlive=yes",
         "-o", "BatchMode=yes",
+        "-o", "IdentityAgent=none",
         f"{PFSENSE_SSH_USER}@{PFSENSE_IP}",
         remote_cmd,
     ]
@@ -1797,13 +1822,9 @@ def _pfsense_health_loop():
             )
         except Exception:
             pass
-        # Also report pfSense Suricata IDS status based on SSH connection state.
-        # If suricata thread(s) are connected → online; all disconnected → offline.
-        with _suricata_count_lock:
-            sur_status = "online" if _suricata_connected_count > 0 else "offline"
-        sur_indicator = "✓" if sur_status == "online" else "✗"
-        print(f"[{ts}] {sur_indicator} pfSense Suricata IDS: {sur_status.upper()}")
-        _post_pfsense_suricata_status(sur_status)
+        # NOTE: pfSense Suricata IDS status is posted directly by _watch_pfsense_suricata()
+        # via _suricata_mark_online()/_suricata_mark_offline() with a 60s debounce.
+        # Do NOT post it here — it would race with the debounce timer and cause flapping.
         time.sleep(30)
 
 
