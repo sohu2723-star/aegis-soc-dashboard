@@ -2106,3 +2106,92 @@ _default_log = "/var/log/suricata/eve.json"
 **Pushed to:** GitHub main ✅
 
 **Next:** Aegis VM `wget` + `systemctl restart aegis-forwarder` → forwarder connects to pfSense and reads live Suricata alerts
+
+---
+
+## [2026-07-22] — lab/company-web-server/ + DNS Zone + LDAP Setup Files Built
+
+**Status:** ✅ Done (code side) / ⏳ VM deploy pending
+
+**What:** Project Book Chapter 14 plan အတိုင်း `goldenmyanmar.trading.com` company infrastructure ၏ code artifacts အားလုံး build လုပ်ခဲ့သည်
+
+### Files Created
+
+#### `lab/company-web-server/` — Golden Myanmar Trading Staff Portal (PHP)
+| File | Purpose |
+|------|---------|
+| `db.php` | DB connection → `db.goldenmyanmar.trading.com` (DNS hostname) / `gmuser` / `goldenmyanmardb` |
+| `index.php` | Login page — **intentionally SQLi-vulnerable** (`' OR '1'='1` bypass demo) |
+| `nav.php` | Shared navbar |
+| `dashboard.php` | Staff dashboard — KPI cards (customers, accounts, funds, products, orders) + recent activity |
+| `customers.php` | Customer directory — **SQLi-vulnerable** `?search=` param (sqlmap data dump target) |
+| `accounts.php` | Account management — balance deposit/withdraw |
+| `products.php` | Trading product catalog (timber, gems, jade, rice, seafood, minerals) |
+| `orders.php` | Order management — place + list orders |
+| `transactions.php` | Transaction ledger |
+| `logout.php` | Session destroy |
+| `style.css` | Dark gold theme (company branding — `#d4a017` gold, `#0a1218` bg) |
+| `setup.sql` | Full MySQL schema + seed: `staff`, `customers`, `accounts`, `products`, `orders`, `transactions` |
+| `README.md` | Deploy steps + attack demo commands |
+
+**DB:** `goldenmyanmardb` on `db.goldenmyanmar.trading.com` → 10.20.20.10  
+**User:** `gmuser` / `gm1234`  
+**Staff logins (SQLi target):** admin / Admin@2024! , teller01 / teller@123
+
+#### `lab/dns-server/` — BIND9 Zone Files
+| File | Purpose |
+|------|---------|
+| `named.conf.local` | Zone declarations for BIND9 (`/etc/bind/named.conf.local` append) |
+| `db.goldenmyanmar.trading.com` | Zone file — web→10.10.10.10, db→10.20.20.10, ldap→10.20.20.20, aegis→10.30.30.10 |
+| `db.bank.local` | Legacy bank.local zone (backward compat) |
+| `README.md` | Install + deploy steps + AXFR attack demo |
+
+**Attack demo:** `allow-transfer { none; }` ← comment out to enable AXFR zone-transfer vuln demo
+
+#### `lab/ldap-server/` — OpenLDAP Setup
+| File | Purpose |
+|------|---------|
+| `setup.ldif` | OU + staff account LDIF (`dc=goldenmyanmar,dc=com`) |
+| `README.md` | Install steps + anonymous bind / brute force / credential dump attack demos |
+
+### Attack Coverage Added
+
+| Attack | Target | Tool | AEGIS Alert |
+|--------|--------|------|-------------|
+| SQLi login bypass | `index.php` | Manual: `' OR '1'='1` | `web_attack (sqli)` |
+| SQLi data dump | `customers.php?search=` | sqlmap | `web_attack (sqli)` → ModSecurity |
+| Staff brute force | `index.php` | hydra http-post-form | `web_brute` → fail2ban block |
+| Zone transfer | DNS AXFR | dig AXFR | `dns_zone_transfer` |
+| LDAP anonymous bind | port 389 | ldapsearch -x anon | slapd log → AEGIS |
+| LDAP brute force | port 389 | hydra ldap2 | fail2ban → auto-block |
+
+### VM-Side Actions Needed (run on respective VMs)
+
+**company-web-server (10.10.10.10):**
+```bash
+sudo cp -r /opt/lab/company-web-server/* /var/www/html/
+sudo chown -R www-data:www-data /var/www/html/
+sudo ufw allow 80/tcp && sudo systemctl restart apache2
+```
+
+**company-customer-db (10.20.20.10):**
+```bash
+mysql -u root -p < lab/company-web-server/setup.sql
+# Creates: goldenmyanmardb + gmuser + all tables + seed data
+```
+
+**company-dns-server (10.10.10.20):**
+```bash
+sudo cp lab/dns-server/db.goldenmyanmar.trading.com /etc/bind/
+sudo tee -a /etc/bind/named.conf.local < lab/dns-server/named.conf.local
+sudo named-checkconf && sudo systemctl restart bind9
+```
+
+**company-ldap-server (10.20.20.20):**
+```bash
+sudo dpkg-reconfigure slapd   # domain: goldenmyanmar.trading.com
+ldapadd -x -H ldap://localhost -D "cn=admin,dc=goldenmyanmar,dc=com" -W -f lab/ldap-server/setup.ldif
+```
+
+**Pushed to:** GitHub main ✅
+**Next:** VM deploy → DNS resolution test (`dig @10.10.10.20 web.goldenmyanmar.trading.com`) → web app test (`curl http://10.10.10.10`) → SQLi attack demo

@@ -1,0 +1,21 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// BIND9 zone declarations — append to /etc/bind/named.conf.local
+// DNS Server VM: 10.10.10.20 (company-dns-server)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Golden Myanmar Trading internal domain
+// Clients set nameserver: 10.10.10.20
+zone "goldenmyanmar.trading.com" {
+    type master;
+    file "/etc/bind/db.goldenmyanmar.trading.com";
+    // Block zone transfer to any host except trusted (ACL prevents AXFR exfil)
+    allow-transfer { none; };
+    // Lab: comment-out the above to demo AXFR zone-transfer attack
+};
+
+// Legacy bank.local zone — keep for backward compat with any old lab entries
+zone "bank.local" {
+    type master;
+    file "/etc/bind/db.bank.local";
+    allow-transfer { none; };
+};

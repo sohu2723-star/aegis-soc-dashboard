@@ -1,0 +1,19 @@
+; ─────────────────────────────────────────────────────────────────────────────
+; BIND9 Zone File — bank.local (legacy zone — kept for backward compat)
+; Place at: /etc/bind/db.bank.local
+; ─────────────────────────────────────────────────────────────────────────────
+$TTL 604800
+@   IN  SOA  company-dns-server.bank.local. root.bank.local. (
+              2         ; Serial
+              604800    ; Refresh
+              86400     ; Retry
+              2419200   ; Expire
+              604800 )  ; Negative Cache TTL
+
+@                       IN  NS   company-dns-server.bank.local.
+@                       IN  A    10.10.10.20
+company-dns-server      IN  A    10.10.10.20
+company-web-server      IN  A    10.10.10.10
+company-customer-db     IN  A    10.20.20.10
+company-ldap-server     IN  A    10.20.20.20
+aegis                   IN  A    10.30.30.10

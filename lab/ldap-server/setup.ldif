@@ -1,0 +1,68 @@
+## ─────────────────────────────────────────────────────────────────────────────
+## LDAP Setup — company-ldap-server (10.20.20.20)
+## Domain: goldenmyanmar.trading.com
+## Base DN: dc=goldenmyanmar,dc=com
+##
+## Usage:
+##   1. Run dpkg-reconfigure slapd with domain goldenmyanmar.trading.com
+##   2. ldapadd -x -H ldap://localhost -D "cn=admin,dc=goldenmyanmar,dc=com" -W -f setup.ldif
+## ─────────────────────────────────────────────────────────────────────────────
+
+# ── Organisational Unit: staff ────────────────────────────────────────────────
+dn: ou=staff,dc=goldenmyanmar,dc=com
+objectClass: organizationalUnit
+ou: staff
+
+# ── Organisational Unit: managers ────────────────────────────────────────────
+dn: ou=managers,dc=goldenmyanmar,dc=com
+objectClass: organizationalUnit
+ou: managers
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Staff accounts (brute force / credential dump attack targets)
+# ─────────────────────────────────────────────────────────────────────────────
+
+dn: cn=admin.staff,ou=managers,dc=goldenmyanmar,dc=com
+objectClass: inetOrgPerson
+cn: admin.staff
+sn: Admin
+givenName: IT Admin
+mail: admin@goldenmyanmar.trading.com
+userPassword: Admin@2024!
+description: IT Administrator — full access
+
+dn: cn=manager01,ou=managers,dc=goldenmyanmar,dc=com
+objectClass: inetOrgPerson
+cn: manager01
+sn: Kyaw Zin
+givenName: Aung
+mail: manager@goldenmyanmar.trading.com
+userPassword: Manager#2024
+description: Branch Manager
+
+dn: cn=teller01,ou=staff,dc=goldenmyanmar,dc=com
+objectClass: inetOrgPerson
+cn: teller01
+sn: Wai
+givenName: Hnin
+mail: teller01@goldenmyanmar.trading.com
+userPassword: teller@123
+description: Front Office Teller
+
+dn: cn=teller02,ou=staff,dc=goldenmyanmar,dc=com
+objectClass: inetOrgPerson
+cn: teller02
+sn: Phyo
+givenName: Pyae
+mail: teller02@goldenmyanmar.trading.com
+userPassword: pass1234
+description: Front Office Teller
+
+dn: cn=viewer01,ou=staff,dc=goldenmyanmar,dc=com
+objectClass: inetOrgPerson
+cn: viewer01
+sn: Moe
+givenName: Khin
+mail: viewer@goldenmyanmar.trading.com
+userPassword: view2024
+description: Read-only viewer (audit)

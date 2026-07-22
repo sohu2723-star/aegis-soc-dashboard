@@ -1,0 +1,99 @@
+/* Golden Myanmar Trading Co., Ltd. — Staff Portal Styles */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Segoe UI', sans-serif; background: #0a1218; color: #dde6ee; min-height: 100vh; }
+
+/* ── Navbar ─────────────────────────────────────────────── */
+.navbar {
+    background: #0d1c10;
+    padding: 14px 32px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 2px solid #2a4a1e;
+}
+.navbar .brand {
+    font-size: 1.3rem; font-weight: 700;
+    color: #d4a017; letter-spacing: 1px;
+}
+.navbar .brand span { color: #7dc45a; font-size: 0.75rem; display: block; font-weight: 400; letter-spacing: 0; }
+.navbar nav a { color: #8aa890; text-decoration: none; margin-left: 20px; font-size: 0.88rem; }
+.navbar nav a:hover, .navbar nav a.active { color: #d4a017; }
+
+/* ── Layout ─────────────────────────────────────────────── */
+.container { max-width: 1060px; margin: 36px auto; padding: 0 20px; }
+
+.card {
+    background: #0d1c10;
+    border: 1px solid #1e3a18;
+    border-radius: 12px;
+    padding: 28px 32px;
+    margin-bottom: 22px;
+}
+.card h2 { color: #d4a017; margin-bottom: 18px; font-size: 1.1rem; display: flex; align-items: center; gap: 8px; }
+
+/* ── Stat cards ─────────────────────────────────────────── */
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 22px; }
+.stat-card { background: #0d2217; border: 1px solid #1e3a18; border-radius: 10px; padding: 20px; }
+.stat-card .label { font-size: 0.78rem; color: #6a8470; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+.stat-card .value { font-size: 1.55rem; font-weight: 700; color: #d4a017; }
+.stat-card .value.green { color: #7dc45a; }
+.stat-card .value.red   { color: #e05050; }
+.stat-card .value.blue  { color: #5aaae0; }
+
+/* ── Forms ──────────────────────────────────────────────── */
+.form-group { margin-bottom: 16px; }
+.form-group label { display: block; margin-bottom: 6px; color: #8aa890; font-size: 0.83rem; }
+.form-group input, .form-group select, .form-group textarea {
+    width: 100%; padding: 10px 14px;
+    background: #0a1a0e; border: 1px solid #1e3a18;
+    border-radius: 8px; color: #dde6ee; font-size: 0.93rem;
+}
+.form-group input:focus, .form-group select:focus { outline: none; border-color: #d4a017; }
+
+.btn {
+    background: #2a6e1a; color: #e8f5e0; border: none;
+    padding: 10px 26px; border-radius: 8px; cursor: pointer;
+    font-size: 0.92rem; font-weight: 600; transition: background 0.2s;
+}
+.btn:hover { background: #3a8e2a; }
+.btn-gold   { background: #8a6a10; color: #fdeaa0; }
+.btn-gold:hover { background: #a07a14; }
+.btn-danger { background: #6e1a1a; color: #f5e0e0; }
+.btn-danger:hover { background: #8e2a2a; }
+.btn-sm { padding: 5px 14px; font-size: 0.80rem; }
+
+/* ── Alerts ─────────────────────────────────────────────── */
+.alert { padding: 11px 16px; border-radius: 8px; margin-bottom: 16px; font-size: 0.88rem; }
+.alert-success { background: #0d2a12; border: 1px solid #1a5e28; color: #7dc45a; }
+.alert-error   { background: #2a0d0d; border: 1px solid #5e1a1a; color: #e05050; }
+.alert-warn    { background: #2a1e08; border: 1px solid #5e440a; color: #d4a017; }
+
+/* ── Tables ─────────────────────────────────────────────── */
+table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+th { background: #0a180c; color: #6a8470; padding: 10px 14px; text-align: left; font-weight: 600; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.4px; }
+td { padding: 10px 14px; border-bottom: 1px solid #152010; }
+tr:hover td { background: #0d2217; }
+
+.badge {
+    display: inline-block; padding: 3px 10px; border-radius: 20px;
+    font-size: 0.76rem; font-weight: 600;
+}
+.badge-active   { background: #0d2a12; color: #7dc45a; }
+.badge-inactive { background: #1a1a0d; color: #8a8a50; }
+.badge-credit   { background: #0d2a12; color: #7dc45a; }
+.badge-debit    { background: #2a0d0d; color: #e05050; }
+.badge-pending  { background: #1a1a08; color: #d4a017; }
+.badge-frozen   { background: #0d1a2a; color: #5aaae0; }
+
+/* ── Auth page ──────────────────────────────────────────── */
+.auth-wrap { display: flex; justify-content: center; align-items: center; min-height: 92vh; flex-direction: column; gap: 16px; }
+.auth-card {
+    width: 100%; max-width: 420px;
+    background: #0d1c10; border: 1px solid #1e3a18;
+    border-radius: 14px; padding: 38px 36px;
+}
+.auth-card .logo { text-align: center; margin-bottom: 22px; }
+.auth-card .logo h1 { color: #d4a017; font-size: 1.5rem; }
+.auth-card .logo p { color: #6a8470; font-size: 0.80rem; margin-top: 4px; }
+.auth-card .sub { color: #6a8470; font-size: 0.83rem; margin-bottom: 22px; }
+.auth-footer { color: #4a6050; font-size: 0.76rem; text-align: center; }
