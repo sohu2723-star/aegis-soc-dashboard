@@ -162,7 +162,11 @@ check_log_exists() {
 check_iptables() {
     local key="$1" user="$2" ip="$3" label="$4"
     echo ""
-    info "iptables INPUT rules on $label:"
+    info "iptables INPUT rules on $label ($ip):"
+    info "  Block path : sudo iptables -I INPUT -s <ATTACKER_IP> -j DROP"
+    info "  View rules : sudo iptables -L INPUT -n --line-numbers"
+    info "  Remove rule: sudo iptables -D INPUT -s <ATTACKER_IP> -j DROP"
+    info "  Persist    : sudo netfilter-persistent save  →  /etc/iptables/rules.v4"
     ssh_cmd "$key" "$user" "$ip" "sudo iptables -L INPUT -n --line-numbers 2>/dev/null | head -20" \
         | sed 's/^/    /' \
         || warn "Could not read iptables on $label (SSH unreachable or sudo lacks NOPASSWD)"
@@ -380,6 +384,11 @@ check_iptables "$SSH_KEY" "$SSH_USER" 10.20.20.20 "company-ldap-server"
 
 echo ""
 info "pfSense WAN blocked hosts (easyrule table):"
+info "  Block path  : ssh admin@10.30.30.1  →  easyrule block WAN <ATTACKER_IP>"
+info "  pf table    : pfctl -t EasyRuleBlockHosts -T show"
+info "  Unblock     : pfctl -t EasyRuleBlockHosts -T delete <ATTACKER_IP>"
+info "  WebGUI path : Firewall → Tables → EasyRuleBlockHosts"
+info "  Persist     : pfSense saves pf rules in /cf/conf/config.xml (auto)"
 if [[ ! -f "$PF_KEY" ]]; then
     warn "pfSense SSH key missing — skipping pfctl check"
 elif ! nc -z -w5 10.30.30.1 22 2>/dev/null; then
