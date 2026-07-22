@@ -229,25 +229,48 @@ if [[ ! -f "$PF_KEY" ]]; then
 elif ! nc -z -w5 10.30.30.1 22 2>/dev/null; then
     warn "pfSense port 22 unreachable (10.30.30.1) — check ADMINMANAGEMENT firewall rule"
 else
-    # Use explicit /bin/sh -c '...' because pfSense admin shell (/etc/rc.initial)
-    # does not interpret shell redirections (2>&1, pipes) — they get passed as
-    # literal arguments to the command instead of being processed by a shell.
-    # We embed the "file exists?" check inside the remote sh command so the
-    # exit code is always 0 on success, and we detect missing file via output.
+    # ── Step 1: Explicit auth probe ────────────────────────────────────────
+    # ssh_cmd suppresses ALL stderr (2>/dev/null), so a real auth failure
+    # ("Permission denied (publickey)") is indistinguishable from pfSense's
+    # /etc/rc.initial exiting non-zero in BatchMode (no TTY, ignores command).
+    # Fix: capture stderr separately on a plain "exit" command; grep for the
+    # specific OpenSSH auth-failure strings.  If those strings are absent the
+    # key was accepted — /etc/rc.initial just can't run arbitrary commands.
     set +e
-    pf_suricata=$(ssh_cmd "$PF_KEY" "$PF_USER" 10.30.30.1 \
-        "/bin/sh -c 'if [ -f /var/log/suricata/eve.json ]; then ls -lh /var/log/suricata/eve.json; else echo FILE_MISSING; fi'")
-    pf_ssh_exit=$?
+    pf_auth_stderr=$(ssh \
+        -i "$PF_KEY" \
+        -o BatchMode=yes \
+        -o StrictHostKeyChecking=no \
+        -o ConnectTimeout=5 \
+        "${PF_USER}@10.30.30.1" exit \
+        2>&1 1>/dev/null)
     set -e
 
-    if [[ $pf_ssh_exit -ne 0 && -z "$pf_suricata" ]]; then
-        warn "pfSense SSH auth failed — check ~/.ssh/pfsense_key.pub matches pfSense admin Authorized Keys"
-    elif [[ "$pf_suricata" == *"FILE_MISSING"* ]] || [[ -z "$pf_suricata" ]]; then
-        warn "pfSense: /var/log/suricata/eve.json MISSING — Suricata not yet started on pfSense"
-        info "  → pfSense: Services → Suricata → Add interface (WAN) → Start"
+    if echo "$pf_auth_stderr" | grep -qiE \
+            "Permission denied|Authentication failed|publickey|no mutual"; then
+        warn "pfSense SSH auth failed — ~/.ssh/pfsense_key.pub does not match pfSense admin Authorized Keys"
+        warn "  → pfSense WebGUI: System → User Manager → admin → Authorized SSH Keys → paste public key"
+        warn "  → Public key: $(cat "${PF_KEY}.pub" 2>/dev/null | cut -d' ' -f1-2 || echo 'key file missing')"
     else
-        ok "pfSense Suricata eve.json:"
-        echo "$pf_suricata" | sed 's/^/    /'
+        # ── Step 2: Auth OK — run actual command ──────────────────────────
+        # pfSense /etc/rc.initial does not execute arbitrary commands passed
+        # via SSH (no-TTY BatchMode).  Wrap in /bin/sh -c so FreeBSD's sh
+        # handles the logic; /etc/rc.initial passes the argument through on
+        # most pfSense versions when called with -c.
+        set +e
+        pf_suricata=$(ssh_cmd "$PF_KEY" "$PF_USER" 10.30.30.1 \
+            "/bin/sh -c 'if [ -f /var/log/suricata/eve.json ]; then ls -lh /var/log/suricata/eve.json; else echo FILE_MISSING; fi'")
+        pf_ssh_exit=$?
+        set -e
+
+        if [[ "$pf_suricata" == *"FILE_MISSING"* ]] || \
+           [[ $pf_ssh_exit -ne 0 && -z "$pf_suricata" ]]; then
+            warn "pfSense: /var/log/suricata/eve.json MISSING — Suricata not yet started"
+            info "  → pfSense: Services → Suricata → Interfaces → enable WAN (em1.10) → Start"
+        else
+            ok "pfSense Suricata eve.json:"
+            echo "$pf_suricata" | sed 's/^/    /'
+        fi
     fi
 fi
 
