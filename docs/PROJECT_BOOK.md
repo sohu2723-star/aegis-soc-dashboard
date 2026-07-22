@@ -598,7 +598,31 @@ sudo systemctl restart apache2
 ### 8b. DNS-Server (10.10.10.20) — BIND9
 
 #### ဘာကြောင့် DNS Server ထားတာလဲ?
-Lab network တွင် `bank.local` domain ကို resolve လုပ်ဖို့ local DNS server လိုသည်။ ထို့အပြင် DNS attack (DNS spoofing, DNS flood) demo လုပ်ရန်လည်း target ဖြစ်သည်။
+
+**Real-world ရှင်းချက်:**
+ကုမ္ပဏီ network တစ်ခုတွင် services တွေကို IP address ဖြင့် တိုက်ရိုက် ခေါ်ခြင်းမပြုဘဲ domain name (hostname) ဖြင့် ခေါ်သည် — real world ၌ ဤသို့ ဖြစ်သည်။
+
+```
+# Real company ထဲ (production):
+http://web.goldenmyanmar.trading.com   → DNS → 10.10.10.10
+ldap://ldap.goldenmyanmar.trading.com  → DNS → 10.20.20.20
+mysql db.goldenmyanmar.trading.com     → DNS → 10.20.20.10
+
+# IP တိုက်ရိုက် မသုံးဘဲ name သုံးရတဲ့ အကြောင်း:
+# - Server IP ပြောင်းရင် config file တစ်ခုတည်းပြင်ရ (DNS record)
+# - Service တစ်ခုချင်း hostname မှာ ဘာ server run နေသလဲ ရှင်းလင်း
+# - Load balancer / failover အတွက် DNS ကို single point of truth သဖွယ် သုံးနိုင်
+```
+
+**Lab ထဲ DNS Server ထားတဲ့ အကြောင်း ၃ ချက်:**
+
+| အကြောင်း | ရှင်းချက် |
+|---|---|
+| **① Internal name resolution** | company-web-server က DB ကို IP မဟုတ်ဘဲ hostname နဲ့ ချိတ် — real app code နဲ့ ကိုက်ညီ |
+| **② DNS attack target** | DNS flood, DNS spoofing, zone transfer attack demo လုပ်ဖို့ real DNS service လို |
+| **③ Complete company simulation** | HTTP → web → DB → LDAP chain ဖြစ်ဖို့ name resolution မဖြစ်မနေ လို |
+
+Lab network တွင် `bank.local` (လက်ရှိ) / `goldenmyanmar.trading.com` (future) domain ကို resolve လုပ်ဖို့ local DNS server လိုသည်။
 
 ```bash
 sudo apt update
@@ -1179,3 +1203,443 @@ AEGIS မသိ → block မလုပ်နိုင် ❌
 > **ဒီ system ၏ primary target = External attacker**
 > Compromised VM pivot = partial coverage (VM cross-block)
 > လူ insider = out of scope — UEBA/SIEM လိုမည်
+
+---
+
+## အခန်း 14 — Future Roadmap: goldenmyanmar.trading.com Company Infrastructure
+
+> ဤအခန်းသည် project ၏ next phase plan ဖြစ်သည်။ လက်ရှိ lab (bank.local) ကို real company simulation (goldenmyanmar.trading.com) သို့ upgrade လုပ်မည်ဆိုသော plan၊ concept နှင့် rationale များ မှတ်တမ်းတင်သည်။
+
+---
+
+### 14a. ဘာကြောင့် Company Simulation လိုသလဲ?
+
+Real company infrastructure တစ်ခုပုံစံ ဆောက်ရတဲ့ ရည်ရွယ်ချက်:
+
+```
+[Goal] Attack → Detect → Defend cycle ကို real-world ဖြစ်ရပ်နဲ့ ကိုက်ညီအောင် လုပ်ဖို့
+
+Real company ထဲ:
+  ✅ Web server → customer ဝင်ကြည့်တဲ့ company website
+  ✅ DNS server → internal hostname resolution (web, db, ldap ကို name နဲ့ reach)
+  ✅ Database   → customer data, transaction records
+  ✅ LDAP server → staff/admin login authentication
+  ✅ Firewall   → network segmentation (DMZ / Internal / MGMT)
+  ✅ IDS        → Suricata on perimeter (pfSense)
+  ✅ SIEM/SOC   → AEGIS dashboard (real-time monitoring)
+
+Lab ထဲ simulation တူရမယ်:
+  10.10.10.10 ကို browser ထဲ ထည့်ရင် → company website ပေါ်
+  web server က DB ကို hostname နဲ့ query လုပ်
+  staff login form → LDAP authenticate
+  attacker ဝင်ရင် → AEGIS detect + block + Telegram alert
+```
+
+### 14b. Company Name: goldenmyanmar.trading.com
+
+| Item | Value |
+|---|---|
+| **Company name** | Golden Myanmar Trading Co., Ltd. |
+| **Internal domain** | `goldenmyanmar.trading.com` (lab internal — not real DNS) |
+| **Web server** | company-web-server (10.10.10.10) |
+| **DNS server** | company-dns-server (10.10.10.20) |
+| **Database** | company-customer-db (10.20.20.10) |
+| **LDAP** | company-ldap-server (10.20.20.20) |
+
+> **⚠️ Important:** `goldenmyanmar.trading.com` သည် lab internal domain ဖြစ်သည် — real internet DNS မဟုတ်ဘဲ company-dns-server (10.10.10.20) ဘဲ resolve လုပ်သည်။ Lab machines တွေ nameserver `10.10.10.20` ထည့်ထားမှ ဒီ domain ကို reach နိုင်မည်။
+
+---
+
+### 14c. New Company Services Plan
+
+#### Priority 1 — Core Services (အရင်ဆောက်ရမဲ့)
+
+**① Web Server (company-web-server: 10.10.10.10)**
+```
+Domain  : http://goldenmyanmar.trading.com
+Service : Apache2 + PHP
+Content : Golden Myanmar Trading company website
+         - Login page (staff portal)
+         - Product catalog / trading dashboard
+         - Contact / company info
+DB Link : PHP → MySQL (company-customer-db via hostname db.goldenmyanmar.trading.com)
+LDAP Link: Staff login → LDAP authenticate (ldap.goldenmyanmar.trading.com)
+```
+
+**② DNS Server (company-dns-server: 10.10.10.20)**
+```
+Zone    : goldenmyanmar.trading.com
+Records :
+  @       → 10.10.10.20   (zone apex)
+  web     → 10.10.10.10   (web.goldenmyanmar.trading.com)
+  db      → 10.20.20.10   (db.goldenmyanmar.trading.com)
+  ldap    → 10.20.20.20   (ldap.goldenmyanmar.trading.com)
+  aegis   → 10.30.30.10
+```
+
+**③ Database (company-customer-db: 10.20.20.10)**
+```
+Engine  : MySQL
+DB name : goldenmyanmardb (bank→company rename)
+Tables  :
+  - customers   (ဖောက်သည် profile — name, ID, contact)
+  - accounts    (account no, balance, status)
+  - transactions(transaction history — amount, date, type)
+  - products    (trading products catalog)
+User    : gmuser@'%' with password (lab use)
+```
+
+**④ LDAP Server (company-ldap-server: 10.20.20.20)**
+```
+Engine  : OpenLDAP (slapd)
+Base DN : dc=goldenmyanmar,dc=com
+OU      : ou=staff,dc=goldenmyanmar,dc=com
+Accounts:
+  - cn=admin.staff (HR admin)
+  - cn=teller01    (Front office)
+  - cn=manager01   (Branch manager)
+```
+
+#### Priority 2 — Extended Services (ပိုကောင်းဖို့)
+
+| Service | Purpose | Attack demo |
+|---|---|---|
+| Email server (Postfix) | company-web-server မှ email ပို့ | Phishing, email spoofing |
+| CCTV/VoIP sim | IoT device simulation | IoT brute force |
+
+#### Priority 3 — Advanced (Optional)
+
+| Service | Purpose |
+|---|---|
+| Active Directory (Samba AD) | Windows-style domain auth — LDAP ထက် real enterprise |
+| ATM simulation | Financial transaction system |
+
+---
+
+### 14d. DNS Resolution: Why + How (Technical Detail)
+
+#### ဘာကြောင့် IP မဟုတ်ဘဲ DNS ကို သုံးသလဲ
+
+```
+❌ Bad practice (IP hardcode):
+   php: $db = new mysqli("10.20.20.10", "user", "pass", "db");
+   Problem: DB IP ပြောင်းရင် PHP file အားလုံး ပြင်ရ
+
+✅ Good practice (DNS name):
+   php: $db = new mysqli("db.goldenmyanmar.trading.com", "user", "pass", "db");
+   Benefit: IP ပြောင်းရင် DNS record ဘဲ update — code မပြောင်းနဲ့
+```
+
+#### DNS Resolution Chain (lab ထဲ ဘယ်လို အလုပ်လုပ်သလဲ)
+
+```
+company-web-server (10.10.10.10)
+    │
+    │  1. PHP: connect "db.goldenmyanmar.trading.com"
+    │  2. OS resolv.conf: nameserver 10.10.10.20
+    │  3. Query → company-dns-server (10.10.10.20)
+    │  4. BIND9: zone goldenmyanmar.trading.com → db → 10.20.20.10
+    │  5. Return IP: 10.20.20.10
+    │
+    └─→ MySQL connect: 10.20.20.10:3306
+```
+
+#### DNS Resolution Test Commands
+
+```bash
+# ── company-dns-server မှ zone check ────────────────────────────
+# Named configuration syntax check
+sudo named-checkconf
+sudo named-checkzone goldenmyanmar.trading.com /etc/bind/db.goldenmyanmar.trading.com
+
+# ── aegis-company-admin မှ DNS query test ───────────────────────
+# DNS-Server ကို directly query
+dig @10.10.10.20 web.goldenmyanmar.trading.com A
+# @10.10.10.20 : ဒီ DNS server ကို query
+# A            : A record (IPv4 address) တောင်း
+# Expected: 10.10.10.10
+
+dig @10.10.10.20 db.goldenmyanmar.trading.com A
+# Expected: 10.20.20.10
+
+dig @10.10.10.20 ldap.goldenmyanmar.trading.com A
+# Expected: 10.20.20.20
+
+# Full answer section ကြည့်
+dig @10.10.10.20 goldenmyanmar.trading.com ANY
+# ANY: A, NS, SOA အကုန် ကြည့်
+
+# ── company-web-server မှ resolve test (system DNS ကိုသုံး) ──────
+# nameserver 10.10.10.20 ထည့်ထားရင် ဒီ command က resolve ဖြစ်ရမယ်
+nslookup db.goldenmyanmar.trading.com
+host ldap.goldenmyanmar.trading.com
+
+# ── Reverse DNS test (IP → hostname) ────────────────────────────
+dig @10.10.10.20 -x 10.10.10.10
+# PTR record ရှိမရှိ စစ် (optional — forward zone ဘဲ လိုချင်ရင် ကောင်း)
+
+# ── Zone transfer test (attack simulation) ───────────────────────
+# Attacker မှ zone data ခိုးယူဖို့ ကြိုးစားခြင်း
+dig @10.10.10.20 goldenmyanmar.trading.com AXFR
+# AXFR allow ထားရင် → zone records အကုန် ထွက် (security issue)
+# BIND9 ACL block ထားရင် → Transfer failed (ကောင်းတယ်)
+```
+
+---
+
+### 14e. Real-World Attack Scenarios (goldenmyanmar.trading.com)
+
+Company services တွေ running ဖြစ်ပြီဆိုရင် ဒီ attack တွေ demo လုပ်မည်:
+
+#### ① HTTP Attack — Web Server (10.10.10.10)
+
+| Attack | Tool | Target | Expected AEGIS alert |
+|---|---|---|---|
+| SQL Injection | sqlmap | login form / search | `web_attack (sqli)` |
+| Brute force login | hydra/burp | staff login page | `ssh_brute / web_brute` |
+| DDoS / Flood | hping3, slowloris | port 80 | `ddos` → website down |
+| Directory traversal | nikto | Apache paths | `web_attack` |
+| XSS | manual / burp | input fields | `web_attack` |
+
+```bash
+# DDoS → website down simulation (Kali မှ)
+hping3 -S --flood -V -p 80 10.10.10.10
+# -S : SYN packets
+# --flood : maximum speed
+# -p 80   : HTTP port
+# Result: company-web-server CPU maxed, Apache unresponsive → "website down"
+# AEGIS: ddos event → auto null-route + Telegram alert
+
+# Company website health check (aegis-company-admin မှ)
+curl -s -o /dev/null -w "%{http_code}" http://10.10.10.10
+# 200 = OK | 503/000 = site down
+```
+
+#### ② DNS Attack — DNS Server (10.10.10.20)
+
+| Attack | Tool | Target | Expected AEGIS alert |
+|---|---|---|---|
+| DNS flood | hping3 / dnsperf | port 53/UDP | `ddos` |
+| Zone transfer | dig AXFR | BIND9 | `dns_zone_transfer` |
+| DNS spoofing | ettercap/manual | DNS cache | ARP alert (if detected) |
+| NXDOMAIN flood | custom script | random hostnames | `dns_query_refused` spike |
+
+```bash
+# Zone transfer attempt (Kali မှ)
+dig @10.10.10.20 goldenmyanmar.trading.com AXFR
+# AEGIS: dns_zone_transfer alert → Telegram
+
+# DNS flood (Kali မှ)
+hping3 --udp -p 53 --flood 10.10.10.20
+# Result: BIND9 lag → DNS resolution slow/fail → web app DB connect fail chain
+```
+
+#### ③ Database Attack — company-customer-db (10.20.20.10)
+
+| Attack | Tool | Target | Expected AEGIS alert |
+|---|---|---|---|
+| MySQL brute force | hydra | port 3306 | `ssh_brute` (fail2ban) |
+| SQLi (via web) | sqlmap | web app form | Web attack → DB data dump |
+| Direct connect | mysql client | 3306 direct | fail2ban detect |
+
+```bash
+# MySQL brute force (Kali မှ)
+hydra -l root -P /usr/share/wordlists/rockyou.txt mysql://10.20.20.10 -t 4
+# fail2ban → AEGIS → auto-block + Telegram
+
+# SQLi via web app (data dump)
+sqlmap -u "http://10.10.10.10/search?q=1" --dbs --tables --dump --batch
+# customers, accounts, transactions tables expose ဖြစ်
+```
+
+#### ④ LDAP Attack — company-ldap-server (10.20.20.20)
+
+| Attack | Tool | Target | Expected AEGIS alert |
+|---|---|---|---|
+| LDAP brute force | hydra | port 389 | `ssh_brute` (fail2ban) |
+| Anonymous bind | ldapsearch | dn dump | detect via log |
+| Credential dump | ldapsearch -x | all users | Telegram alert |
+
+```bash
+# Anonymous LDAP enumeration (Kali မှ)
+ldapsearch -x -H ldap://10.20.20.20 -b "dc=goldenmyanmar,dc=com"
+# -x : anonymous bind (no credential)
+# All user entries expose ဖြစ်မဖြစ် test
+
+# LDAP brute force
+hydra -l "cn=admin,dc=goldenmyanmar,dc=com" -P /usr/share/wordlists/rockyou.txt ldap2://10.20.20.20
+```
+
+#### ⑤ Website Down Simulation (Full Chain Attack)
+
+```
+Attack Goal: goldenmyanmar.trading.com website ကို completely down ဖြစ်အောင် လုပ်ပြ
+
+Chain:
+  Step 1: DNS flood → DNS server respond မဖြစ် → hostname resolve မဖြစ်
+  Step 2: DDoS web → Apache resources exhausted → HTTP 503
+  Step 3: DB brute → MySQL connections maxed → PHP DB connect fail
+  Result: http://10.10.10.10 → "Connection refused" / timeout
+
+AEGIS response:
+  - DNS flood → ddos alert → null route
+  - DDoS web → ddos alert → IP block + Telegram
+  - DB brute → fail2ban block → pfSense + VM iptables block
+  - Dashboard: multiple red alerts, Telegram notifications burst
+```
+
+---
+
+### 14f. Migration Plan (Bank → Company)
+
+**Phase: Future (not current)**
+
+| Item | Old (bank) | New (goldenmyanmar) | Action |
+|---|---|---|---|
+| Domain | `bank.local` | `goldenmyanmar.trading.com` | BIND9 zone rename |
+| DB name | `companydb` (transitional) | `goldenmyanmardb` | MySQL DB rename + re-seed |
+| DB user | `companyuser` | `gmuser` | MySQL user recreate |
+| Web content | Bank login/dashboard | Golden Myanmar Trading site | New PHP app |
+| LDAP base DN | `dc=bank,dc=local` | `dc=goldenmyanmar,dc=com` | slapd dpkg-reconfigure |
+| AEGIS host-utils | bank-web aliases | company names (already done) | ✅ Done |
+| Netplan nameserver | `10.10.10.20` (keep) | `10.10.10.20` (keep) | No change |
+
+> **Note:** Netplan DNS config (nameserver 10.10.10.20) တွင် domain ကို မသုံးဘဲ IP ဘဲ သုံးထားသည် — zone ပြောင်းသော်လည်း Netplan မပြောင်းနဲ့ OK ဖြစ်သည်။
+
+---
+
+## အခန်း 15 — Session Notes: Pending Diagnostics (2026-07-22)
+
+> ဤအခန်းသည် 2026-07-22 session ၏ ကျန်ရှိသော pending items များ မှတ်တမ်းတင်ထားသည်။ ပြီးဆုံးသောအခါ lab-setup-journal.md ထဲ ဆက်ရေးမည်။
+
+---
+
+### 15a. ✅ Completed This Session
+
+#### DNS Watcher Internal Filter Fix
+
+**Problem:** AEGIS Dashboard Telemetry မှာ `10.30.30.10 → company-dns-server [dns_query_refused]` spam ပေါ်နေ
+
+**Root Cause:** aegis hub VM (10.30.30.10) က routine health check / name resolution လုပ်ရင်း BIND9 refused ဖြေသည်→ `_watch_remote_bind9()` မှာ filter မပါ → dashboard event spam
+
+**Fix applied (`scripts/src/aegis_forwarder.py`):**
+```python
+# _watch_remote_bind9() ထဲ _defender_ips filter ထည့်
+_defender_ips = {h["ip"] for h in REMOTE_HOSTS} | {"10.30.30.10", PFSENSE_IP}
+# dns_query_refused → source ∈ _defender_ips → skip (routine internal query)
+# dns_zone_transfer (AXFR/IXFR) → always alert (any source = suspicious)
+```
+
+**Status:** Code ✅ pushed to GitHub main | VM ⏳ `wget` + `systemctl restart` မလုပ်ရသေး
+
+---
+
+#### pfSense Suricata Watcher: FreeBSD tail -F Fix
+
+**Problem:** pfSense SSH watcher → connect → immediately disconnect (15s reconnect loop)
+
+**Root Cause:** pfSense runs FreeBSD. GNU tail: `tail -F missing_file` → wait/retry. BSD tail: `tail -F missing_file` → **immediately exit**. Suricata eve.json မရှိသေးတဲ့ အတွက် SSH session ချက်ချင်း ပြတ်ကာ reconnect loop ဖြစ်နေ
+
+**Fix applied (`scripts/src/aegis_forwarder.py`):**
+```python
+# Before:
+f"tail -F {log_path} 2>/dev/null"
+
+# After (BSD compatible wait-then-tail):
+f"sh -c 'while [ ! -f {log_path} ]; do sleep 5; done; tail -F {log_path} 2>/dev/null'"
+```
+Also: `ServerAliveInterval` 15→30, `ServerAliveCountMax` 3→6
+
+**Status:** Code ✅ pushed | VM ⏳ script update pending | pfSense ⏳ eve.json still missing
+
+---
+
+### 15b. ⏳ Pending: pfSense Suricata eve.json Path
+
+**Problem:** Suricata IS running (em1.10 + em2.20 interfaces ✅ green), EVE JSON logging ✅ enabled, but `/var/db/suricata/suricata_em110/eve.json` မရှိ
+
+**Diagnosis needed — pfSense Diagnostics → Command Prompt:**
+```sh
+# Actual log directory structure ကြည့်
+ls -la /var/db/suricata/
+
+# eve.json ဘယ်မှာ ဆိုတာ find
+find /var/db/suricata -type f -name "eve.json" 2>/dev/null
+
+# Suricata process running လား (FreeBSD ps syntax)
+ps aux | grep suricata
+```
+
+**Possible causes:**
+| Cause | Check |
+|---|---|
+| Directory naming ကွဲ | `suricata_em1_10` vs `suricata_em110` (dot→underscore?) |
+| Suricata start မဖြစ်ရသေး | ps aux → no suricata process |
+| Traffic မ pass မဖြစ်ရသေး | Suricata run ဖြစ်ပြီး traffic မ detect မချင်း file မဖွင့် |
+| Log output type မမှန် | "FILE" မဟုတ်ဘဲ syslog ဖြစ်နေ |
+
+**Code path to update (after finding real path):**
+`scripts/src/aegis_forwarder.py` → `_watch_pfsense_suricata()` → `log_path` variable
+
+---
+
+### 15c. ⏳ Pending: Aegis VM Script Update
+
+**What to run on aegis-company-admin:**
+```bash
+# Script update (GitHub မှ latest)
+wget -O /opt/aegis/scripts/src/aegis_forwarder.py \
+  https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/scripts/src/aegis_forwarder.py
+
+# Verify download
+head -5 /opt/aegis/scripts/src/aegis_forwarder.py
+
+# Restart service
+sudo systemctl restart aegis-forwarder
+sudo journalctl -u aegis-forwarder -f   # live log ကြည့်
+```
+
+**What these fixes activate:**
+1. DNS watcher → aegis hub internal queries filter ✅
+2. pfSense watcher → BSD-compatible wait-then-tail ✅ (no more reconnect loop)
+
+---
+
+### 15d. DNS Resolution Test (After goldenmyanmar.trading.com Setup)
+
+**Prerequisite:** BIND9 zone `goldenmyanmar.trading.com` configure ပြီးမှ run ရမည်
+
+```bash
+# ── Step 1: Zone file syntax check (DNS-Server မှာ) ──────────────
+sudo named-checkconf
+sudo named-checkzone goldenmyanmar.trading.com /etc/bind/db.goldenmyanmar.trading.com
+# "OK" ထွက်ရမည် — error ရှိရင် zone load မဖြစ်
+
+# ── Step 2: Basic record resolution ─────────────────────────────
+dig @10.10.10.20 web.goldenmyanmar.trading.com A
+# ANSWER: web.goldenmyanmar.trading.com → 10.10.10.10
+
+dig @10.10.10.20 db.goldenmyanmar.trading.com A
+# ANSWER: db.goldenmyanmar.trading.com → 10.20.20.10
+
+dig @10.10.10.20 ldap.goldenmyanmar.trading.com A
+# ANSWER: ldap.goldenmyanmar.trading.com → 10.20.20.20
+
+# ── Step 3: End-to-end resolution from company-web-server ────────
+# company-web-server resolv.conf မှာ nameserver 10.10.10.20 ရှိမရှိ
+cat /etc/resolv.conf
+
+# System DNS ကိုသုံး resolve (resolv.conf မှာ 10.10.10.20 ထည့်မှ OK)
+nslookup db.goldenmyanmar.trading.com
+# Expected: Address: 10.20.20.10
+
+# ── Step 4: Web → DB connect test via DNS ────────────────────────
+# company-web-server မှာ MySQL via hostname test
+mysql -h db.goldenmyanmar.trading.com -u gmuser -pgm1234 goldenmyanmardb \
+  -e "SELECT COUNT(*) FROM customers;"
+# DNS resolve → IP → MySQL connect → query OK ဆိုရင် DNS chain ပြည့်ပြည့်ဝဝ အလုပ်လုပ်
+
+# ── Step 5: Security test — zone transfer block confirm ──────────
+dig @10.10.10.20 goldenmyanmar.trading.com AXFR
+# "Transfer failed" ထွက်ရမည် (BIND9 ACL မပါရင် all records expose — security risk)
+```
