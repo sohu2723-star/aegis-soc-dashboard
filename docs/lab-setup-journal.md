@@ -2679,16 +2679,24 @@ journalctl -u aegis-forwarder -f
 **What:** GitHub ကနေ Replit သို့ project import လုပ်ပြီး dev environment ကို အပြည့်အစုံ setup လုပ်ခဲ့သည်။  
 **How:**
 1. `pnpm install` — workspace dependencies အားလုံး install (473 packages)
-2. Replit Secrets panel မှာ `SUPABASE_DB_URL`, `AEGIS_INGEST_KEY`, `AEGIS_ADMIN_KEY` ထည့်သွင်း
-3. `ADMIN_EMAIL=copy2723@gmail.com` shared env var အဖြစ် set
+2. Replit Secrets panel မှာ `SUPABASE_DB_URL`, `AEGIS_INGEST_KEY`, `AEGIS_ADMIN_KEY` ထည့်သွင်း (requestSecrets flow ကတဆင့်)
+3. `ADMIN_EMAIL=copy2723@gmail.com`, `GOOGLE_CLIENT_ID` shared env vars — `.replit` မှာ set ထားပြီးသား
 4. Workflows နှစ်ခု start:
    - **Start application** → Vite frontend, port 5000 ✅
    - **API Server** → Express build + start, port 3000 ✅
 5. Dashboard login page ပေါ်လာ confirm ✅
 
+**Bug Fixed — Scheduler cold-start crash (`artifacts/api-server/src/index.ts`):**
+- **Symptom:** API Server port 3000 listening ✅ → scheduler `getSetting()` query → `PostgresError: canceling statement due to statement timeout (57014)` → process crash
+- **Root cause:** Supabase pooler cold-start statement timeout → postgres.js internal promise rejection → process crashed even though `.catch()` was attached
+- **Fix 1:** `process.on('unhandledRejection')` global handler — prevent any internal postgres.js promise leak from crashing the process
+- **Fix 2:** `startSchedulerWithRetry()` — exponential backoff retry (10s, 20s … max 60s) ကြာလာမှ succeed
+- **Result:** Server stays alive; scheduler retries and succeeds on next attempt
+
 **Result:**
-- API Server: `Server listening port: 3000` + `Auto-report scheduler starting` — Supabase connection အောင်မြင်
-- Frontend: AEGIS SOC login page rendering correctly
-- Google SSO 403 = expected (Replit dev domain not in Google Console origins) — Access Key login သုံးနိုင်
+- API Server: `Server listening port: 3000` + `Auto-report scheduler starting intervalMinutes: 1440` ✅
+- Frontend: AEGIS SOC login page rendering correctly ✅
+- Supabase connected — schema OK
+- Google SSO 403 = expected (Replit dev domain not in Google Console origins) — Access Key (`AEGIS_ADMIN_KEY`) login သုံးနိုင်
 
 **Next:** Secrets များ Render production env မှာလည်း set ထားရမည် (`SUPABASE_DB_URL`, `AEGIS_INGEST_KEY`, `AEGIS_ADMIN_KEY`)
