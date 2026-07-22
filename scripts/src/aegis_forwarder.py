@@ -1547,9 +1547,17 @@ def _watch_remote_bind9(host_name: str, host_ip: str):
     # Internal/defender IPs — skip routine queries from our own infrastructure.
     # Zone transfers (AXFR/IXFR) are always suspicious and bypass this filter.
     _defender_ips = {h["ip"] for h in REMOTE_HOSTS} | {"10.30.30.10", PFSENSE_IP}
+    # Rate-limit dns_query_refused: only alert after >= 5 refused queries from
+    # the same external IP within a 60-second sliding window.
+    # Single browser visit = 1-2 DNS lookups = no alert.
+    # DNS recon / brute scan = many queries in short time = MEDIUM alert.
+    DNS_REFUSED_THRESHOLD = 5
+    DNS_REFUSED_WINDOW    = 60  # seconds
+    _refused_ts: dict[str, list[float]] = {}  # ip → list of epoch timestamps
+
     print(f"[{host_name}] bind9 thread started")
     for line in _ssh_tail(host_name, host_ip, log_path):
-        # Zone transfer attempt: AXFR/IXFR — always alert regardless of source
+        # Zone transfer attempt: AXFR/IXFR — always alert immediately regardless of source
         if "AXFR" in line or "IXFR" in line:
             m = re.search(r"([\d.]+)#\d+", line)
             src_ip = m.group(1) if m else "unknown"
@@ -1562,22 +1570,30 @@ def _watch_remote_bind9(host_name: str, host_ip: str):
                 "description": f"DNS zone transfer attempt from {src_ip}",
                 "signature_text": line.strip(),
             })
-        # Refused / error queries — skip internal infrastructure (aegis hub, company VMs, pfSense)
-        # Only alert on external sources (attacker 192.168.10.x or unknown IPs)
+        # Refused / error queries — rate-limited, external IPs only
         elif "query" in line.lower() and ("error" in line.lower() or "refused" in line.lower()):
             m = re.search(r"([\d.]+)#\d+", line)
             src_ip = m.group(1) if m else "unknown"
             if src_ip in _defender_ips:
                 continue   # routine internal DNS query — not an attack
-            post("event", {
-                "source":      "bind9",
-                "type":        "dns_query_refused",
-                "severity":    "medium",
-                "sourceIp":    src_ip,
-                "targetHost":  host_ip,
-                "description": f"DNS query refused from {src_ip}: {line[:80]}",
-                "signature_text": line.strip(),
-            })
+            # Accumulate timestamps for this IP; prune entries outside the window
+            now = time.time()
+            ts_list = _refused_ts.setdefault(src_ip, [])
+            ts_list.append(now)
+            _refused_ts[src_ip] = [t for t in ts_list if now - t <= DNS_REFUSED_WINDOW]
+            count = len(_refused_ts[src_ip])
+            if count >= DNS_REFUSED_THRESHOLD:
+                # Fire one consolidated alert and reset so we don't spam
+                _refused_ts[src_ip] = []
+                post("event", {
+                    "source":      "bind9",
+                    "type":        "dns_query_refused",
+                    "severity":    "medium",
+                    "sourceIp":    src_ip,
+                    "targetHost":  host_ip,
+                    "description": f"DNS recon: {count} refused queries from {src_ip} in {DNS_REFUSED_WINDOW}s",
+                    "signature_text": line.strip(),
+                })
 
 
 def _watch_remote_slapd(host_name: str, host_ip: str):
