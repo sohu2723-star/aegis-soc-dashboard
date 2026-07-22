@@ -188,8 +188,29 @@ async function purgeStaleRows() {
     PER_HOST_SENSORS.map(s => `${s.hostIp}::${s.component}`)
   );
 
+  // All component names that appear in PER_HOST_SENSORS.
+  // Used to detect wrong-host rows (e.g. MySQL Monitor registered under LDAP server IP).
+  const seededComponents = new Set(PER_HOST_SENSORS.map(s => s.component));
+
+  // FIX 1: Deduplicate — keep only the highest-id row per (hostIp, component) pair.
+  // Duplicate rows appear when the forwarder re-registers after a restart, or when
+  // pfSense Firewall / Fail2ban sensor is registered multiple times.
+  const maxIdPerPair = new Map<string, number>();
+  for (const s of all) {
+    const pair = `${s.hostIp}::${s.component}`;
+    const cur = maxIdPerPair.get(pair);
+    if (cur === undefined || s.id > cur) maxIdPerPair.set(pair, s.id);
+  }
+  const dupIds = new Set(
+    all
+      .filter(s => maxIdPerPair.get(`${s.hostIp}::${s.component}`) !== s.id)
+      .map(s => s.id)
+  );
+
   const toDelete = all.filter(s => {
     const pair = `${s.hostIp}::${s.component}`;
+    // FIX 1: Remove duplicate rows — keep only the highest-id row per (hostIp, component)
+    if (dupIds.has(s.id)) return true;
     // Never delete our own seeded entries
     if (seededPairs.has(pair)) return false;
     // Always delete broken old sensor names
@@ -198,6 +219,10 @@ async function purgeStaleRows() {
     if (s.hostIp && OBSOLETE_HOST_IPS.includes(s.hostIp)) return true;
     // Delete old global (no-hostIp) obsolete entries
     if (!s.hostIp && GLOBAL_OBSOLETE_COMPONENTS.includes(s.component)) return true;
+    // FIX 2: Delete wrong-host sensor rows — component is a known per-host sensor name
+    // but assigned to a host it doesn't belong to (e.g. MySQL Monitor on LDAP server IP).
+    // This happens when old forwarder versions registered sensors on wrong hosts.
+    if (s.hostIp && seededComponents.has(s.component) && !seededPairs.has(pair)) return true;
     // Delete orphaned per-host rows whose host is no longer registered
     if (s.hostIp != null && !activeIps.has(s.hostIp)) return true;
     return false;

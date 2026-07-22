@@ -28,6 +28,12 @@ import requests
 from pathlib import Path
 from datetime import datetime
 
+# ── pfSense Suricata IDS connection state (shared across suricata threads) ──────
+# Tracks how many _watch_pfsense_suricata threads are currently SSH-connected.
+# _pfsense_health_loop reads this every 30s to post "pfSense Suricata IDS" status.
+_suricata_connected_count: int = 0
+_suricata_count_lock = threading.Lock()
+
 # ─── LOCAL CONFIG FILE (set-once, not committed to git) ───────────────────────
 # Real keys go in aegis_forwarder.local.conf next to this script (gitignored),
 # so you type them once on the machine that runs this and never again — same
@@ -1194,6 +1200,43 @@ def _remote_register_host(host_name: str, host_ip: str):
         print(f"  WARN Remote host registration {host_name} failed: {e}")
 
 
+def _post_pfsense_suricata_status(status: str) -> None:
+    """Post pfSense Suricata IDS online/offline status to the AEGIS API."""
+    try:
+        requests.post(
+            f"{AEGIS_URL}/system/status",
+            json={
+                "component":   "pfSense Suricata IDS",
+                "layer":       "sensor",
+                "status":      status,
+                "description": "Network-level IDS on pfSense WAN — detects port scans, DDoS, SQLi, XSS, SSH brute across all zones",
+                "metrics":     json.dumps({"agent": "hub", "ip": PFSENSE_IP}),
+            },
+            headers=HEADERS,
+            timeout=30,
+        )
+    except Exception:
+        pass
+
+
+def _suricata_mark_online() -> None:
+    """Increment connected-thread counter; post 'online' on first connection."""
+    global _suricata_connected_count
+    with _suricata_count_lock:
+        _suricata_connected_count += 1
+        if _suricata_connected_count == 1:
+            _post_pfsense_suricata_status("online")
+
+
+def _suricata_mark_offline() -> None:
+    """Decrement counter; post 'offline' when all threads are disconnected."""
+    global _suricata_connected_count
+    with _suricata_count_lock:
+        _suricata_connected_count = max(0, _suricata_connected_count - 1)
+        if _suricata_connected_count == 0:
+            _post_pfsense_suricata_status("offline")
+
+
 def _watch_pfsense_suricata(log_path: str | None = None):
     """
     SSH into pfSense (PFSENSE_IP) and tail one Suricata EVE JSON log.
@@ -1253,6 +1296,7 @@ def _watch_pfsense_suricata(log_path: str | None = None):
             proc = subprocess.Popen(ssh_cmd, stdout=subprocess.PIPE,
                                     stderr=subprocess.PIPE, text=True)
             print(f"[pfSense-suricata] Connected")
+            _suricata_mark_online()
             for line in proc.stdout:
                 line = line.strip()
                 if not line:
@@ -1284,8 +1328,10 @@ def _watch_pfsense_suricata(log_path: str | None = None):
                 except json.JSONDecodeError:
                     pass
             proc.wait()
+            _suricata_mark_offline()
             print("[pfSense-suricata] SSH disconnected — reconnecting in 15s")
         except Exception as e:
+            _suricata_mark_offline()
             print(f"[pfSense-suricata] Error: {e} — retrying in 15s")
         time.sleep(15)
 
@@ -1751,6 +1797,13 @@ def _pfsense_health_loop():
             )
         except Exception:
             pass
+        # Also report pfSense Suricata IDS status based on SSH connection state.
+        # If suricata thread(s) are connected → online; all disconnected → offline.
+        with _suricata_count_lock:
+            sur_status = "online" if _suricata_connected_count > 0 else "offline"
+        sur_indicator = "✓" if sur_status == "online" else "✗"
+        print(f"[{ts}] {sur_indicator} pfSense Suricata IDS: {sur_status.upper()}")
+        _post_pfsense_suricata_status(sur_status)
         time.sleep(30)
 
 
