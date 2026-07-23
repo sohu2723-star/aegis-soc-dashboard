@@ -5,6 +5,23 @@ import { sql } from "drizzle-orm";
 
 const router: IRouter = Router();
 
+// Ultra-lightweight keep-alive / latency probe (no DB query)
+router.get("/ping", (_req, res) => {
+  res.json({ ok: true, ts: Date.now() });
+});
+
+// ~50 KB payload for client-side download-speed measurement
+router.get("/speedtest", (_req, res) => {
+  const buf = Buffer.alloc(51200, 65); // 50 KB of 'A'
+  res.set({
+    "Content-Type": "application/octet-stream",
+    "Content-Length": String(buf.length),
+    "Cache-Control": "no-store, no-cache",
+    "X-Payload-Bytes": String(buf.length),
+  });
+  res.send(buf);
+});
+
 router.get("/healthz", async (_req, res) => {
   let dbStatus: "ok" | "error" = "ok";
   let dbError: string | undefined;

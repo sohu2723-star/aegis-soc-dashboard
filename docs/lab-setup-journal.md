@@ -3083,3 +3083,29 @@ wget -O /opt/aegis/scripts/src/aegis_forwarder.py \
   https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/scripts/src/aegis_forwarder.py
 sudo systemctl restart aegis-forwarder
 ```
+
+---
+
+### [2026-07-24] — Dashboard UI Fixes & Internet Speed Live Card
+
+**Status:** ✅ Done  
+**What:**  
+1. Network Monitor — pfSense row မှာ delete button မပါတာ ထည့်ခဲ့
+2. Command Center — SYSTEMS ONLINE card နှစ်ခု ပါနေတာ secondary row တစ်ခုလုံး (Blocked Events + duplicate Systems Online) ဖြုတ်ပြီး Internet Speed Live card နဲ့ replace ခဲ့
+3. API Server — `/api/ping` (lightweight, no DB) နဲ့ `/api/speedtest` (50KB payload) endpoint ၂ ခု ထည့်ခဲ့
+4. Internet Speed Live card — download Mbps, ping ms, peak, 20-bar animated waveform (framer-motion); 10s interval မှာ auto-measure
+
+**How:**  
+- `artifacts/aegis-dashboard/src/pages/network.tsx` line 674: `h.id !== -1 &&` check ဖြုတ်ပြီး pfSense delete button ပါအောင် ပြင်
+- `artifacts/aegis-dashboard/src/pages/dashboard.tsx`: secondary KPI row replace; `InternetSpeedCard` component ထည့်; framer-motion AnimatePresence ပါ
+- `artifacts/api-server/src/routes/health.ts`: `/ping` + `/speedtest` route ထည့်
+
+**Result:** 
+- pfSense row မှာ delete button ပါလာပြီ
+- Command Center မှာ Systems Online card တစ်ခုသာ ကျန် (top row မှာ)
+- Internet Speed Live card ပါလာပြီ — animated waveform + Mbps/ms/peak metrics
+- InternetSpeedCard က 10s တိုင်း /api/speedtest ကို ping → Render server ကို implicit keep-alive ဖြစ်
+
+**Note (Render cold-start):** Keep-alive hook (`useKeepAlive`) က tab open ထားတဲ့ အချိန် 4 min တိုင်း `/api/healthz` ping ထားတယ်။ Tab ပိတ်ထားရင်တော့ Render free tier 15 min နောက် spin down ဖြစ်မယ် — ဒါက Render limitation, code issue မဟုတ်ဘူး။ Render paid plan upgrade ရင် cold start ပျောက်မယ်။
+
+**Next:** GitHub push → Render/Vercel auto-deploy → production မှာ ပြင်ပြီးတဲ့ changes တွေ ထင်မယ်

@@ -1,18 +1,153 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Activity, ShieldAlert, Siren, Server, Ban } from "lucide-react";
+import { Activity, ShieldAlert, Siren, Server, Wifi } from "lucide-react";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip,
   BarChart, Bar, CartesianGrid,
 } from "recharts";
 import { format } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDeviceContext } from "@/lib/device-context";
 import { useGetRecentEvents, getGetRecentEventsQueryKey } from "@workspace/api-client-react";
 import { HostLabel } from "@/lib/host-utils";
+import { motion, AnimatePresence } from "framer-motion";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+// ── Internet Speed Live Card ────────────────────────────────────────────────
+function InternetSpeedCard() {
+  const [speed, setSpeed] = useState<number | null>(null);
+  const [latency, setLatency] = useState<number | null>(null);
+  const [history, setHistory] = useState<number[]>([]);
+  const [peak, setPeak] = useState<number>(0);
+  const [measuring, setMeasuring] = useState(false);
+  const prevSpeed = useRef<number | null>(null);
+
+  const measure = useCallback(async () => {
+    setMeasuring(true);
+    try {
+      // Download speed
+      const t0 = performance.now();
+      const r = await fetch(`${BASE}/api/speedtest`, { cache: "no-store" });
+      const buf = await r.arrayBuffer();
+      const elapsed = (performance.now() - t0) / 1000;
+      const mbps = parseFloat(((buf.byteLength * 8) / elapsed / 1_000_000).toFixed(2));
+      prevSpeed.current = mbps;
+      setSpeed(mbps);
+      setPeak(p => Math.max(p, mbps));
+      setHistory(h => [...h.slice(-19), mbps]);
+
+      // Ping latency
+      const t1 = performance.now();
+      await fetch(`${BASE}/api/ping`, { cache: "no-store" });
+      setLatency(Math.round(performance.now() - t1));
+    } catch {
+      // keep old values — API temporarily unreachable
+    } finally {
+      setMeasuring(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    measure();
+    const id = setInterval(measure, 10_000);
+    return () => clearInterval(id);
+  }, [measure]);
+
+  const max = Math.max(...history, 1);
+  const barCount = 20;
+  const bars = history.length < barCount
+    ? [...Array(barCount - history.length).fill(0), ...history]
+    : history;
+
+  const getColor = (v: number | null) =>
+    v === null ? "text-muted-foreground" : v > 10 ? "text-green-400" : v > 2 ? "text-yellow-400" : "text-red-400";
+  const getBarColor = (v: number) =>
+    v === 0 ? "bg-muted/20" : v / max > 0.6 ? "bg-cyan-400/70" : v / max > 0.3 ? "bg-cyan-500/50" : "bg-cyan-600/40";
+  const statusLabel = speed === null ? "MEASURING" : speed > 10 ? "GOOD" : speed > 2 ? "FAIR" : "POOR";
+  const statusColor = speed === null ? "text-muted-foreground" : speed > 10 ? "text-green-400" : speed > 2 ? "text-yellow-400" : "text-red-400";
+
+  return (
+    <Card className="bg-card border-border">
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+          <Wifi className="h-3.5 w-3.5 text-cyan-400" />
+          Internet Speed — Live
+          {measuring && (
+            <span className="relative flex h-1.5 w-1.5 ml-1">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-cyan-400" />
+            </span>
+          )}
+        </CardTitle>
+        <span className={`text-[10px] font-mono font-bold tracking-widest ${statusColor}`}>{statusLabel}</span>
+      </CardHeader>
+      <CardContent>
+        {/* Metrics row */}
+        <div className="flex items-end gap-6 mb-3">
+          {/* Download speed */}
+          <div>
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={String(speed)}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.25 }}
+                className={`text-3xl font-bold font-mono tabular-nums ${getColor(speed)}`}
+              >
+                {speed !== null ? speed.toFixed(1) : "—"}
+              </motion.div>
+            </AnimatePresence>
+            <div className="text-[10px] text-muted-foreground font-mono">Mbps down</div>
+          </div>
+
+          {/* Latency */}
+          <div>
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={String(latency)}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.25 }}
+                className="text-xl font-bold font-mono tabular-nums text-cyan-400"
+              >
+                {latency !== null ? latency : "—"}
+              </motion.div>
+            </AnimatePresence>
+            <div className="text-[10px] text-muted-foreground font-mono">ms ping</div>
+          </div>
+
+          {/* Peak */}
+          <div className="ml-auto text-right">
+            <div className="text-[10px] font-mono text-muted-foreground">Peak</div>
+            <div className="text-sm font-bold font-mono text-green-400">
+              {peak > 0 ? peak.toFixed(1) : "—"} <span className="text-[10px] text-muted-foreground">Mbps</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Live waveform bars */}
+        <div className="flex items-end gap-[2px] h-8">
+          {bars.map((v, i) => (
+            <motion.div
+              key={i}
+              animate={{ height: `${Math.max(3, (v / max) * 32)}px` }}
+              transition={{ duration: 0.4, ease: "easeOut" }}
+              className={`flex-1 rounded-sm ${getBarColor(v)}`}
+            />
+          ))}
+        </div>
+        <div className="flex justify-between mt-1 text-[9px] text-muted-foreground/50 font-mono">
+          <span>-{barCount * 10}s</span>
+          <span>now</span>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 function useDashboardSummary(targetHost: string | null) {
   const url = targetHost
@@ -189,40 +324,8 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {/* Secondary KPI row */}
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card className="bg-card border-border">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground">
-              {selectedDevice ? `Blocked Events — ${selectedDevice.ip}` : "Blocked Events"}
-            </CardTitle>
-            <Ban className="h-4 w-4 text-red-500" />
-          </CardHeader>
-          <CardContent className="flex items-end justify-between">
-            {isLoadingSummary && !summary
-              ? <NumSkeleton />
-              : <div className="text-3xl font-bold text-red-500">{summary?.blockedIPs ?? 0}</div>
-            }
-            <span className="text-[10px] text-muted-foreground font-mono pb-1">blocked IPs</span>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-card border-border">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground">
-              {selectedDevice ? `Systems Online — ${selectedDevice.ip}` : "Systems Online"}
-            </CardTitle>
-            <Server className="h-4 w-4 text-green-500" />
-          </CardHeader>
-          <CardContent className="flex items-end justify-between">
-            {isLoadingSummary && !summary
-              ? <NumSkeleton />
-              : <div className="text-3xl font-bold text-green-500">{summary?.systemsOnline ?? 0}<span className="text-lg text-muted-foreground">/{summary?.systemsTotal ?? 0}</span></div>
-            }
-            <span className="text-[10px] text-muted-foreground font-mono pb-1">sensors / infra</span>
-          </CardContent>
-        </Card>
-      </div>
+      {/* Internet Speed Live */}
+      <InternetSpeedCard />
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
         <Card className="col-span-4 bg-card border-border">

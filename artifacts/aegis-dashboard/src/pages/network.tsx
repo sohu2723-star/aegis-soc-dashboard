@@ -671,7 +671,7 @@ export default function Network() {
                         <LastSeenTicker lastSeen={h.lastSeen} status={h.status} />
                       </td>
                       <td className="py-2 px-3" onClick={e => e.stopPropagation()}>
-                        {h.id !== -1 && <Button
+                        {<Button
                           variant="ghost" size="icon"
                           className="h-7 w-7 text-red-500 hover:text-red-400 hover:bg-red-500/10"
                           title="Remove from list"
