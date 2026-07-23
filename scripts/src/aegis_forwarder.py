@@ -133,6 +133,26 @@ REMOTE_HOSTS = [h for h in [
 # and routes execution accordingly (local iptables / pfSense API / SSH iptables)
 HUB_DEFENSE_VMS = ["aegis", "pfsense"] + [h["name"] for h in REMOTE_HOSTS]
 
+# ─── Internal IP whitelist ────────────────────────────────────────────────────
+# ALL IPs that belong to our own infrastructure. Traffic FROM any of these
+# addresses must NEVER be classified as an attack event — it is our own
+# monitoring / management traffic (hub SSH tails, pfSense health checks, etc.).
+#
+#   10.10.10.1  — pfSense em1 (VLAN 10 gateway)
+#   10.20.20.1  — pfSense em2 (VLAN 20 gateway)
+#   10.30.30.1  — pfSense em3 / PFSENSE_IP (VLAN 30 gateway)
+#   10.10.10.x  — company-web-server, company-dns-server
+#   10.20.20.x  — company-customer-db, company-ldap-server
+#   10.30.30.10 — aegis-company-admin (this hub)
+#   127.0.0.1   — loopback
+_INTERNAL_IPS: frozenset = frozenset(
+    {h["ip"] for h in REMOTE_HOSTS if h.get("ip")}
+    | {PFSENSE_IP}                              # pfSense (10.30.30.1)
+    | {"10.10.10.1", "10.20.20.1", "10.30.30.1"}  # pfSense VLAN gateways
+    | {"10.30.30.10"}                           # aegis-company-admin (hub)
+    | {"127.0.0.1", "::1"}                      # loopback
+)
+
 HEADERS = {
     "Content-Type": "application/json",
     "X-AEGIS-Key": AEGIS_KEY,
@@ -1409,14 +1429,13 @@ def _watch_pfsense_suricata(log_path: str | None = None):
 
 def _watch_remote_ssh(host_name: str, host_ip: str):
     """Tail auth.log on a remote VM via SSH and forward failed/success login events."""
-    _defender_ips = {h["ip"] for h in REMOTE_HOSTS} | {"10.30.30.10"}
     fail_counts: dict[str, int] = {}
     print(f"[{host_name}] ssh thread started")
     for line in _ssh_tail(host_name, host_ip, "/var/log/auth.log"):
         m_fail = SSH_FAIL_RE.search(line)
         if m_fail:
             user, ip = m_fail.group(1), m_fail.group(2)
-            if ip in _defender_ips:
+            if ip in _INTERNAL_IPS:
                 continue
             fail_counts[ip] = fail_counts.get(ip, 0) + 1
             post("ssh", {
@@ -1431,7 +1450,7 @@ def _watch_remote_ssh(host_name: str, host_ip: str):
         m_ok = SSH_SUCCESS_RE.search(line)
         if m_ok:
             _, user, ip = m_ok.group(1), m_ok.group(2), m_ok.group(3)
-            if ip in _defender_ips:
+            if ip in _INTERNAL_IPS:
                 continue
             prior = fail_counts.pop(ip, 0)
             post("ssh", {
@@ -1446,17 +1465,14 @@ def _watch_remote_ssh(host_name: str, host_ip: str):
 
 def _watch_remote_fail2ban(host_name: str, host_ip: str):
     """Tail fail2ban.log on a remote VM via SSH and forward ban events."""
-    # Never report our own hub or any company VM as an attacker —
-    # aegis-forwarder SSHes into company VMs so fail2ban may temporarily ban it.
-    _defender_ips = {h["ip"] for h in REMOTE_HOSTS} | {"10.30.30.10"}
     print(f"[{host_name}] fail2ban thread started")
     for line in _ssh_tail(host_name, host_ip, "/var/log/fail2ban.log"):
         m = FAIL2BAN_RE.search(line)
         if not m:
             continue
         banned_ip = m.group(2)
-        if banned_ip in _defender_ips:
-            print(f"[{host_name}] fail2ban: skipped defender IP {banned_ip}")
+        if banned_ip in _INTERNAL_IPS:
+            print(f"[{host_name}] fail2ban: skipped internal IP {banned_ip}")
             continue
         jail = m.group(1)
         post("fail2ban", {
@@ -1537,6 +1553,10 @@ def _watch_remote_http_access(host_name: str, host_ip: str):
             continue
         ip, method, url, status = m.group(1), m.group(2), m.group(3), int(m.group(4))
 
+        # Never report internal infrastructure as an attacker.
+        if ip in _INTERNAL_IPS:
+            continue
+
         if not _is_login_url(url):
             continue
 
@@ -1586,7 +1606,6 @@ def _watch_remote_postgresql(host_name: str, host_ip: str):
         f"bash -c 'tail -F {log_path} 2>/dev/null'",
     ]
     print(f"[{host_name}] postgresql thread started")
-    _defender_ips = {h["ip"] for h in REMOTE_HOSTS} | {"10.30.30.10"}
     while True:
         try:
             proc = subprocess.Popen(
@@ -1601,7 +1620,7 @@ def _watch_remote_postgresql(host_name: str, host_ip: str):
                 if not m:
                     continue
                 user, db, client_ip, level, msg = m.groups()
-                if client_ip in _defender_ips:
+                if client_ip in _INTERNAL_IPS:
                     continue
                 # Auth failure — report as SSH-like brute/credential event
                 if "password authentication failed" in msg or "authentication failed" in msg:
@@ -1635,7 +1654,6 @@ def _watch_remote_postgresql(host_name: str, host_ip: str):
 def _watch_remote_mysql(host_name: str, host_ip: str):
     """Tail MySQL error log on company-customer-db via SSH and forward auth failures."""
     log_path = "/var/log/mysql/error.log"
-    _defender_ips = {h["ip"] for h in REMOTE_HOSTS} | {"10.30.30.10"}
     print(f"[{host_name}] mysql thread started")
     for line in _ssh_tail(host_name, host_ip, log_path):
         # MySQL auth failure: Access denied for user 'root'@'192.168.x.x'
@@ -1644,7 +1662,7 @@ def _watch_remote_mysql(host_name: str, host_ip: str):
             if not m:
                 continue
             user, src_ip = m.group(1), m.group(2)
-            if src_ip in _defender_ips:
+            if src_ip in _INTERNAL_IPS:
                 continue
             post("event", {
                 "source":      "mysql",
@@ -1663,7 +1681,6 @@ def _watch_remote_bind9(host_name: str, host_ip: str):
     log_path = "/var/log/named/named.log"
     # Internal/defender IPs — skip routine queries from our own infrastructure.
     # Zone transfers (AXFR/IXFR) are always suspicious and bypass this filter.
-    _defender_ips = {h["ip"] for h in REMOTE_HOSTS} | {"10.30.30.10", PFSENSE_IP}
     # Rate-limit dns_query_refused: only alert after >= 5 refused queries from
     # the same external IP within a 60-second sliding window.
     # Single browser visit = 1-2 DNS lookups = no alert.
@@ -1691,7 +1708,7 @@ def _watch_remote_bind9(host_name: str, host_ip: str):
         elif "query" in line.lower() and ("error" in line.lower() or "refused" in line.lower()):
             m = re.search(r"([\d.]+)#\d+", line)
             src_ip = m.group(1) if m else "unknown"
-            if src_ip in _defender_ips:
+            if src_ip in _INTERNAL_IPS:
                 continue   # routine internal DNS query — not an attack
             # Accumulate timestamps for this IP; prune entries outside the window
             now = time.time()
@@ -1724,7 +1741,6 @@ def _watch_remote_slapd(host_name: str, host_ip: str):
     IP is ONLY on the ACCEPT line — track conn→IP mapping so RESULT lines
     can resolve the source IP correctly.
     """
-    _defender_ips = {h["ip"] for h in REMOTE_HOSTS} | {"10.30.30.10"}
     # conn_id (str) → src_ip (str) — populated from ACCEPT lines
     _conn_ip: dict = {}
     print(f"[{host_name}] slapd thread started")
@@ -1751,7 +1767,7 @@ def _watch_remote_slapd(host_name: str, host_ip: str):
             m_conn = re.search(r"conn=(\d+)", line)
             cid    = m_conn.group(1) if m_conn else None
             src_ip = _conn_ip.get(cid, "unknown") if cid else "unknown"
-            if src_ip in _defender_ips:
+            if src_ip in _INTERNAL_IPS:
                 continue
             post("event", {
                 "source":      "slapd",
