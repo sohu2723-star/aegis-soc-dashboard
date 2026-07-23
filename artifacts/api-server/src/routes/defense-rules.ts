@@ -5,7 +5,7 @@
  */
 import { Router } from "express";
 import { db, defenseRulesTable, defenseCommandsTable } from "@workspace/db";
-import { eq, desc, sql } from "drizzle-orm";
+import { eq, desc, sql, and } from "drizzle-orm";
 import { z } from "zod";
 import { requireAdmin } from "../lib/admin-auth";
 import { getHotIps } from "../lib/attack-tracker";
@@ -86,7 +86,16 @@ router.patch("/defense/rules/:id", requireAdmin, async (req, res) => {
 
 router.delete("/defense/rules/:id", requireAdmin, async (req, res) => {
   const id = Number(req.params.id);
-  await db.update(defenseRulesTable).set({ isActive: false }).where(eq(defenseRulesTable.id, id));
+  if (!Number.isInteger(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const [existing] = await db.select({ id: defenseRulesTable.id })
+    .from(defenseRulesTable)
+    .where(eq(defenseRulesTable.id, id));
+  if (!existing) { res.status(404).json({ error: "Rule not found" }); return; }
+  await db.delete(defenseCommandsTable).where(and(
+    eq(defenseCommandsTable.ruleId, id),
+    eq(defenseCommandsTable.status, "pending"),
+  ));
+  await db.delete(defenseRulesTable).where(eq(defenseRulesTable.id, id));
   res.json({ success: true, id });
 });
 

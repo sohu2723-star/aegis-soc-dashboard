@@ -178,9 +178,14 @@ export async function evaluateEvent(event: IngestEvent): Promise<void> {
     .where(eq(defenseRulesTable.isActive, true));
 
   for (const rule of rules.sort((a, b) => a.priority - b.priority)) {
+    // A manually-created rule may target either the normalised attack
+    // category (for example "ssh_brute") or the original event type
+    // (for example "network_attack"). Support both forms so the trigger
+    // values exposed by the dashboard actually work with real ingest events.
     const typeMatch =
       rule.triggerAttackType === "any" ||
-      rule.triggerAttackType === actualTriggerType;
+      rule.triggerAttackType === actualTriggerType ||
+      rule.triggerAttackType === event.type;
 
     const sevOrder: Record<string, number> = { low: 1, medium: 2, high: 3, critical: 4 };
     const sevMatch =
@@ -328,137 +333,5 @@ async function suggestManualDefense(rule: DefenseRule, event: IngestEvent) {
   broadcaster.broadcast("incident", { id: incRow.id, title: `[ACTION NEEDED] ${rule.name}` });
 }
 
-// Rules that belonged to removed services or whose names changed — deleted from DB
-// on startup so the new seeded version takes effect immediately on next restart.
-const OBSOLETE_RULE_NAMES = [
-  "Mail Spam → Auto Block",           // bank-mail removed from lab
-  "MITM / ARP Spoof → Incident",      // No dedicated MITM sensor; Suricata handles detection only
-  // pfSense rules promoted from "suggest" → "auto" (PFSENSE_API_KEY now set)
-  "Critical Attack → pfSense Block",  // re-seeded below as actionType:"auto"
-  "Web Attack → pfSense Block",       // re-seeded below as actionType:"auto"
-  // targetVm renamed from generic "ubuntu" to actual VM hostnames
-  "SSH Brute Force → Auto Block",
-  "SSH Brute Force Block",            // old user-facing name with targetVm="ubuntu"
-  "DDoS → Null Route",
-  "Web Attack (High) → Auto Block",
-  "Port Scan → Auto Block",
-  // Renamed: bank-* → company-* topology
-  "SSH Brute Force → Auto Block (bank-web)",
-  "SSH Brute Force → Auto Block (customer-db)",
-  "SSH Brute Force → Auto Block (dns-server)",
-  "SSH Brute Force → Auto Block (ldap-server)",
-  "DNS Attack → Auto Block (dns-server)",
-  "DDoS → Null Route (all VMs)",
-  "Web Attack (High) → Auto Block (bank-web)",
-  "Port Scan → Auto Block (bank-web)",
-];
-
-// ─── Seed default rules ───────────────────────────────────────────────────────
-export async function seedDefaultRules() {
-  const existing = await db.select().from(defenseRulesTable);
-
-  // Remove obsolete rules that no longer apply to this lab topology
-  const toDelete = existing.filter(r => OBSOLETE_RULE_NAMES.includes(r.name));
-  if (toDelete.length > 0) {
-    const { inArray } = await import("drizzle-orm");
-    await db.delete(defenseRulesTable).where(
-      inArray(defenseRulesTable.id, toDelete.map(r => r.id)),
-    );
-  }
-
-  const existingNames = new Set(existing.map(r => r.name));
-
-  const defaults: Array<typeof defenseRulesTable.$inferInsert> = [
-    // ── SSH brute force — company-web-server (10.10.10.10), company-customer-db (10.20.20.10), company-dns-server (10.10.10.20), company-ldap-server (10.20.20.20) ──
-    {
-      name: "SSH Brute Force → Auto Block (company-web-server)",
-      description: "Block any IP with ≥5 SSH failures in 60s on company-web-server (10.10.10.10). Executed by forwarder via iptables.",
-      triggerAttackType: "ssh_brute", triggerSeverity: "any",
-      triggerThreshold: 5, triggerWindowSecs: 60,
-      actionType: "auto", defenseType: "block_ip",
-      targetVm: "company-web-server", priority: 10, isActive: true,
-    },
-    {
-      name: "SSH Brute Force → Auto Block (company-customer-db)",
-      description: "Block any IP with ≥5 SSH failures in 60s on company-customer-db (10.20.20.10). Executed by forwarder via iptables.",
-      triggerAttackType: "ssh_brute", triggerSeverity: "any",
-      triggerThreshold: 5, triggerWindowSecs: 60,
-      actionType: "auto", defenseType: "block_ip",
-      targetVm: "company-customer-db", priority: 11, isActive: true,
-    },
-    {
-      name: "SSH Brute Force → Auto Block (company-dns-server)",
-      description: "Block any IP with ≥5 SSH failures in 60s on company-dns-server (10.10.10.20). Executed by forwarder via iptables.",
-      triggerAttackType: "ssh_brute", triggerSeverity: "any",
-      triggerThreshold: 5, triggerWindowSecs: 60,
-      actionType: "auto", defenseType: "block_ip",
-      targetVm: "company-dns-server", priority: 13, isActive: true,
-    },
-    {
-      name: "SSH Brute Force → Auto Block (company-ldap-server)",
-      description: "Block any IP with ≥5 SSH failures in 60s on company-ldap-server (10.20.20.20). Executed by forwarder via iptables.",
-      triggerAttackType: "ssh_brute", triggerSeverity: "any",
-      triggerThreshold: 5, triggerWindowSecs: 60,
-      actionType: "auto", defenseType: "block_ip",
-      targetVm: "company-ldap-server", priority: 14, isActive: true,
-    },
-    // ── DNS attack — company-dns-server (BIND9 on 10.10.10.20) ─────────────────────
-    {
-      name: "DNS Attack → Auto Block (company-dns-server)",
-      description: "Block IP performing DNS amplification, zone transfer, or flood against company-dns-server (10.10.10.20).",
-      triggerAttackType: "dns_attack", triggerSeverity: "any",
-      triggerThreshold: 1, triggerWindowSecs: 60,
-      actionType: "auto", defenseType: "block_ip",
-      targetVm: "company-dns-server", priority: 18, isActive: true,
-    },
-    // ── DDoS / SYN flood — all VMs ──────────────────────────────────────────────
-    {
-      name: "DDoS → Null Route (company VMs)",
-      description: "Null-route any IP flooding ≥50 events in 30s — applied on all monitored company VMs.",
-      triggerAttackType: "ddos", triggerSeverity: "any",
-      triggerThreshold: 50, triggerWindowSecs: 30,
-      actionType: "auto", defenseType: "null_route",
-      targetVm: "all", priority: 8, isActive: true,
-    },
-    // ── Web attacks — company-web-server only (Apache2 + ModSecurity on 10.10.10.10) ─────
-    {
-      name: "Web Attack (High) → Auto Block (company-web-server)",
-      description: "Block IP on first high/critical SQLi, XSS, LFI, RFI against company-web-server (10.10.10.10). ModSecurity / Suricata detection.",
-      triggerAttackType: "web_attack", triggerSeverity: "high",
-      triggerThreshold: 1, triggerWindowSecs: 60,
-      actionType: "auto", defenseType: "block_ip",
-      targetVm: "company-web-server", priority: 15, isActive: true,
-    },
-    // ── Port scan — company-web-server (primary entry point) ───────────────────────────
-    {
-      name: "Port Scan → Auto Block (company-web-server)",
-      description: "Block any IP detected running a port scan (nmap) against company-web-server (10.10.10.10).",
-      triggerAttackType: "port_scan", triggerSeverity: "any",
-      triggerThreshold: 1, triggerWindowSecs: 60,
-      actionType: "auto", defenseType: "block_ip",
-      targetVm: "company-web-server", priority: 20, isActive: true,
-    },
-    // ── pfSense WAN boundary blocks (aegis_forwarder.py --vm pfsense via SSH) ─
-    {
-      name: "Critical Attack → pfSense Block",
-      description: "Critical severity attack → persistent block at pfSense WAN firewall via SSH easyrule. Requires aegis_forwarder.py --vm pfsense on a host with SSH access to pfSense.",
-      triggerAttackType: "any", triggerSeverity: "critical",
-      triggerThreshold: 1, triggerWindowSecs: 60,
-      actionType: "auto", defenseType: "pfsense_block",
-      targetVm: "pfsense", priority: 50, isActive: true,
-    },
-    {
-      name: "Web Attack → pfSense Block",
-      description: "High/critical web attack → persistent block at pfSense WAN boundary via SSH easyrule.",
-      triggerAttackType: "web_attack", triggerSeverity: "high",
-      triggerThreshold: 1, triggerWindowSecs: 60,
-      actionType: "auto", defenseType: "pfsense_block",
-      targetVm: "pfsense", priority: 45, isActive: true,
-    },
-  ];
-
-  for (const rule of defaults) {
-    if (existingNames.has(rule.name)) continue;
-    await db.insert(defenseRulesTable).values(rule);
-  }
-}
+// Defense rules are intentionally managed only through the dashboard CRUD API.
+// There is no startup seeding: deleted rules must stay deleted across restarts.

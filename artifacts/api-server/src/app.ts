@@ -4,7 +4,6 @@ import pinoHttp from "pino-http";
 import router from "./routes";
 import authRouter from "./routes/auth";
 import { logger } from "./lib/logger";
-import { seedDefaultRules } from "./lib/auto-defense";
 
 const app: Express = express();
 
@@ -33,11 +32,5 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use("/api", authRouter);
 app.use("/api", router);
-
-// Seed default defense rules on startup (no-op if already seeded)
-seedDefaultRules().catch(err => {
-  // DB may not be connected yet — not fatal, rules will seed on next successful query
-  console.warn("Defense rules seed skipped (DB not ready):", err?.message);
-});
 
 export default app;

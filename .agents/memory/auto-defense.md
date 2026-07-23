@@ -32,9 +32,10 @@ Ingest event (POST /api/ingest/*)
 - Key: `${sourceIp}::${actualTriggerType}` where `actualTriggerType` is the resolved type (never "any").
 - This prevents cross-attack-type aggregation when a rule has `triggerAttackType = "any"`.
 
-## Default rules seeded on first startup
-ssh_brute→block_ip, honeypot→block_ip, ddos→null_route, web_attack(high)→block_ip,
-port_scan→block_ip, ftp_brute→block_ip, mail→block_ip, critical→pfsense_block, mitm→suggest
+## Rule lifecycle
+- No defense or firewall rules are seeded automatically at startup.
+- Rules only become active after a user creates them in the dashboard; deleting a rule
+  hard-deletes the record and removes pending commands tied to it.
 
 ## Command queue race condition fix
 Polling uses atomic SQL `UPDATE … LIMIT 20 WHERE status='pending'` before selecting,

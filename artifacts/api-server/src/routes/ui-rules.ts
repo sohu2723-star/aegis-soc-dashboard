@@ -6,10 +6,18 @@
  */
 import { Router } from "express";
 import { db, defenseRulesTable, defenseCommandsTable, firewallRulesTable, defenseActionsTable, securityEventsTable } from "@workspace/db";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
 import { z } from "zod";
 import { getHotIps } from "../lib/attack-tracker";
 import { verifyToken } from "../lib/jwt-auth";
+import {
+  sanitizeChain,
+  sanitizeFwAction,
+  sanitizeFirewallPort,
+  sanitizeInterface,
+  sanitizeOptionalIp,
+  sanitizeProtocol,
+} from "../lib/defense-sanitize";
 
 const router = Router();
 
@@ -100,7 +108,19 @@ router.patch("/ui/defense/rules/:id", maybeAdmin, async (req, res) => {
 
 router.delete("/ui/defense/rules/:id", maybeAdmin, async (req, res) => {
   const id = Number(req.params.id);
-  await db.update(defenseRulesTable).set({ isActive: false }).where(eq(defenseRulesTable.id, id));
+  if (!Number.isInteger(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const [existing] = await db.select({ id: defenseRulesTable.id })
+    .from(defenseRulesTable)
+    .where(eq(defenseRulesTable.id, id));
+  if (!existing) { res.status(404).json({ error: "Rule not found" }); return; }
+
+  // A deleted rule must not leave a queued command that a VM agent can still
+  // dispatch after the rule has disappeared from the dashboard.
+  await db.delete(defenseCommandsTable).where(and(
+    eq(defenseCommandsTable.ruleId, id),
+    eq(defenseCommandsTable.status, "pending"),
+  ));
+  await db.delete(defenseRulesTable).where(eq(defenseRulesTable.id, id));
   res.json({ success: true, id });
 });
 
@@ -185,6 +205,7 @@ router.get("/ui/defense/hot-ips", (_req, res) => {
 
 router.get("/ui/firewall/rules", async (_req, res) => {
   const rules = await db.select().from(firewallRulesTable)
+    .where(eq(firewallRulesTable.isActive, true))
     .orderBy(desc(firewallRulesTable.appliedAt));
   res.json(rules.map(r => ({ ...r, appliedAt: r.appliedAt.toISOString() })));
 });
@@ -206,29 +227,58 @@ router.post("/ui/firewall/rules", maybeAdmin, async (req, res) => {
   if (!body.success) { res.status(400).json({ error: body.error.flatten() }); return; }
 
   const d = body.data;
-  const parts = ["iptables", "-A", d.chain];
-  if (d.protocol)   parts.push("-p", d.protocol);
-  if (d.sourceIp)   parts.push("-s", d.sourceIp);
-  if (d.destIp)     parts.push("-d", d.destIp);
-  if (d.sourcePort) parts.push("--sport", d.sourcePort);
-  if (d.destPort)   parts.push("--dport", d.destPort);
-  if (d.iface)      parts.push("-i", d.iface);
-  parts.push("-j", d.action);
+  let chain: string;
+  let action: string;
+  let protocol: string | null;
+  let sourceIp: string | null;
+  let destIp: string | null;
+  let sourcePort: string | null;
+  let destPort: string | null;
+  let iface: string | null;
+  try {
+    chain = sanitizeChain(d.chain);
+    action = sanitizeFwAction(d.action);
+    protocol = d.protocol ? sanitizeProtocol(d.protocol) : null;
+    sourceIp = sanitizeOptionalIp(d.sourceIp);
+    destIp = sanitizeOptionalIp(d.destIp);
+    sourcePort = sanitizeFirewallPort(d.sourcePort);
+    destPort = sanitizeFirewallPort(d.destPort);
+    iface = sanitizeInterface(d.iface);
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Invalid firewall rule" });
+    return;
+  }
+
+  const parts = ["iptables", "-A", chain];
+  if (protocol)   parts.push("-p", protocol);
+  if (sourceIp)   parts.push("-s", sourceIp);
+  if (destIp)     parts.push("-d", destIp);
+  if (sourcePort) parts.push("--sport", sourcePort);
+  if (destPort)   parts.push("--dport", destPort);
+  if (iface)      parts.push("-i", iface);
+  parts.push("-j", action);
   const ruleText = parts.join(" ");
 
   const [rule] = await db.insert(firewallRulesTable).values({
-    chain: d.chain, action: d.action,
-    protocol: d.protocol ?? null, sourceIp: d.sourceIp ?? null,
-    destIp: d.destIp ?? null, sourcePort: d.sourcePort ?? null,
-    destPort: d.destPort ?? null, iface: d.iface ?? null,
+    chain, action, protocol, sourceIp, destIp, sourcePort, destPort, iface,
     ruleText, isActive: true, createdBy: d.createdBy,
   }).returning();
 
   await db.insert(defenseActionsTable).values({
     type: "manual", action: "firewall_rule_add",
-    targetIp: d.sourceIp ?? "any",
+    targetIp: sourceIp ?? "any",
     reason: `Firewall rule added: ${ruleText}`,
     performedBy: d.createdBy, status: "success",
+  });
+
+  // Manual firewall rules are real VM actions, not just dashboard records.
+  await db.insert(defenseCommandsTable).values({
+    targetVm: "all",
+    commandType: "iptables",
+    commandText: ruleText,
+    undoCommand: ruleText.replace(" -A ", " -D "),
+    targetIp: d.sourceIp ?? null,
+    status: "pending",
   });
 
   res.status(201).json({ id: rule.id, ruleText, ...d });
@@ -241,12 +291,27 @@ router.delete("/ui/firewall/rules/:id", maybeAdmin, async (req, res) => {
   const existing = await db.select().from(firewallRulesTable).where(eq(firewallRulesTable.id, id));
   if (existing.length === 0) { res.status(404).json({ error: "Rule not found" }); return; }
 
-  await db.update(firewallRulesTable).set({ isActive: false }).where(eq(firewallRulesTable.id, id));
+  const rule = existing[0];
+  // Remove an unapplied add command, then queue the inverse so agents remove
+  // a rule that was already applied on the VMs.
+  await db.delete(defenseCommandsTable).where(and(
+    eq(defenseCommandsTable.commandText, rule.ruleText),
+    eq(defenseCommandsTable.status, "pending"),
+  ));
+  await db.insert(defenseCommandsTable).values({
+    targetVm: "all",
+    commandType: "iptables",
+    commandText: rule.ruleText.replace(" -A ", " -D "),
+    undoCommand: rule.ruleText,
+    targetIp: rule.sourceIp ?? null,
+    status: "pending",
+  });
+  await db.delete(firewallRulesTable).where(eq(firewallRulesTable.id, id));
 
   await db.insert(defenseActionsTable).values({
     type: "manual", action: "firewall_rule_remove",
-    targetIp: existing[0].sourceIp ?? "any",
-    reason: `Firewall rule removed: ${existing[0].ruleText}`,
+    targetIp: rule.sourceIp ?? "any",
+    reason: `Firewall rule removed: ${rule.ruleText}`,
     performedBy: "admin", status: "success",
   });
 

@@ -147,7 +147,10 @@ function RulesTab() {
       fetch(`${BASE}/api/ui/defense/rules/${id}`, {
         method: "DELETE",
         headers: authHeaders(),
-      }).then(r => r.json()),
+      }).then(async r => {
+        if (!r.ok) throw new Error(await r.text());
+        return r.json();
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ui-rules"] });
       toast({ title: "Rule Deleted" });
@@ -413,7 +416,10 @@ function FirewallTab() {
       fetch(`${BASE}/api/ui/firewall/rules/${id}`, {
         method: "DELETE",
         headers: fwAuthHeaders(),
-      }).then(r => r.json()),
+      }).then(async r => {
+        if (!r.ok) throw new Error(await r.text());
+        return r.json();
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ui-fw"] });
       toast({ title: "Rule Removed" });

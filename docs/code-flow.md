@@ -38,7 +38,7 @@ workspace/
    ├── cors()
    ├── express.json() + express.urlencoded()
    └── /api → router (routes/index.ts)
-4. seedDefaultRules() → inserts 9 default defense rules if table is empty
+4. Dashboard-created defense rules are loaded from `defense_rules`; startup does not seed defaults
 5. app.listen(port)
 ```
 

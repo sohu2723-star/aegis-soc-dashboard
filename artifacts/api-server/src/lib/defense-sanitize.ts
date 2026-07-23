@@ -20,11 +20,44 @@ export function sanitizeIp(ip: string): string {
   return ip;
 }
 
+/** Return null for an omitted optional IP, otherwise validate it strictly. */
+export function sanitizeOptionalIp(ip: unknown): string | null {
+  if (ip == null || String(ip).trim() === "") return null;
+  return sanitizeIp(String(ip).trim());
+}
+
 /** Throws if port is not a valid integer 1-65535. Returns stringified int. */
 export function sanitizePort(port: unknown): string {
   const n = Number(port);
   if (!Number.isInteger(n) || n < 1 || n > 65535) throw new Error(`Unsafe port value: ${port}`);
   return String(n);
+}
+
+/** Validate a firewall port or inclusive port range such as "22" or "8000:8080". */
+export function sanitizeFirewallPort(port: unknown): string | null {
+  if (port == null || String(port).trim() === "") return null;
+  const value = String(port).trim();
+  const match = value.match(/^(\d{1,5})(?::(\d{1,5}))?$/);
+  if (!match) throw new Error(`Unsafe firewall port value: ${port}`);
+  const first = Number(match[1]);
+  const second = match[2] == null ? null : Number(match[2]);
+  if (!Number.isInteger(first) || first < 1 || first > 65535) {
+    throw new Error(`Unsafe firewall port value: ${port}`);
+  }
+  if (second != null && (!Number.isInteger(second) || second < first || second > 65535)) {
+    throw new Error(`Unsafe firewall port range: ${port}`);
+  }
+  return second == null ? String(first) : `${first}:${second}`;
+}
+
+/** Interface names are inserted into an iptables command and must stay shell-safe. */
+export function sanitizeInterface(iface: unknown): string | null {
+  if (iface == null || String(iface).trim() === "") return null;
+  const value = String(iface).trim();
+  if (!/^[A-Za-z0-9_.:-]{1,16}$/.test(value)) {
+    throw new Error(`Unsafe interface value: ${iface}`);
+  }
+  return value;
 }
 
 /** Throws if proto is not in the allowlist. */

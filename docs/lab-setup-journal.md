@@ -2,6 +2,14 @@
 
 ---
 
+## [2026-07-23] — Manual Defense/Firewall Rule Lifecycle Fix
+
+**Status:** ✅ Done
+**What:** Defense Rules page မှာ rule ဖျက်ပြီးနောက် server restart/refresh လုပ်တိုင်း default rules ပြန်ပေါ်လာခြင်း၊ soft-deleted rows တွေ UI မှာကျန်နေခြင်း၊ Firewall Rules မှာလည်း removed records ပြန်မြင်နေရခြင်းကို ပြင်ခဲ့သည်။
+**How:** Startup default-rule seeding ကိုပိတ်ခဲ့သည်။ Defense နှင့် Firewall delete endpoints များကို soft-disable မဟုတ်ဘဲ database hard-delete ပြောင်းခဲ့သည်။ Deleted defense rules နှင့်ဆိုင်သော pending commands များကို cancel/delete လုပ်ပြီး firewall add/remove commands များကို VM command queue ထဲသို့ ထည့်ခဲ့သည်။ User-created trigger type များကို real ingest event type နှင့် match ဖြစ်အောင်ပြင်ခဲ့သည်။
+**Result:** Dashboard မှာ rule ကို ကိုယ်တိုင် add လုပ်မှသာ active ဖြစ်ပြီး၊ add/list/delete/reload CRUD smoke test အောင်မြင်သည်။ Delete ပြီးနောက် Defense/Firewall list နှစ်ခုလုံးတွင် rule မပြန်ပေါ်တော့ပါ။
+**Next:** Real GNS3 VM မှာ add လုပ်ထားသော firewall rule နှင့် delete လုပ်ပြီး inverse command ကို forwarder က execute လုပ်ကြောင်း စမ်းရန်။
+
 ## Project Overview
 
 **Goal:** Real-time Security Operations Center dashboard for a GNS3 home lab.  
