@@ -422,18 +422,24 @@ export default function Defense() {
         {/* When device scoped: show inline Fail2ban + Suricata in same 4-col row */}
         {deviceFilter && (
           <>
-            <ServiceCard
-              label="Fail2Ban"
-              active={status?.fail2banActive}
-              icon={<Shield className="w-8 h-8 text-green-400" />}
-              justChanged={changedServices.has("fail2ban")}
-            />
-            <ServiceCard
-              label="pfSense Suricata IDS"
-              active={status?.suricataActive}
-              icon={<Shield className="w-8 h-8 text-primary" />}
-              justChanged={changedServices.has("suricata")}
-            />
+            {/* Fail2ban — VM hosts only; pfSense has no fail2ban */}
+            {selectedDevice?.role !== "pfsense" && (
+              <ServiceCard
+                label="Fail2Ban"
+                active={status?.fail2banActive}
+                icon={<Shield className="w-8 h-8 text-green-400" />}
+                justChanged={changedServices.has("fail2ban")}
+              />
+            )}
+            {/* Suricata IDS — pfSense only; individual VMs have no Suricata */}
+            {selectedDevice?.role === "pfsense" && (
+              <ServiceCard
+                label="pfSense Suricata IDS"
+                active={status?.suricataActive}
+                icon={<Shield className="w-8 h-8 text-primary" />}
+                justChanged={changedServices.has("suricata")}
+              />
+            )}
           </>
         )}
       </div>
