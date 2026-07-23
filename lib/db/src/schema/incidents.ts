@@ -1,4 +1,4 @@
-import { pgTable, integer, varchar, text, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, integer, varchar, text, timestamp, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -13,7 +13,11 @@ export const incidentsTable = pgTable("incidents", {
   eventCount:  integer("event_count").notNull().default(0),
   createdAt:   timestamp("created_at").defaultNow().notNull(),
   updatedAt:   timestamp("updated_at").defaultNow().notNull(),
-});
+}, (t) => [
+  // Dashboard counts open incidents on every summary refresh.
+  index("incidents_status_idx").on(t.status),
+  index("incidents_created_at_idx").on(t.createdAt),
+]);
 
 export const insertIncidentSchema = createInsertSchema(incidentsTable).omit({ createdAt: true, updatedAt: true });
 export type InsertIncident = z.infer<typeof insertIncidentSchema>;

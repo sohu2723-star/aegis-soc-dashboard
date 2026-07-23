@@ -26,8 +26,14 @@ import AttackFlow from "@/pages/attack-flow";
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      refetchOnWindowFocus: true,
-      staleTime: 0,          // always background-refetch for freshest data
+      // SSE (useSSE hook) already pushes live events via broadcaster — no need
+      // to hammer the API on every window focus. Disable focus-refetch to avoid
+      // a burst of 8+ parallel DB queries every time the user alt-tabs back.
+      refetchOnWindowFocus: false,
+      // 10 s stale window: data is considered fresh for 10 s after the last
+      // successful fetch. Prevents duplicate requests when the dashboard's
+      // own refetchInterval fires alongside a component remount.
+      staleTime: 10_000,
       gcTime: 60_000,        // keep cache 1 min before garbage collecting
       retry: 2,
       retryDelay: 2000,

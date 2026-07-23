@@ -46,13 +46,13 @@ const createEventSchema = z.object({
 
 router.post("/events", async (req, res) => {
   const body = createEventSchema.parse(req.body);
-  const [row] = await db.insert(securityEventsTable).values({
+  // .returning() already gives us the full inserted row — no extra SELECT needed.
+  const [event] = await db.insert(securityEventsTable).values({
     ...body,
     toolUsed: body.toolUsed ?? null,
     status:   "detected",
   }).returning();
 
-  const [event] = await db.select().from(securityEventsTable).where(eq(securityEventsTable.id, row.id));
   res.status(201).json({ ...event, createdAt: event.createdAt.toISOString() });
 });
 

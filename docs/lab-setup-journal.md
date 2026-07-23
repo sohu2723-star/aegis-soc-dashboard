@@ -2,6 +2,22 @@
 
 ---
 
+## [2026-07-23] — Dashboard Performance Fix (DB Indexes + React Query)
+
+**Status:** ✅ Done
+**What:** Dashboard slow ဖြစ်နေသည့် ပြဿနာ 3 ခုကို ပြင်ခဲ့သည်။ `security_events` table တွင် index လုံးဝမပါဘဲ full table scan ဖြစ်နေသည်; React Query `staleTime: 0` + `refetchOnWindowFocus: true` ကြောင့် window alt-tab တိုင်း 8+ DB queries ထပ်ထွက်နေသည်; Events POST handler တွင် `.returning()` ပြီးနောက် unnecessary extra `SELECT` ထပ်ရိုက်နေသည်။
+**How:**
+- `lib/db/src/schema/security_events.ts` — indexes 6 ခု ထည့်: `created_at`, `severity`, `status`, `type`, `target_host`, `source_ip`
+- `lib/db/src/schema/alerts.ts` — indexes 2 ခု: `acknowledged`, `created_at`
+- `lib/db/src/schema/incidents.ts` — indexes 2 ခု: `status`, `created_at`
+- `lib/db/drizzle/0003_add_performance_indexes.sql` — migration SQL ရေးထားသည် (Supabase SQL Editor မှာ run ရမည်)
+- `artifacts/aegis-dashboard/src/App.tsx` — `staleTime: 0 → 10_000`, `refetchOnWindowFocus: true → false`
+- `artifacts/api-server/src/routes/events.ts` — POST handler extra SELECT ဖယ်ရှားသည်
+**Result:** Supabase SQL မှာ migration run ပြီးနောက် dashboard query time ကျပြီး smooth ဖြစ်ရမည်။ Window focus burst requests မဖြစ်တော့ပါ။
+**Next:** Supabase dashboard → SQL Editor မှာ `lib/db/drizzle/0003_add_performance_indexes.sql` ကို run ပါ (indexes CREATE လုပ်ဖို့)။
+
+---
+
 ## [2026-07-23] — Suricata False Event Filter Fix (Outbound Response Traffic)
 
 **Status:** ✅ Done
