@@ -2700,3 +2700,50 @@ journalctl -u aegis-forwarder -f
 - Google SSO 403 = expected (Replit dev domain not in Google Console origins) — Access Key (`AEGIS_ADMIN_KEY`) login သုံးနိုင်
 
 **Next:** Secrets များ Render production env မှာလည်း set ထားရမည် (`SUPABASE_DB_URL`, `AEGIS_INGEST_KEY`, `AEGIS_ADMIN_KEY`)
+
+---
+
+### [2026-07-23] — Bug Fixes: False Attack Events + pfSense Suricata Status
+
+**Status:** ✅ Done  
+**What:** Dashboard ပေါ်ဖြစ်နေတဲ့ bug ၂ ခု fix + VM-side issue ၁ ခု diagnose
+
+---
+
+**Bug Fix 1 — Hub IP (10.30.30.10) false attack events (`artifacts/api-server/src/routes/ingest.ts`):**
+- **Symptom:** Dashboard Recent Telemetry မှာ `10.30.30.10 → company-customer-db [SSH Brute]`, `[LDAP Brute]`, `[MySQL Brute]` events ပြနေ — hub IP က attacker အဖြစ် ပေါ်နေတာ
+- **Root cause:** Hub (aegis-company-admin, 10.30.30.10) က company VMs ကို 15s တစ်ကြိမ် SSH ဝင်ပြီး log tail လုပ်တယ်။ ဒီ legitimate connections တွေ auth.log မှာ ကျပြီး forwarder က `/ingest/ssh`, `/ingest/fail2ban`, `/ingest/event` ကတဆင့် attack events အဖြစ် ပြန်ပို့နေတာ။ `isDefenderIp()` function ရှိပြီး import ပြုလုပ်ထားပေမဲ့ handlers မှာ **မခေါ်ထားဘူး**
+- **Fix:** handlers ၃ ခုမှာ `isDefenderIp(src_ip)` guard ထည့်:
+  - `/ingest/ssh` — defender IP ဆိုရင် silently skip (HTTP 200)
+  - `/ingest/fail2ban` — defender IP ဆိုရင် skip (hub SSH retry → f2b trigger ကိုလည်း)
+  - `/ingest/event` — generic events (LDAP/MySQL brute) defender source → skip
+- **Note:** `isDefenderIp()` က 10.10.10.x, 10.20.20.x, 10.30.30.x, 127.x ကိုသာ whitelist — 192.168.122.x (Kali attacker) ကို **မ whitelist** ဘူး
+
+---
+
+**Bug Fix 2 — pfSense Suricata IDS "offline" after 2 min (`scripts/src/aegis_forwarder.py`):**
+- **Symptom:** pfSense Suricata IDS dashboard system status မှာ "offline" ပြနေ — SSH tail ဆက်ရှိနေပေမဲ့
+- **Root cause:** `_watch_pfsense_suricata()` က SSH connect ဖြစ်တဲ့အခါ `_suricata_mark_online()` တစ်ကြိမ်သာ ခေါ်တယ် (periodic re-post မလုပ်)။ `system.ts` stale timeout = **2 minutes** — ဒါကြောင့် 120s ကျော်ရင် `lastCheck` stale ဖြစ်ပြီး dashboard က "offline" ပြတာ
+- **Fix:** `proc.stdout` read loop ထဲ ဝင်ခါနဲ့ `daemon=True` keepalive thread (`_keepalive_loop`) spawn လုပ်တယ် — 60s တစ်ကြိမ် `_post_pfsense_suricata_status("online")` ပြန်ပို့နေမည်။ SSH disconnect/exception ဖြစ်ရင် `finally` block မှာ `Event.set()` ဖြင့် keepalive thread ရပ်ပြီးမှ offline post လုပ်မည် (race condition ကာကွယ်)
+
+---
+
+**VM-Side Issue — White page at `http://10.10.10.10/` (GNS3 restart အပြီး):**
+- **Diagnosis:** Apache IS running (white page ≠ connection refused) — ဒါပေမဲ့ `/var/www/html/` မှာ `index.html` မရှိ၊ `login.php` တစ်ခုတည်းရှိ
+- **Fix (company-web-server မှာ run ပါ):**
+  ```bash
+  sudo bash -c 'echo "<?php header(\"Location: /login.php\", true, 301); exit;" > /var/www/html/index.php'
+  sudo systemctl restart apache2
+  sudo systemctl enable apache2   # GNS3 restart-proof
+  ```
+
+---
+
+**Forwarder script update (aegis-company-admin မှာ run ပါ):**
+```bash
+cd /opt/aegis
+wget -O aegis_forwarder.py \
+  https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/scripts/src/aegis_forwarder.py
+sudo systemctl restart aegis-forwarder
+```
+Bug fix 1 + 2 နှစ်ခုစလုံး ဒီ script update ဖြင့် VM မှာ effective ဖြစ်မည်။
