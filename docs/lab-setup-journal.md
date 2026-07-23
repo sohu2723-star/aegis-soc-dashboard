@@ -2755,3 +2755,68 @@ wget -O aegis_forwarder.py \
 sudo systemctl restart aegis-forwarder
 ```
 Bug fix 1 + 2 နှစ်ခုစလုံး ဒီ script update ဖြင့် VM မှာ effective ဖြစ်မည်။
+
+---
+
+## [2026-07-23] — Fix: False Attack Events from Internal Lab Traffic (Topology Policy)
+
+**Status:** ✅ Done — committed `c1a51e6` + pushed to GitHub main
+
+**Symptom:** Attack မစမ်းရသေးဘဲ dashboard ပေါ်မှာ events အများကြီး ဝင်နေ
+
+**Root Cause (နေရာ ၃ ခု):**
+
+| Source | Problem | Fix Location |
+|---|---|---|
+| pfSense Suricata | ALL VLAN traffic မြင်တယ် — hub SSH, VM-to-VM, NAT cloud return ပါ | `ingest.ts` + `forwarder.py` |
+| Apache/HTTP monitor | Internal 10.x requests ကို web attack အဖြစ် မသတ်မှတ်သင့် | `ingest.ts /ingest/http_access` + `/ingest/http` |
+| GNS3 NAT cloud | `192.168.122.x` + `91.189.x.x` (apt update return traffic) → Suricata TCP-reassembly SID alert | filter မပါ |
+
+**Topology Policy (ဒါပဲ attack):**
+```
+192.168.10.x (Kali) → R1 router → pfSense → 10.10.10.x/10.20.20.x = ATTACK ✅
+
+10.x.x.x (internal hub/VM-to-VM/pfSense gateway) → any            = NOISE ❌ skip
+192.168.122.x (GNS3 NAT cloud / apt updates)      → any            = NOISE ❌ skip
+```
+
+**Code Changes:**
+
+**`artifacts/api-server/src/lib/ip-classifier.ts`**
+- `isLabInternalIp()` function ထည့် — `10.0.0.0/8` (all lab VLANs + pfSense WAN link 10.0.23.x) + `192.168.122.x` (GNS3 NAT cloud) + `127.x` → true
+- `isDefenderIp()` သာ ကျန် (auto-defense self-block prevention ဖြစ်) — မပြောင်း
+
+**`artifacts/api-server/src/routes/ingest.ts`**
+- `/ingest/suricata` — `isLabInternalIp(src_ip)` guard ထည့် (topology explanation comment ပါ)
+- `/ingest/http_access` — `isLabInternalIp(src_ip)` guard ထည့်
+- `/ingest/http` — `isLabInternalIp(src_ip)` guard ထည့်
+
+**`scripts/src/aegis_forwarder.py` — `_watch_pfsense_suricata()`**
+- `post("suricata", evt)` ခေါ်မနေ့ Pre-filter ထည့်:
+  ```python
+  _src = evt.get("src_ip", "")
+  _is_internal = (
+      _src.startswith("10.")           # all lab VLANs
+      or _src.startswith("192.168.122.")  # GNS3 NAT cloud
+      or _src.startswith("127.")
+      or _src == "::1"
+      or not _src
+  )
+  if _is_internal:
+      continue  # silent drop
+  ```
+- Dual-layer defense: forwarder + API နှစ်ဆင့် filter → attacker 192.168.10.x သာ event DB ထဲ ဝင်မည်
+
+**Result:** API Server restart ✅ (`c1a51e6`) — no false events expected
+
+**VM-side action needed:**
+```bash
+# aegis-company-admin မှာ run ပါ
+wget -O /opt/aegis/scripts/src/aegis_forwarder.py \
+  https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/scripts/src/aegis_forwarder.py
+sudo systemctl restart aegis-forwarder
+# forwarder Suricata pre-filter active ဖြစ်မည်
+```
+
+**Test:** Kali ကနေ `nmap -sS 10.10.10.10` → dashboard မှာ event ပေါ်ရမည်  
+Hub SSH / update traffic → event မပေါ်ရ
