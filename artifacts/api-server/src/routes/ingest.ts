@@ -19,7 +19,7 @@ import { broadcaster } from "../lib/broadcaster";
 import { evaluateEvent } from "../lib/auto-defense";
 import { sendTelegramMessage, telegramAvailable } from "../lib/telegram";
 import { getSetting } from "../lib/app-settings";
-import { isDefenderIp } from "../lib/ip-classifier";
+import { isDefenderIp, isLabInternalIp } from "../lib/ip-classifier";
 import { eq, and } from "drizzle-orm";
 import { recordTrafficStats } from "./network";
 
@@ -131,6 +131,20 @@ router.post("/ingest/event", auth, async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 router.post("/ingest/suricata", auth, async (req, res) => {
   const { alert, src_ip, dest_ip, proto, event_type } = req.body;
+
+  // ── Topology-aware source filter ──────────────────────────────────────────
+  // pfSense Suricata monitors ALL traffic on em1.10 (DMZ) and em2.20 (Internal).
+  // That includes: hub SSH monitoring (10.30.30.10), VM-to-VM traffic (10.x→10.x),
+  // pfSense gateway probes, and GNS3 NAT cloud return traffic (192.168.122.x,
+  // 91.189.x.x internet updates → Suricata TCP-reassembly noise).
+  //
+  // Valid attack source: 192.168.10.x (Kali attacker subnet, routed via R1).
+  // Everything else that is internal to the GNS3 lab is noise — skip silently.
+  if (isLabInternalIp(src_ip)) {
+    res.status(200).json({ ok: true, skipped: "lab_internal_ip" });
+    return;
+  }
+
   const a = alert ?? {};
   const s = sev(String(a.severity ?? 3));
 
@@ -302,6 +316,12 @@ router.post("/ingest/http_access", auth, async (req, res) => {
   const { src_ip, dest_ip, url, method, status_code, prior_failures, is_success, targetHost, signature_text } = req.body;
   if (!src_ip) { res.status(400).json({ error: "src_ip required" }); return; }
 
+  // Hub (10.30.30.10) and internal VMs must not appear as HTTP attackers.
+  if (isLabInternalIp(src_ip)) {
+    res.status(200).json({ ok: true, skipped: "lab_internal_ip" });
+    return;
+  }
+
   const priorFails = Number(prior_failures) || 0;
   const isSuccess  = Boolean(is_success);
   const host       = targetHost ?? dest_ip ?? "company-web-server";
@@ -354,6 +374,12 @@ router.post("/ingest/http_access", auth, async (req, res) => {
 router.post("/ingest/http", auth, async (req, res) => {
   const { src_ip, url, method, status_code, attack_type, payload, user_agent, rule_id, blocked, signature_text } = req.body;
   if (!src_ip || !url) { res.status(400).json({ error:"src_ip and url required" }); return; }
+
+  // Internal lab IPs must never appear as web attackers.
+  if (isLabInternalIp(src_ip)) {
+    res.status(200).json({ ok: true, skipped: "lab_internal_ip" });
+    return;
+  }
 
   await db.insert(httpAttacksTable).values({
     sourceIp: src_ip, targetUrl: url.slice(0,1024), method: method ?? "GET",

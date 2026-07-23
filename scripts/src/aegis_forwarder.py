@@ -1394,6 +1394,22 @@ def _watch_pfsense_suricata(log_path: str | None = None):
                         etype = evt.get("event_type")
                         evt["targetHost"] = "pfsense"   # stamp source for dashboard
                         if etype == "alert":
+                            # ── Topology-aware pre-filter ──────────────────
+                            # Suricata sees ALL traffic on the VLAN interfaces,
+                            # including internal lab monitoring and GNS3 NAT
+                            # cloud return traffic. Only 192.168.10.x (Kali,
+                            # routed via R1) is a real attacker source.
+                            # Drop everything else before hitting the API.
+                            _src = evt.get("src_ip", "")
+                            _is_internal = (
+                                _src.startswith("10.")          # all lab VLANs + pfSense WAN link
+                                or _src.startswith("192.168.122.")  # GNS3 NAT cloud / apt update noise
+                                or _src.startswith("127.")      # loopback
+                                or _src == "::1"
+                                or not _src
+                            )
+                            if _is_internal:
+                                continue  # silent drop — not an attack
                             # Attach full rule text so dashboard can show it.
                             # Priority: 1) EVE JSON already has alert.rule field (Suricata ≥7 with rule logging)
                             #           2) grep the rules files on pfSense by SID
