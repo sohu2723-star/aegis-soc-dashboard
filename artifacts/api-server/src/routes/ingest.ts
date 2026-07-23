@@ -13,14 +13,13 @@ import {
   securityEventsTable, alertsTable,
   sshSessionsTable,
   httpAttacksTable,
-  blockedIpsTable,
 } from "@workspace/db";
 import { broadcaster } from "../lib/broadcaster";
 import { evaluateEvent } from "../lib/auto-defense";
 import { sendTelegramMessage, telegramAvailable } from "../lib/telegram";
 import { getSetting } from "../lib/app-settings";
 import { isDefenderIp, isLabInternalIp, isAttackerSubnetIp, isSuricataProtocolNoiseSid } from "../lib/ip-classifier";
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { recordTrafficStats } from "./network";
 
 const router = Router();
@@ -220,19 +219,14 @@ router.post("/ingest/fail2ban", auth, async (req, res) => {
     return;
   }
 
-  await db.insert(sshSessionsTable).values({
-    sourceIp: ip ?? "unknown", status:"failed",
-    failures: Number(failures) || 5, bannedBy:"fail2ban",
-  });
-
-  const existing = await db.select().from(blockedIpsTable)
-    .where(and(eq(blockedIpsTable.ip, ip), eq(blockedIpsTable.isActive, true)));
-  if (existing.length === 0) {
-    await db.insert(blockedIpsTable).values({
-      ip, reason:`Fail2ban: jail=${jail ?? "sshd"}, failures=${failures ?? "?"}`,
-      blockedBy:"auto", isActive:true,
-    });
-  }
+  // sshSessionsTable: NOT inserted here — /ingest/ssh already records every
+  // individual SSH failure. Fail2ban fires AFTER N failures (ban event only),
+  // so inserting a session here would create a duplicate record with no username.
+  //
+  // blockedIpsTable: NOT inserted here — auto-defense evaluates the event via
+  // evaluateEvent() inside insertEvent() and writes to blocked_ips when a
+  // matching rule fires. Manual insert here would bypass auto-defense and write
+  // the wrong reason text.
 
   // Build a human-readable rule text for the dashboard.
   // If forwarder sends filter_regex, prefer that; otherwise summarise jail config.
@@ -429,42 +423,6 @@ router.post("/ingest/http", auth, async (req, res) => {
   });
   if (s === "critical" || s === "high")
     await mkAlert(event.id, s, `WEB ATTACK ${s}: ${attack_type} from ${src_ip} → ${url.slice(0,80)}`);
-  res.status(201).json({ id:event.id });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Mail server (SMTP / Postfix / Dovecot)
-// Fields: src_ip, from, to, subject, mail_type, count, blocked
-// mail_type: spam | phishing | relay_attempt | brute | malware_attachment
-// ─────────────────────────────────────────────────────────────────────────────
-router.post("/ingest/mail", auth, async (req, res) => {
-  const { src_ip, from, to, subject, mail_type, count, blocked } = req.body;
-  if (!src_ip) { res.status(400).json({ error:"src_ip required" }); return; }
-
-  const sevMap: Record<string,"critical"|"high"|"medium"|"low"> = {
-    phishing:"critical", malware_attachment:"critical",
-    relay_attempt:"high", spam:"medium", brute:"high",
-  };
-  const s = sevMap[mail_type ?? "spam"] ?? "medium";
-
-  const desc = mail_type === "phishing"
-    ? `Phishing email from ${src_ip}: "${subject}" → ${to}`
-    : mail_type === "malware_attachment"
-    ? `Malware attachment from ${src_ip}: "${subject}" → ${to}`
-    : mail_type === "relay_attempt"
-    ? `Open relay attempt from ${src_ip}: ${from} → ${to}`
-    : mail_type === "spam"
-    ? `Spam from ${src_ip}: ${count ?? 1} mails, "${subject}"`
-    : `Mail brute force from ${src_ip} on ${to}`;
-
-  const event = await insertEvent({
-    type:"mail_attack", subtype: mail_type ?? "spam", severity: s,
-    sourceIp: src_ip, targetHost: "mail-server",
-    toolUsed:"postfix", description: desc,
-    status: blocked ? "blocked":"detected", layer:"perimeter",
-  });
-  if (s === "critical" || s === "high")
-    await mkAlert(event.id, s, `MAIL ${s.toUpperCase()}: ${mail_type} from ${src_ip}`);
   res.status(201).json({ id:event.id });
 });
 

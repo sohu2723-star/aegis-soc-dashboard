@@ -2,6 +2,21 @@
 
 ---
 
+## [2026-07-23] — Ingest Route Cleanup (Remove Redundant Inserts + Mail Route)
+
+**Status:** ✅ Done
+**What:** fail2ban handler မှာ redundant double-insert နှစ်ခုရှိနေသည်ကို ဖြုတ်ပြီး၊ lab topology မှာမရှိသော mail server route ကို ဖြုတ်ခဲ့သည်။
+**Details:**
+- `/ingest/fail2ban` → `sshSessionsTable` insert ဖြုတ်: SSH handler က individual failure တိုင်း session record ထည့်ပြီးသား၊ fail2ban (ban event only) ထပ်ထည့်ရင် username မပါသော duplicate row ဖြစ်သည်
+- `/ingest/fail2ban` → `blockedIpsTable` manual insert ဖြုတ်: `insertEvent()` ထဲမှ `evaluateEvent()` → auto-defense က rule match ဖြစ်ရင် blockedIpsTable ကို correct reason နဲ့ ထည့်သည်၊ manual insert က auto-defense reason ကို bypass လုပ်ပြီး fail2ban text ဘဲ ရောက်ခဲ့သည်
+- `/ingest/mail` route ဖြုတ်: Lab topology မှာ mail server မရှိ (web/db/dns/ldap/pfsense ဘဲ)
+- `auto-defense.ts` normalizer မှ `cowrie` + `mail_attack` trigger types ဖြုတ်
+- Imports cleanup: `blockedIpsTable`, `and` imports ဖြုတ်
+**Blocking:** auto-defense rules + fail2ban (OS iptables level) = လုံလောက်သည်၊ DB manual block မလို
+**Cowrie status:** OBSOLETE_COMPONENTS မှာ ရှိ၊ `/ingest/cowrie` route stays (harmless)၊ forwarder မပို့ → correctly excluded
+
+---
+
 ## [2026-07-23] — Dashboard Performance Fix (DB Indexes + React Query)
 
 **Status:** ✅ Done

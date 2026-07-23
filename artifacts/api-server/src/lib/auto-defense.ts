@@ -47,9 +47,7 @@ function toTriggerType(eventType: string, eventSubtype: string): string {
       sub.includes("csrf") || sub.includes("injection") || sub.includes("ssrf") ||
       sub.includes("xxe") || typ === "web_attack")          return "web_attack";
   if (sub.includes("phishing") || sub.includes("fake"))    return "phishing";
-  if (sub.includes("smtp") || sub.includes("mail") || sub.includes("spam") ||
-      typ === "mail_attack")                                return "mail_attack";
-  if (sub.includes("honeypot") || sub.includes("cowrie"))  return "honeypot";
+  if (sub.includes("honeypot"))                             return "honeypot";
   if (sub.includes("tls") || sub.includes("ssl"))          return "tls_suspicious";
   if (sub.includes("dns"))                                  return "dns_attack";
   if (sub.includes("arp") || sub.includes("mitm"))         return "mitm";
