@@ -19,7 +19,7 @@ import { broadcaster } from "../lib/broadcaster";
 import { evaluateEvent } from "../lib/auto-defense";
 import { sendTelegramMessage, telegramAvailable } from "../lib/telegram";
 import { getSetting } from "../lib/app-settings";
-import { isDefenderIp, isLabInternalIp } from "../lib/ip-classifier";
+import { isDefenderIp, isLabInternalIp, isAttackerSubnetIp, isSuricataProtocolNoiseSid } from "../lib/ip-classifier";
 import { eq, and } from "drizzle-orm";
 import { recordTrafficStats } from "./network";
 
@@ -139,13 +139,36 @@ router.post("/ingest/suricata", auth, async (req, res) => {
   // 91.189.x.x internet updates → Suricata TCP-reassembly noise).
   //
   // Valid attack source: 192.168.10.x (Kali attacker subnet, routed via R1).
-  // Everything else that is internal to the GNS3 lab is noise — skip silently.
+  // Everything else is either lab-internal or outbound response traffic — skip silently.
   if (isLabInternalIp(src_ip)) {
     res.status(200).json({ ok: true, skipped: "lab_internal_ip" });
     return;
   }
 
   const a = alert ?? {};
+
+  // ── Suricata internal protocol-noise filter ───────────────────────────────
+  // Suricata SID ranges 2200000–2230999 are internal stream-tracking, decoder,
+  // and app-layer events — NOT real attack signatures.
+  // "SURICATA STREAM ESTABLISHED packet out of window" (SID 2210020) is the
+  // most common example: it fires on TCP out-of-order packets on established
+  // connections, including responses to outbound apt-get / DNS requests.
+  const signatureIdRaw = typeof a.signature_id === "number" ? a.signature_id : null;
+  if (isSuricataProtocolNoiseSid(signatureIdRaw)) {
+    res.status(200).json({ ok: true, skipped: "suricata_protocol_noise_sid" });
+    return;
+  }
+
+  // ── Attacker-subnet-only filter ───────────────────────────────────────────
+  // In this lab, ALL attacks originate from Kali (192.168.10.0/24) via Router.
+  // If src_ip is a public internet IP (not lab-internal, not 192.168.10.x),
+  // it is outbound RESPONSE traffic — company VMs doing apt-get, DNS, NTP, etc.
+  // These responses trigger Suricata on return but are NOT attacks.
+  // Drop them silently; only Kali subnet traffic is real hostile traffic.
+  if (!isAttackerSubnetIp(src_ip)) {
+    res.status(200).json({ ok: true, skipped: "not_attacker_subnet" });
+    return;
+  }
   const s = sev(String(a.severity ?? 3));
 
   // Pull every useful field out of the EVE JSON alert object

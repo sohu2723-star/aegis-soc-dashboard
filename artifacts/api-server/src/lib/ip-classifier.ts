@@ -110,3 +110,44 @@ export function isLabInternalIp(ip: string | null | undefined): boolean {
   if (v4mapped) return isLabInternalIp(v4mapped[1]);
   return false;
 }
+
+/**
+ * Returns true if the IP belongs to the Kali attacker subnet (192.168.10.0/24).
+ *
+ * Lab topology: Kali gets DHCP from Router ether2 in range 192.168.10.2–100.
+ * ALL real attacks in this lab originate from this subnet.
+ * Public internet IPs appearing as src_ip in Suricata alerts are outbound
+ * response traffic (company VMs doing apt-get, DNS, etc.) — NOT attacks.
+ */
+export function isAttackerSubnetIp(ip: string | null | undefined): boolean {
+  if (!ip || ip === "unknown") return false;
+  const octets = parseIPv4(ip.trim());
+  if (!octets) return false;
+  return octets[0] === 192 && octets[1] === 168 && octets[2] === 10;
+}
+
+/**
+ * Suricata generates internal protocol-anomaly events that are NOT real attack
+ * signatures. These fire on TCP stream-tracking, malformed packets, and
+ * app-layer parsing — including on return traffic from outbound connections
+ * (e.g., company VMs doing apt-get, DNS queries).
+ *
+ * Known Suricata internal SID ranges (never real attack rules):
+ *   2200000–2200999  DECODER events        (malformed/truncated packets)
+ *   2210000–2210999  STREAM events         (TCP stream-tracking anomalies)  ← SID 2210020 in screenshot
+ *   2220000–2220999  STREAM-TCP events     (TCP reassembly issues)
+ *   2230000–2230999  APP-LAYER events      (application layer parsing)
+ *
+ * Example: "SURICATA STREAM ESTABLISHED packet out of window" (SID 2210020)
+ * fires when TCP packets arrive out-of-order on an established connection —
+ * harmless noise from internet response traffic, NOT an indicator of attack.
+ */
+export function isSuricataProtocolNoiseSid(sid: number | null | undefined): boolean {
+  if (sid == null) return false;
+  return (
+    (sid >= 2200000 && sid <= 2200999) || // SURICATA DECODER events
+    (sid >= 2210000 && sid <= 2210999) || // SURICATA STREAM events
+    (sid >= 2220000 && sid <= 2220999) || // SURICATA STREAM-TCP events
+    (sid >= 2230000 && sid <= 2230999)    // SURICATA APP-LAYER events
+  );
+}

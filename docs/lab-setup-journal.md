@@ -2,6 +2,26 @@
 
 ---
 
+## [2026-07-23] — Suricata False Event Filter Fix (Outbound Response Traffic)
+
+**Status:** ✅ Done
+**What:** Security Events page မှာ `91.189.91.x` (Ubuntu package server IPs) ကနေ `SURICATA STREAM ESTABLISHED packet out of window` (SID 2210020) events တွေ `network_attack / MEDIUM` အဖြစ် မှားပေါ်နေခြင်းကို ပြင်ခဲ့သည်။ Company VMs တွေ `apt-get update` လုပ်တဲ့ outbound connection response ဖြစ်ပြီး real attack မဟုတ်ဘဲ event အဖြစ် database ထဲ ဝင်သွားနေတာကို ပြင်ခဲ့သည်။
+**Root cause:**
+- SID 2210020 = Suricata internal TCP stream-tracking rule — attack signature မဟုတ်ဘူး
+- `isLabInternalIp()` က `10.x.x.x`, `192.168.122.x` သာ filter လုပ်ပြီး public internet IPs (91.189.x.x Ubuntu mirrors) ကို ဖြတ်မနေတာ
+- Lab concept: attack **အားလုံး** 192.168.10.x (Kali) ကနေသာ Router ကတဆင့် ဝင်သည်; public internet IP က src ဖြစ်ရင် outbound response ဖြစ်ပြီး attack မဟုတ်
+**How:** `artifacts/api-server/src/lib/ip-classifier.ts` မှာ helper 2 ခု ထပ်ထည့်ခဲ့သည်—
+- `isAttackerSubnetIp()` — 192.168.10.0/24 (Kali attacker subnet) စစ်ဆေး
+- `isSuricataProtocolNoiseSid()` — SID 2200000-2230999 ranges (DECODER/STREAM/STREAM-TCP/APP-LAYER internal rules) စစ်ဆေး
+
+`/ingest/suricata` handler မှာ filter 2 ခု ထည့်ခဲ့သည်—
+1. SID က protocol-noise range ဆိုရင် → `skipped: "suricata_protocol_noise_sid"`
+2. src_ip က attacker subnet (192.168.10.x) မဟုတ်ဘူးဆိုရင် → `skipped: "not_attacker_subnet"`
+**Result:** Kali (192.168.10.x) ကနေ real attack Suricata alerts သာ event store ဝင်မည်။ outbound response traffic, protocol anomaly SIDs အားလုံး silently dropped ဖြစ်မည်။ Severity (critical/high/medium) Suricata alert severity ပေါ် မူတည်ပြီး ဆက်လက် map လုပ်မည်။
+**Next:** Kali မှ `nmap`/`hydra` attack run ပြီး events မှန်ကန်စွာ ပေါ်မပေါ်ကို production Render API မှ verify လုပ်ပါ။
+
+---
+
 ## [2026-07-23] — Manual Defense/Firewall Rule Lifecycle Fix
 
 **Status:** ✅ Done
