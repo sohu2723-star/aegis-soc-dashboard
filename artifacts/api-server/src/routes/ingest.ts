@@ -13,6 +13,10 @@ import {
   securityEventsTable, alertsTable,
   sshSessionsTable,
   httpAttacksTable,
+  dbAttacksTable,
+  dnsAttacksTable,
+  ldapAttacksTable,
+  ftpSessionsTable,
 } from "@workspace/db";
 import { broadcaster } from "../lib/broadcaster";
 import { evaluateEvent } from "../lib/auto-defense";
@@ -274,10 +278,13 @@ router.post("/ingest/ssh", auth, async (req, res) => {
   const priorFails   = prior_failures != null ? Number(prior_failures) : failCount;
   const targetHost   = dest_ip ?? "company-web-server";
 
+  const { log_source, matched_rule } = req.body;
   await db.insert(sshSessionsTable).values({
     sourceIp: src_ip ?? "unknown", username: username ?? null,
     status: st ?? "failed", authMethod: auth_method ?? null,
     sessionId: session_id ?? null, failures: failCount, bannedBy: null,
+    logSource:   log_source   ? String(log_source).slice(0, 128)   : "/var/log/auth.log",
+    matchedRule: matched_rule ? String(matched_rule).slice(0, 256) : (failCount >= 5 ? `fail2ban[sshd]: ban after ${failCount} failures` : "auth.log: Invalid password"),
   });
 
   const sigText = signature_text ? String(signature_text).slice(0, 2000) : null;
@@ -398,12 +405,14 @@ router.post("/ingest/http", auth, async (req, res) => {
     return;
   }
 
+  const http_log_source = req.body.log_source;
   await db.insert(httpAttacksTable).values({
     sourceIp: src_ip, targetUrl: url.slice(0,1024), method: method ?? "GET",
     statusCode: Number(status_code) || null, attackType: attack_type ?? null,
     payload: payload ? String(payload).slice(0,2000) : null,
     userAgent: user_agent ? String(user_agent).slice(0,512) : null,
     ruleId: rule_id ?? null, blocked: Boolean(blocked),
+    logSource: http_log_source ? String(http_log_source).slice(0,128) : "/var/log/apache2/modsec_audit.log",
   });
 
   const sevMap: Record<string,"critical"|"high"|"medium"|"low"> = {
@@ -452,20 +461,192 @@ router.post("/ingest/ddos", auth, async (req, res) => {
 // DNS attack
 // Fields: src_ip, attack_type, query, response_ip, target_resolver
 // attack_type: dns_poison | dns_amplification | dns_tunneling | dns_hijack
+//              dns_zone_transfer | dns_query_refused  (from BIND9 watcher)
 // ─────────────────────────────────────────────────────────────────────────────
 router.post("/ingest/dns", auth, async (req, res) => {
-  const { src_ip, attack_type, query, response_ip, target_resolver } = req.body;
-  const s = attack_type === "dns_poison" || attack_type === "dns_hijack" ? "critical" : "high";
+  const { src_ip, attack_type, query, response_ip, target_resolver, target_ip, log_source, matched_rule } = req.body;
+
+  const isPoison  = attack_type === "dns_poison" || attack_type === "dns_hijack";
+  const isZone    = attack_type === "dns_zone_transfer";
+  const isRefused = attack_type === "dns_query_refused";
+  const s = isPoison ? "critical" : isZone ? "high" : "medium";
+  const targetHost = target_resolver ?? target_ip ?? "company-dns-server";
+
+  // Write to dedicated dns_attacks table (for Connection Logs → DNS tab)
+  await db.insert(dnsAttacksTable).values({
+    sourceIp:    src_ip ?? "unknown",
+    targetIp:    target_ip ?? "10.10.10.20",
+    attackType:  attack_type ?? null,
+    query:       query ? String(query).slice(0, 255) : null,
+    severity:    s,
+    logSource:   log_source   ? String(log_source).slice(0, 128)   : "/var/log/named/named.log",
+    matchedRule: matched_rule ? String(matched_rule).slice(0, 256)
+                              : isZone    ? "BIND9: AXFR/IXFR zone transfer attempt"
+                              : isRefused ? "BIND9: ≥5 refused queries in 60s (DNS recon)"
+                              : `BIND9: ${attack_type ?? "DNS attack"} from ${src_ip}`,
+  });
+
+  const desc = isPoison
+    ? `DNS ${attack_type} from ${src_ip}: query "${query}" → poisoned to ${response_ip ?? "?"}`
+    : isZone
+    ? `DNS zone transfer attempt (AXFR/IXFR) from ${src_ip} → ${targetHost}`
+    : isRefused
+    ? `DNS recon: ${query} — refused queries from ${src_ip} (rate-limit triggered)`
+    : `DNS ${attack_type ?? "attack"} from ${src_ip}: query "${query}"`;
 
   const event = await insertEvent({
     type:"network_attack", subtype: attack_type ?? "DNS Attack", severity: s,
-    sourceIp: src_ip ?? "unknown", targetHost: target_resolver ?? "company-dns-server",
-    toolUsed:"dnsspoof",
-    description:`DNS ${attack_type ?? "attack"} from ${src_ip}: query "${query}" → poisoned to ${response_ip ?? "?"}`,
+    sourceIp: src_ip ?? "unknown", targetHost,
+    toolUsed: isPoison ? "dnsspoof" : "bind9",
+    description: desc,
     status:"detected", layer:"perimeter",
+    signatureText: matched_rule ? String(matched_rule).slice(0, 2000) : null,
   });
-  await mkAlert(event.id, s, `DNS ATTACK: ${attack_type} from ${src_ip} — "${query}"`);
+  if (s === "critical" || s === "high")
+    await mkAlert(event.id, s as "critical"|"high", `DNS ATTACK: ${attack_type} from ${src_ip} — "${query}"`);
   res.status(201).json({ id:event.id });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MySQL DB Attacks — company-customer-db (10.20.20.10:3306)
+// Source: /var/log/mysql/error.log via _watch_remote_mysql()
+// Fields: src_ip, target_ip, attack_type, username, query, severity, blocked, log_source, matched_rule
+// attack_type: Auth Brute | SQLi | Enum | Data Dump | Privilege Esc
+// ─────────────────────────────────────────────────────────────────────────────
+router.post("/ingest/mysql", auth, async (req, res) => {
+  const { src_ip, target_ip, attack_type, username, query, severity: sev_in, blocked, log_source, matched_rule, signature_text } = req.body;
+  if (!src_ip) { res.status(400).json({ error: "src_ip required" }); return; }
+  if (isDefenderIp(src_ip) || isLabInternalIp(src_ip)) {
+    res.status(200).json({ ok: true, skipped: "internal_ip" }); return;
+  }
+
+  const s = sev(sev_in ?? "high");
+  await db.insert(dbAttacksTable).values({
+    sourceIp:    src_ip,
+    targetIp:    target_ip ?? "10.20.20.10",
+    port:        3306,
+    attackType:  attack_type ?? "Auth Brute",
+    username:    username ? String(username).slice(0, 64) : null,
+    query:       query    ? String(query).slice(0, 2000)  : null,
+    severity:    s,
+    blocked:     Boolean(blocked),
+    logSource:   log_source   ? String(log_source).slice(0, 128)   : "/var/log/mysql/error.log",
+    matchedRule: matched_rule ? String(matched_rule).slice(0, 256)
+                              : `MySQL: Access denied for user '${username ?? "?"}'@'${src_ip}'`,
+  });
+
+  const event = await insertEvent({
+    type:"network_attack", subtype: attack_type ?? "DB Auth Brute Force", severity: s,
+    sourceIp: src_ip, targetHost: target_ip ?? "company-customer-db",
+    toolUsed:"mysql",
+    description:`MySQL ${attack_type ?? "auth failure"}: user='${username ?? "?"}' from ${src_ip} → ${target_ip ?? "10.20.20.10"}:3306`,
+    status: blocked ? "blocked" : "detected", layer:"data",
+    signatureText: signature_text ? String(signature_text).slice(0, 2000) : null,
+  });
+  if (s === "critical" || s === "high")
+    await mkAlert(event.id, s as "critical"|"high", `DB ATTACK: MySQL ${attack_type ?? "auth failure"} from ${src_ip}`);
+  res.status(201).json({ id:event.id });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LDAP Attacks — company-ldap-server (10.20.20.20:389)
+// Source: /var/log/syslog (slapd) via _watch_remote_slapd()
+// Fields: src_ip, target_ip, dn, error_code, attack_type, severity, log_source, matched_rule
+// attack_type: Auth Brute | Enum | Injection
+// ─────────────────────────────────────────────────────────────────────────────
+router.post("/ingest/ldap", auth, async (req, res) => {
+  const { src_ip, target_ip, dn, error_code, attack_type, severity: sev_in, log_source, matched_rule, signature_text } = req.body;
+  if (!src_ip) { res.status(400).json({ error: "src_ip required" }); return; }
+  if (isDefenderIp(src_ip) || isLabInternalIp(src_ip)) {
+    res.status(200).json({ ok: true, skipped: "internal_ip" }); return;
+  }
+
+  const s = sev(sev_in ?? "high");
+  const errNum = error_code != null ? Number(error_code) : null;
+  await db.insert(ldapAttacksTable).values({
+    sourceIp:    src_ip,
+    targetIp:    target_ip ?? "10.20.20.20",
+    dn:          dn         ? String(dn).slice(0, 255)         : null,
+    errorCode:   errNum,
+    attackType:  attack_type ?? "Auth Brute",
+    severity:    s,
+    logSource:   log_source   ? String(log_source).slice(0, 128)   : "/var/log/syslog (slapd)",
+    matchedRule: matched_rule ? String(matched_rule).slice(0, 256)
+                              : errNum === 49 ? "slapd: err=49 Invalid credentials"
+                              : errNum === 32 ? "slapd: err=32 No such object (DN enum)"
+                              : "slapd: LDAP auth failure",
+  });
+
+  const event = await insertEvent({
+    type:"network_attack", subtype: attack_type ?? "LDAP Auth Brute Force", severity: s,
+    sourceIp: src_ip, targetHost: target_ip ?? "company-ldap-server",
+    toolUsed:"slapd",
+    description:`LDAP ${attack_type ?? "auth failure"} from ${src_ip}: dn="${dn ?? "?"}" err=${errNum ?? "?"}`,
+    status:"detected", layer:"data",
+    signatureText: signature_text ? String(signature_text).slice(0, 2000) : null,
+  });
+  if (s === "critical" || s === "high")
+    await mkAlert(event.id, s as "critical"|"high", `LDAP ATTACK: ${attack_type ?? "auth brute"} from ${src_ip}`);
+  res.status(201).json({ id:event.id });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FTP Sessions — company-web-server (10.10.10.10:21)
+// Source: /var/log/vsftpd.log via _watch_remote_ftp()
+// Fields: src_ip, username, status, command, filename, filesize, failures, banned_by, log_source, matched_rule
+// status: failed | success | upload | download
+// ─────────────────────────────────────────────────────────────────────────────
+router.post("/ingest/ftp", auth, async (req, res) => {
+  const { src_ip, username, status: st, command, filename, filesize, failures, banned_by, log_source, matched_rule, signature_text } = req.body;
+  if (!src_ip) { res.status(400).json({ error: "src_ip required" }); return; }
+  if (isDefenderIp(src_ip) || isLabInternalIp(src_ip)) {
+    res.status(200).json({ ok: true, skipped: "internal_ip" }); return;
+  }
+
+  const failCount = Number(failures) || 0;
+  await db.insert(ftpSessionsTable).values({
+    sourceIp:    src_ip,
+    username:    username  ? String(username).slice(0, 64)   : null,
+    status:      st ?? "failed",
+    command:     command   ? String(command).slice(0, 32)    : null,
+    filename:    filename  ? String(filename).slice(0, 512)  : null,
+    filesize:    filesize  ? Number(filesize) : null,
+    failures:    failCount,
+    bannedBy:    banned_by ? String(banned_by).slice(0, 32)  : null,
+    logSource:   log_source   ? String(log_source).slice(0, 128)   : "/var/log/vsftpd.log",
+    matchedRule: matched_rule ? String(matched_rule).slice(0, 256)
+                              : failCount >= 3 ? `fail2ban[vsftpd]: ban after ${failCount} failures`
+                              : st === "failed" ? "vsftpd: FAIL LOGIN"
+                              : st === "upload" ? "vsftpd: OK UPLOAD (file exfiltration risk)"
+                              : "vsftpd: FTP event",
+  });
+
+  // Generate security event for attacks (failed login / file upload from attacker)
+  if (st === "failed" && (failCount === 1 || failCount % 5 === 0)) {
+    const s = failCount >= 5 ? "high" : "medium";
+    const event = await insertEvent({
+      type:"network_attack", subtype:"FTP Brute Force", severity: s,
+      sourceIp: src_ip, targetHost:"company-web-server",
+      toolUsed:"vsftpd",
+      description:`FTP brute force from ${src_ip}: ${failCount} failed login attempt(s) for user '${username ?? "?"}'`,
+      status:"detected", layer:"application",
+      signatureText: signature_text ? String(signature_text).slice(0, 2000) : null,
+    });
+    if (s === "high")
+      await mkAlert(event.id, "high", `FTP BRUTE FORCE: ${src_ip} — ${failCount} failures for '${username ?? "?"}'`);
+  } else if (st === "upload") {
+    // File upload from attacker IP is suspicious (data exfiltration / webshell plant)
+    const event = await insertEvent({
+      type:"web_attack", subtype:"FTP File Upload", severity:"high",
+      sourceIp: src_ip, targetHost:"company-web-server",
+      toolUsed:"vsftpd",
+      description:`FTP file upload from ${src_ip}: user='${username ?? "?"}' uploaded '${filename ?? "?"}' (${filesize ?? "?"}B)`,
+      status:"detected", layer:"application",
+    });
+    await mkAlert(event.id, "high", `FTP UPLOAD: ${src_ip} uploaded '${filename ?? "unknown"}' — possible webshell/exfil`);
+  }
+
+  res.status(201).json({ ok:true });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -89,12 +89,13 @@ REMOTE_HOSTS = [h for h in [
     {
         "name": "company-web-server",
         "ip":   COMPANYWEB_IP,
-        "sensors": ["fail2ban", "ssh", "http_access"],
+        "sensors": ["fail2ban", "ssh", "http_access", "ftp"],
         # services to health-check via SSH systemctl on this VM
         "health_services": [
             ("fail2ban",  "Fail2ban",        "sensor"),
             ("ssh",       "SSH Monitor",     "sensor"),
             ("apache2",   "Apache Monitor",  "sensor"),
+            ("vsftpd",    "FTP Monitor",     "sensor"),
         ],
     } if COMPANYWEB_IP else None,
     {
@@ -1445,21 +1446,29 @@ def _watch_pfsense_suricata(log_path: str | None = None):
 
 def _watch_remote_ssh(host_name: str, host_ip: str):
     """Tail auth.log on a remote VM via SSH and forward failed/success login events."""
+    log_path = "/var/log/auth.log"
     fail_counts: dict[str, int] = {}
     print(f"[{host_name}] ssh thread started")
-    for line in _ssh_tail(host_name, host_ip, "/var/log/auth.log"):
+    for line in _ssh_tail(host_name, host_ip, log_path):
         m_fail = SSH_FAIL_RE.search(line)
         if m_fail:
             user, ip = m_fail.group(1), m_fail.group(2)
             if ip in _INTERNAL_IPS:
                 continue
             fail_counts[ip] = fail_counts.get(ip, 0) + 1
+            cnt = fail_counts[ip]
             post("ssh", {
                 "src_ip":         ip,
                 "username":       user,
                 "status":         "failed",
-                "failures":       fail_counts[ip],
+                "failures":       cnt,
                 "targetHost":     host_ip,
+                "log_source":     log_path,
+                "matched_rule":   (
+                    f"fail2ban[sshd]: ban after {cnt} failures"
+                    if cnt >= 5
+                    else f"auth.log: Invalid password for {user} from {ip}"
+                ),
                 "signature_text": line.strip(),
             })
             continue
@@ -1475,6 +1484,12 @@ def _watch_remote_ssh(host_name: str, host_ip: str):
                 "status":         "success",
                 "prior_failures": prior,
                 "targetHost":     host_ip,
+                "log_source":     log_path,
+                "matched_rule":   (
+                    f"SSH BREACH: authenticated as '{user}' after {prior} failures"
+                    if prior >= 3
+                    else f"auth.log: Accepted publickey/password for {user}"
+                ),
                 "signature_text": line.strip(),
             })
 
@@ -1503,7 +1518,7 @@ def _watch_remote_fail2ban(host_name: str, host_ip: str):
 def _watch_remote_modsecurity(host_name: str, host_ip: str):
     """Tail ModSecurity audit log on a remote VM (company-web-server) via SSH."""
     log_path = "/var/log/apache2/modsec_audit.log"
-    print(f"[{host_name}] http/modsecurity thread started")
+    print(f"[{host_name}] http/modsecurity thread (log: {log_path})")
     current_ip     = None
     current_method = None
     current_url    = None
@@ -1534,6 +1549,7 @@ def _watch_remote_modsecurity(host_name: str, host_ip: str):
                 "payload":     msg,
                 "rule_id":     rule_id,
                 "blocked":     severity.upper() in ("CRITICAL", "ERROR"),
+                "log_source":  "/var/log/apache2/modsec_audit.log",
                 "targetHost":  host_name,
             })
             current_ip = None
@@ -1670,9 +1686,10 @@ def _watch_remote_postgresql(host_name: str, host_ip: str):
 def _watch_remote_mysql(host_name: str, host_ip: str):
     """Tail MySQL error log on company-customer-db via SSH and forward auth failures."""
     log_path = "/var/log/mysql/error.log"
+    fail_counts: dict[str, int] = {}
     print(f"[{host_name}] mysql thread started")
     for line in _ssh_tail(host_name, host_ip, log_path):
-        # MySQL auth failure: Access denied for user 'root'@'192.168.x.x'
+        # MySQL auth failure: Access denied for user 'root'@'192.168.x.x' (using password: YES)
         if "Access denied" in line or "authentication fail" in line.lower():
             m = re.search(r"'([^']+)'@'([\d.]+)'", line)
             if not m:
@@ -1680,13 +1697,33 @@ def _watch_remote_mysql(host_name: str, host_ip: str):
             user, src_ip = m.group(1), m.group(2)
             if src_ip in _INTERNAL_IPS:
                 continue
-            post("event", {
-                "source":      "mysql",
-                "type":        "db_auth_failure",
+            fail_counts[src_ip] = fail_counts.get(src_ip, 0) + 1
+            cnt = fail_counts[src_ip]
+            post("mysql", {
+                "src_ip":      src_ip,
+                "target_ip":   host_ip,
+                "attack_type": "Auth Brute",
+                "username":    user,
+                "query":       line.strip()[:300],
                 "severity":    "high",
-                "sourceIp":    src_ip,
-                "targetHost":  host_ip,
-                "description": f"MySQL auth failure: user={user} from {src_ip}",
+                "log_source":  log_path,
+                "matched_rule": f"MySQL: Access denied for user '{user}'@'{src_ip}' ({cnt} attempt{'s' if cnt > 1 else ''})",
+                "signature_text": line.strip(),
+            })
+        # MySQL suspicious query (ERROR in query log if general_log enabled)
+        elif "ERROR" in line and any(k in line.upper() for k in ("SELECT", "INSERT", "UPDATE", "DELETE", "DROP", "UNION")):
+            m_ip = re.search(r"([\d.]+)", line)
+            src_ip = m_ip.group(1) if m_ip else "unknown"
+            if src_ip in _INTERNAL_IPS:
+                continue
+            post("mysql", {
+                "src_ip":      src_ip,
+                "target_ip":   host_ip,
+                "attack_type": "SQLi",
+                "query":       line.strip()[:300],
+                "severity":    "critical",
+                "log_source":  log_path,
+                "matched_rule": "MySQL error.log: SQL ERROR on suspicious query",
                 "signature_text": line.strip(),
             })
 
@@ -1711,13 +1748,17 @@ def _watch_remote_bind9(host_name: str, host_ip: str):
         if "AXFR" in line or "IXFR" in line:
             m = re.search(r"([\d.]+)#\d+", line)
             src_ip = m.group(1) if m else "unknown"
-            post("event", {
-                "source":      "bind9",
-                "type":        "dns_zone_transfer",
+            # Extract query name if present: e.g. "company.local/IN AXFR"
+            m_qname = re.search(r"'([^']+)'\s+(?:AXFR|IXFR)", line)
+            qname = m_qname.group(1) if m_qname else None
+            post("dns", {
+                "src_ip":      src_ip,
+                "target_ip":   host_ip,
+                "attack_type": "dns_zone_transfer",
+                "query":       qname or "AXFR/IXFR",
                 "severity":    "high",
-                "sourceIp":    src_ip,
-                "targetHost":  host_ip,
-                "description": f"DNS zone transfer attempt from {src_ip}",
+                "log_source":  log_path,
+                "matched_rule": f"BIND9: Zone transfer (AXFR/IXFR) attempt from {src_ip}",
                 "signature_text": line.strip(),
             })
         # Refused / error queries — rate-limited, external IPs only
@@ -1735,13 +1776,17 @@ def _watch_remote_bind9(host_name: str, host_ip: str):
             if count >= DNS_REFUSED_THRESHOLD:
                 # Fire one consolidated alert and reset so we don't spam
                 _refused_ts[src_ip] = []
-                post("event", {
-                    "source":      "bind9",
-                    "type":        "dns_query_refused",
+                # Extract query name from the most recent line
+                m_qname = re.search(r"query:\s+(\S+)", line)
+                qname = m_qname.group(1) if m_qname else "unknown"
+                post("dns", {
+                    "src_ip":      src_ip,
+                    "target_ip":   host_ip,
+                    "attack_type": "dns_query_refused",
+                    "query":       qname,
                     "severity":    "medium",
-                    "sourceIp":    src_ip,
-                    "targetHost":  host_ip,
-                    "description": f"DNS recon: {count} refused queries from {src_ip} in {DNS_REFUSED_WINDOW}s",
+                    "log_source":  log_path,
+                    "matched_rule": f"BIND9: {count} refused queries from {src_ip} in {DNS_REFUSED_WINDOW}s (DNS recon threshold)",
                     "signature_text": line.strip(),
                 })
 
@@ -1778,20 +1823,126 @@ def _watch_remote_slapd(host_name: str, host_ip: str):
                         del _conn_ip[k]
             continue
 
-        # Auth failure: RESULT err=49 (Invalid credentials)
-        if "err=49" in line or "Invalid credentials" in line:
-            m_conn = re.search(r"conn=(\d+)", line)
-            cid    = m_conn.group(1) if m_conn else None
-            src_ip = _conn_ip.get(cid, "unknown") if cid else "unknown"
+        # Auth failure: RESULT err=49 (Invalid credentials) or err=32 (No such object — DN enum)
+        if "err=49" in line or "err=32" in line or "Invalid credentials" in line:
+            m_conn  = re.search(r"conn=(\d+)", line)
+            m_err   = re.search(r"err=(\d+)", line)
+            m_dn    = re.search(r'BIND dn="([^"]*)"', line)
+            cid     = m_conn.group(1) if m_conn else None
+            err_num = int(m_err.group(1)) if m_err else 49
+            dn      = m_dn.group(1) if m_dn else None
+            src_ip  = _conn_ip.get(cid, "unknown") if cid else "unknown"
             if src_ip in _INTERNAL_IPS:
                 continue
-            post("event", {
-                "source":      "slapd",
-                "type":        "ldap_auth_failure",
+            atype = "Auth Brute" if err_num == 49 else "Enum"
+            post("ldap", {
+                "src_ip":      src_ip,
+                "target_ip":   host_ip,
+                "dn":          dn,
+                "error_code":  err_num,
+                "attack_type": atype,
                 "severity":    "high",
-                "sourceIp":    src_ip,
-                "targetHost":  host_ip,
-                "description": f"LDAP bind failure (err=49) from {src_ip}",
+                "log_source":  "/var/log/syslog (slapd)",
+                "matched_rule": f"slapd: err={err_num} {'Invalid credentials' if err_num == 49 else 'No such object'} — dn=\"{dn or '?'}\"",
+                "signature_text": line.strip(),
+            })
+
+
+def _watch_remote_ftp(host_name: str, host_ip: str):
+    """Tail vsftpd.log on company-web-server via SSH and forward FTP brute force / file upload events.
+
+    vsftpd log format:
+      FAIL LOGIN: Client "192.168.10.99"
+      OK LOGIN:   Client "192.168.10.99", anon_password "user@x.com"
+      OK DOWNLOAD: Client "192.168.10.99", "/path/to/file", 1234 bytes, 5.67Kbyte/sec
+      OK UPLOAD:   Client "192.168.10.99", "/path/to/file", 1234 bytes, 5.67Kbyte/sec
+      OK DELETE:   Client "192.168.10.99", "/path/to/file"
+    """
+    log_path = "/var/log/vsftpd.log"
+    fail_counts: dict[str, int] = {}
+    print(f"[{host_name}] ftp thread started (log: {log_path})")
+    for line in _ssh_tail(host_name, host_ip, log_path):
+        # Extract client IP — all vsftpd lines have Client "IP"
+        m_ip = re.search(r'Client "?([\d.]+)"?', line)
+        if not m_ip:
+            continue
+        src_ip = m_ip.group(1)
+        if src_ip in _INTERNAL_IPS:
+            continue
+
+        if "FAIL LOGIN" in line:
+            fail_counts[src_ip] = fail_counts.get(src_ip, 0) + 1
+            cnt = fail_counts[src_ip]
+            if cnt == 1 or cnt % 5 == 0:
+                post("ftp", {
+                    "src_ip":       src_ip,
+                    "status":       "failed",
+                    "command":      "LOGIN",
+                    "failures":     cnt,
+                    "log_source":   log_path,
+                    "matched_rule": f"vsftpd: FAIL LOGIN — {cnt} attempt{'s' if cnt > 1 else ''} from {src_ip}",
+                    "signature_text": line.strip(),
+                })
+
+        elif "OK LOGIN" in line:
+            # Extract username if present: anon_password "user@example.com"
+            m_user = re.search(r'anon_password "([^"]+)"', line)
+            prior  = fail_counts.pop(src_ip, 0)
+            post("ftp", {
+                "src_ip":       src_ip,
+                "username":     m_user.group(1) if m_user else "anonymous",
+                "status":       "success",
+                "command":      "LOGIN",
+                "failures":     prior,
+                "log_source":   log_path,
+                "matched_rule": (
+                    f"vsftpd: OK LOGIN after {prior} failures — BREACH"
+                    if prior >= 3
+                    else "vsftpd: OK LOGIN"
+                ),
+                "signature_text": line.strip(),
+            })
+
+        elif "OK UPLOAD" in line:
+            m_file = re.search(r'"([^"]+)",\s*(\d+)\s*bytes', line)
+            fname  = m_file.group(1) if m_file else None
+            fsize  = int(m_file.group(2)) if m_file else None
+            post("ftp", {
+                "src_ip":       src_ip,
+                "status":       "upload",
+                "command":      "UPLOAD",
+                "filename":     fname,
+                "filesize":     fsize,
+                "log_source":   log_path,
+                "matched_rule": f"vsftpd: OK UPLOAD — '{fname}' ({fsize}B) — possible webshell/exfil",
+                "signature_text": line.strip(),
+            })
+
+        elif "OK DOWNLOAD" in line:
+            m_file = re.search(r'"([^"]+)",\s*(\d+)\s*bytes', line)
+            fname  = m_file.group(1) if m_file else None
+            fsize  = int(m_file.group(2)) if m_file else None
+            post("ftp", {
+                "src_ip":       src_ip,
+                "status":       "download",
+                "command":      "DOWNLOAD",
+                "filename":     fname,
+                "filesize":     fsize,
+                "log_source":   log_path,
+                "matched_rule": f"vsftpd: OK DOWNLOAD — '{fname}' ({fsize}B)",
+                "signature_text": line.strip(),
+            })
+
+        elif "OK DELETE" in line:
+            m_file = re.search(r'"([^"]+)"', line)
+            fname  = m_file.group(1) if m_file else None
+            post("ftp", {
+                "src_ip":       src_ip,
+                "status":       "upload",  # treat delete as suspicious write action
+                "command":      "DELETE",
+                "filename":     fname,
+                "log_source":   log_path,
+                "matched_rule": f"vsftpd: OK DELETE — '{fname}' — suspicious file deletion",
                 "signature_text": line.strip(),
             })
 
@@ -1929,6 +2080,7 @@ def run_hub_mode():
         "fail2ban":    _watch_remote_fail2ban,
         "ssh":         _watch_remote_ssh,
         "http_access": _watch_remote_http_access,
+        "ftp":         _watch_remote_ftp,
         "mysql":       _watch_remote_mysql,
         "postgresql":  _watch_remote_postgresql,
         "bind9":       _watch_remote_bind9,

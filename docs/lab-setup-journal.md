@@ -2,6 +2,105 @@
 
 ---
 
+## [2026-07-24] — Connection Logs Page — Protocol Attack Tables (DB/DNS/LDAP/FTP)
+
+**Status:** ✅ Done
+**What:** Connection Logs page ကို lab topology (web/db/dns/ldap/pfsense) နှင့် ကိုက်ညီအောင် မပြည့်စုံသည့် tab + endpoint + sensor တွေ ထည့်ပြီး၊ SSH/HTTP tab မှာ log file source + matched rule columns ထည့်ခဲ့သည်။
+
+**Root Cause Analysis — ဘယ်ဟာတွေ မလုပ်ဆောင်ခဲ့ဘူးလဲ:**
+- `DB Attacks` tab — `/api/connections/db-attacks` endpoint မရှိ၊ `db_attacks` table မရှိ — 500 error ဖြစ်နေသည်
+- MySQL watcher → `/ingest/event` generic endpoint သာ သုံးနေ — DB Attacks tab မဖြည့်ဘူး
+- DNS/LDAP watchers → `/ingest/event` generic endpoint သာ သုံးနေ — dedicated tab မရှိ
+- FTP sensor — forwarder မှာ `_watch_remote_ftp()` function မရှိ၊ `/ingest/ftp` endpoint မရှိ
+- SSH/HTTP tabs — log file ဘယ်ကနေဆွဲတာလဲ၊ ဘာ rule နဲ့ match တာလဲ မပြဘူး
+
+**Changes:**
+
+**`lib/db/src/schema/connections.ts`**
+- `ssh_sessions` → `log_source` + `matched_rule` columns ထည့်
+- `http_attacks` → `log_source` column ထည့်
+- New tables: `db_attacks` (MySQL:3306), `dns_attacks` (BIND9:53), `ldap_attacks` (slapd:389), `ftp_sessions` (vsftpd:21)
+
+**`lib/db/drizzle/0004_add_connection_log_tables.sql`**
+- Migration SQL — Supabase မှာ run ပြီး ✅
+
+**`lib/db/scripts/run-migration-0004.mjs`**
+- Node migration runner script — 14/14 statements OK
+
+**`artifacts/api-server/src/routes/connections.ts`**
+- GET `/connections/db-attacks` → `db_attacks` table
+- GET `/connections/dns-attacks` → `dns_attacks` table
+- GET `/connections/ldap-attacks` → `ldap_attacks` table
+- GET `/connections/ftp` → `ftp_sessions` table
+
+**`artifacts/api-server/src/routes/ingest.ts`**
+- `/ingest/ssh` → `log_source` + `matched_rule` save (e.g. "fail2ban[sshd]: ban after 5 failures")
+- `/ingest/http` → `log_source` save (e.g. "/var/log/apache2/modsec_audit.log")
+- `/ingest/dns` → also writes to `dns_attacks` table (zone transfer + recon + poison types)
+- NEW `/ingest/mysql` → `db_attacks` table + security event
+- NEW `/ingest/ldap` → `ldap_attacks` table + security event
+- NEW `/ingest/ftp` → `ftp_sessions` table + security event (brute force alert on 5+ failures, upload alert)
+
+**`artifacts/aegis-dashboard/src/pages/connections.tsx`**
+- 6 tabs: SSH, HTTP, DB, DNS, LDAP, FTP (was: SSH, HTTP, DB only + DB was broken)
+- SSH/HTTP tabs: "Log File" + "Matched Rule" columns ထည့်
+- DB/DNS/LDAP/FTP tabs: each shows source IP, target, attack type, query/dn, severity, log file, matched rule
+- Each tab header shows log file source hint (e.g. "company-dns-server · /var/log/named/named.log")
+- `LogBadge` (purple) + `RuleBadge` (amber) components for clear visual distinction
+
+**`scripts/src/aegis_forwarder.py`**
+- `_watch_remote_ssh()` → sends `log_source: /var/log/auth.log` + `matched_rule` (dynamic: "fail2ban[sshd]: ban after N failures" or "auth.log: Invalid password for X")
+- `_watch_remote_modsecurity()` → sends `log_source: /var/log/apache2/modsec_audit.log`
+- `_watch_remote_mysql()` → POST to `/ingest/mysql` (was: `/ingest/event`); detects Auth Brute + SQLi; sends `log_source` + `matched_rule`
+- `_watch_remote_bind9()` → POST to `/ingest/dns` (was: `/ingest/event`); sends `log_source` + `matched_rule` per event type
+- `_watch_remote_slapd()` → POST to `/ingest/ldap` (was: `/ingest/event`); detects err=49 (Invalid creds) + err=32 (No such object / DN enum); extracts DN
+- NEW `_watch_remote_ftp()` → tails `/var/log/vsftpd.log`; detects FAIL LOGIN (brute), OK LOGIN (breach if prior fails ≥3), OK UPLOAD (webshell/exfil risk), OK DOWNLOAD, OK DELETE; sends to `/ingest/ftp`
+- `company-web-server` sensors: added `ftp` + `vsftpd` health check
+- `_SENSOR_FN`: registered `ftp` → `_watch_remote_ftp`
+
+**Protocol → Log File → Rule → Table mapping:**
+| Protocol | VM | Log File | Rule/Trigger | Table |
+|---|---|---|---|---|
+| SSH | All VMs | /var/log/auth.log | fail2ban[sshd] / Invalid password | ssh_sessions |
+| HTTP | company-web-server | /var/log/apache2/modsec_audit.log | ModSecurity rule ID (e.g. 942100 SQLi) | http_attacks |
+| MySQL | company-customer-db | /var/log/mysql/error.log | "Access denied for user X@IP" | db_attacks |
+| BIND9 DNS | company-dns-server | /var/log/named/named.log | AXFR/IXFR zone transfer / ≥5 refused queries | dns_attacks |
+| LDAP | company-ldap-server | /var/log/syslog (slapd) | err=49 Invalid credentials / err=32 No such object | ldap_attacks |
+| FTP | company-web-server | /var/log/vsftpd.log | FAIL LOGIN / OK UPLOAD (exfil) | ftp_sessions |
+
+**VM-side action required — forwarder update:**
+```bash
+# aegis-company-admin မှာ run ပါ
+wget -O /opt/aegis/scripts/src/aegis_forwarder.py \
+  https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/scripts/src/aegis_forwarder.py
+sudo systemctl restart aegis-forwarder
+journalctl -u aegis-forwarder -f
+# Expect new lines: "[company-web-server] ftp thread started (log: /var/log/vsftpd.log)"
+# Also: "[company-customer-db] mysql thread started" — will now post to /ingest/mysql
+# Also: "[company-dns-server] bind9 thread started" — will now post to /ingest/dns
+# Also: "[company-ldap-server] slapd thread started" — will now post to /ingest/ldap
+```
+
+**vsftpd ရှိမရှိ confirm (company-web-server မှာ):**
+```bash
+systemctl status vsftpd
+# မရှိရင်: sudo apt install vsftpd && sudo systemctl enable --now vsftpd
+```
+
+**Result:** Connection Logs page မှာ 6 tabs အားလုံး functional — SSH/HTTP/DB/DNS/LDAP/FTP
+- GET endpoints: 200 ✅
+- POST ingest endpoints: 201 ✅ (all 4 new tested)
+- DB migration: 14/14 statements OK ✅
+- Frontend build: clean ✅
+
+**Next:** Real GNS3 lab မှာ Kali attack run ပြီး:
+1. Kali → `nmap -sV 10.10.10.20 --script dns-zone-transfer` → DNS Attacks tab မှာ event ပေါ်ရမည်
+2. Kali → `hydra -l admin -P rockyou.txt ftp://10.10.10.10` → FTP Sessions tab မှာ failed events ပေါ်ရမည်
+3. Kali → `hydra -l root -P rockyou.txt mysql://10.20.20.10` → DB Attacks tab မှာ events ပေါ်ရမည်
+4. Kali → `ldapsearch -x -H ldap://10.20.20.20 -D "cn=admin,dc=company,dc=local" -w wrongpassword` → LDAP Attacks tab မှာ events ပေါ်ရမည်
+
+---
+
 ## [2026-07-23] — Ingest Route Cleanup (Remove Redundant Inserts + Mail Route)
 
 **Status:** ✅ Done
