@@ -2,6 +2,35 @@
 
 ---
 
+## [2026-07-24] — Bug Fix: Fail2ban Toggle Auth + Cold Start Banner
+
+**Status:** ✅ Done
+**What:** သုံးခုသောပြဿနာ စစ်ဆေးပြင်ဆင်ခဲ့သည်
+**Root Cause Analysis:**
+
+**Bug 1 — Fail2ban stop → "X-AEGIS-Admin-Key required" error**
+- `artifacts/aegis-dashboard/src/pages/system.tsx` — `controlService()` function က `Authorization: Bearer <token>` header မပါဘဲ `credentials: "include"` သာ ပို့နေတယ်
+- `maybeAdmin()` middleware က JWT check မရနဲ့ X-AEGIS-Admin-Key header လည်းမပါတဲ့အတွက် 403 ပြန်ကြောင်း
+- Fix: `useAuth()` ကိုထည့်ပြီး `Authorization: Bearer ${tok}` header ပါအောင် ပြင်ခဲ့သည်
+
+**Bug 2 — Cold start banner message မမှန်**
+- `dashboard.tsx` မှာ "~50 s" လို့ရေးထားတာ Render free tier က 60-90s ထိ ကြာနိုင်တာကြောင့် misleading
+- Fix: "~60–90 s" ဟု ပြင်ခဲ့သည်
+
+**Bug 3 — Render API unreachable / reconnecting behavior** → Code bug မဟုတ်ဘူး
+- SSE stream က 3s interval ပြန်ချိတ်ဆက်တဲ့ behavior ပုံမှန်ဖြစ်ပါတယ်
+- Render free tier က 15 min idle ဖြစ်ရင် sleep ဝင်တယ်၊ tab ဖွင့်ထားမှ keep-alive ping ကအလုပ်လုပ်တာ
+
+**How:**
+- `artifacts/aegis-dashboard/src/pages/system.tsx` — `useAuth` import ထည့်ခဲ့သည်၊ `controlService()` မှာ JWT token header ထည့်ခဲ့သည်
+- `artifacts/aegis-dashboard/src/pages/dashboard.tsx` — cold start message "~50 s" → "~60–90 s" ပြင်ခဲ့သည်
+- Typecheck: zero errors ✅
+
+**Result:** Fail2ban toggle (stop/start) အလုပ်လုပ်သည်၊ banner message မှန်ကန်သည်
+**Next:** Render cold start ကိုလုံးဝဖြေရှင်းဖို့ paid tier upgrade or UptimeRobot keep-alive ping
+
+---
+
 ## [2026-07-23] — Replit Import & Workspace Setup
 
 **Status:** ✅ Done

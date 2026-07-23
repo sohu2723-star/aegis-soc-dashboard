@@ -9,6 +9,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useDeviceContext } from "@/lib/device-context";
 import { HostLabel } from "@/lib/host-utils";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/auth-context";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -37,6 +38,7 @@ export default function SystemStatus() {
   const { data: allSystems, isLoading } = useGetSystemStatus({ query: { queryKey: getGetSystemStatusQueryKey(), refetchInterval: 5000 } });
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { getToken } = useAuth();
   const [togglingId, setTogglingId] = useState<number | null>(null);
 
   async function controlService(sys: any, action: "start" | "stop") {
@@ -45,10 +47,12 @@ export default function SystemStatus() {
     if (!service || !targetVm) return;
     setTogglingId(sys.id);
     try {
+      const tok = getToken();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (tok) headers["Authorization"] = `Bearer ${tok}`;
       const r2 = await fetch(`${BASE}/api/ui/system/service-control`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
+        headers,
         body: JSON.stringify({ service, action, targetVm }),
       });
       if (!r2.ok) {
