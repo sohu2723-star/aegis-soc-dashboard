@@ -123,6 +123,15 @@ router.get("/dashboard/summary", async (req, res) => {
   const systemsOnline = resolvedStatuses.filter(s => s.status === "online").length;
   const systemsTotal  = resolvedStatuses.length;
 
+  // Device-scoped sensor counts — only sensors belonging to targetHost (+ shared global)
+  let deviceSystemsOnline = systemsOnline;
+  let deviceSystemsTotal  = systemsTotal;
+  if (targetHost) {
+    const scoped = resolvedStatuses.filter(s => !s.hostIp || s.hostIp === targetHost);
+    deviceSystemsOnline = scoped.filter(s => s.status === "online").length;
+    deviceSystemsTotal  = scoped.length;
+  }
+
   const attacksByType = attacksByTypeRows.map(r => ({
     type:  r.type,
     count: Number(r.count),
@@ -141,6 +150,8 @@ router.get("/dashboard/summary", async (req, res) => {
     blockedIPs:     Number(blockedRes?.count       ?? 0),
     systemsOnline,
     systemsTotal,
+    deviceSystemsOnline,
+    deviceSystemsTotal,
     attacksByType,
     eventsTrend,
     scopedToHost: targetHost,

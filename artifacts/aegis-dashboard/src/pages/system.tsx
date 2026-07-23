@@ -1,14 +1,71 @@
 import { useGetSystemStatus, getGetSystemStatusQueryKey } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Server, Activity, AlertTriangle, CheckCircle, HelpCircle, Network, HardDrive, Shield } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Server, Activity, AlertTriangle, CheckCircle, HelpCircle, Network, HardDrive, Shield, Play, Square, Loader2 } from "lucide-react";
 import { format } from "date-fns";
+import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useDeviceContext } from "@/lib/device-context";
 import { HostLabel } from "@/lib/host-utils";
+import { useToast } from "@/hooks/use-toast";
+
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+// Services that can be toggled from the dashboard via defense_commands queue
+const TOGGLEABLE = new Set(["Fail2ban", "Suricata", "Snort", "Cowrie Honeypot", "Apache2"]);
+
+// Map component display name → systemctl service name
+const SERVICE_NAME: Record<string, string> = {
+  "Fail2ban": "fail2ban",
+  "Suricata": "suricata",
+  "Snort": "snort",
+  "Cowrie Honeypot": "cowrie",
+  "Apache2": "apache2",
+};
+
+// Map component display name → defense-agent targetVm value
+const HOST_TO_VM: Record<string, string> = {
+  "10.10.10.10": "company-web-server",
+  "10.20.20.10": "company-customer-db",
+  "10.10.10.20": "company-dns-server",
+  "10.20.20.20": "company-ldap-server",
+};
 
 export default function SystemStatus() {
   const { selectedIp, selectedDevice } = useDeviceContext();
   const { data: allSystems, isLoading } = useGetSystemStatus({ query: { queryKey: getGetSystemStatusQueryKey(), refetchInterval: 5000 } });
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const [togglingId, setTogglingId] = useState<number | null>(null);
+
+  async function controlService(sys: any, action: "start" | "stop") {
+    const service = SERVICE_NAME[sys.component];
+    const targetVm = HOST_TO_VM[sys.hostIp] ?? sys.hostIp;
+    if (!service || !targetVm) return;
+    setTogglingId(sys.id);
+    try {
+      const r2 = await fetch(`${BASE}/api/ui/system/service-control`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ service, action, targetVm }),
+      });
+      if (!r2.ok) {
+        const err = await r2.json().catch(() => ({}));
+        throw new Error(err.error ?? `HTTP ${r2.status}`);
+      }
+      toast({
+        title: `${action === "stop" ? "Stopping" : "Starting"} ${sys.component}`,
+        description: `Command queued for ${targetVm}. Defense agent will execute shortly.`,
+      });
+      queryClient.invalidateQueries({ queryKey: getGetSystemStatusQueryKey() });
+    } catch (e: any) {
+      toast({ title: "Service Control Failed", description: e.message, variant: "destructive" });
+    } finally {
+      setTogglingId(null);
+    }
+  }
 
   // Scope to selected device or show all
   const systems = selectedIp
@@ -125,7 +182,7 @@ export default function SystemStatus() {
                   {/* Global/shared components (no specific host) */}
                   {globalSystems.length > 0 && (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {globalSystems.map(sys => <SystemCard key={sys.id} sys={sys} getStatusIcon={getStatusIcon} />)}
+                      {globalSystems.map(sys => <SystemCard key={sys.id} sys={sys} getStatusIcon={getStatusIcon} onControl={controlService} toggling={togglingId === sys.id} />)}
                     </div>
                   )}
 
@@ -139,7 +196,7 @@ export default function SystemStatus() {
                           <HostLabel ip={hostIp} showIp={true} />
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pl-4 border-l border-cyan-400/20">
-                          {hostSystems.map(sys => <SystemCard key={sys.id} sys={sys} getStatusIcon={getStatusIcon} />)}
+                          {hostSystems.map(sys => <SystemCard key={sys.id} sys={sys} getStatusIcon={getStatusIcon} onControl={controlService} toggling={togglingId === sys.id} />)}
                         </div>
                       </div>
                     );
@@ -156,7 +213,7 @@ export default function SystemStatus() {
                   {layerLabels[layer] ?? layer} Layer
                 </h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {layerSystems.map((sys) => <SystemCard key={sys.id} sys={sys} getStatusIcon={getStatusIcon} />)}
+                  {layerSystems.map((sys) => <SystemCard key={sys.id} sys={sys} getStatusIcon={getStatusIcon} onControl={controlService} toggling={togglingId === sys.id} />)}
                 </div>
               </div>
             );
@@ -167,7 +224,13 @@ export default function SystemStatus() {
   );
 }
 
-function SystemCard({ sys, getStatusIcon }: { sys: any; getStatusIcon: (s: string) => React.ReactNode }) {
+function SystemCard({ sys, getStatusIcon, onControl, toggling }: {
+  sys: any;
+  getStatusIcon: (s: string) => React.ReactNode;
+  onControl?: (sys: any, action: "start" | "stop") => void;
+  toggling?: boolean;
+}) {
+  const canToggle = TOGGLEABLE.has(sys.component) && !!sys.hostIp && !!SERVICE_NAME[sys.component];
   return (
     <Card className="bg-card border-border overflow-hidden">
       <div className={`h-1 w-full ${
@@ -209,6 +272,32 @@ function SystemCard({ sys, getStatusIcon }: { sys: any; getStatusIcon: (s: strin
             <span>LAST CHECK:</span>
             <span>{format(new Date(sys.lastCheck), "HH:mm:ss")}</span>
           </div>
+
+          {/* Service start/stop toggle — only for toggleable sensors on VMs */}
+          {canToggle && onControl && (
+            <div className="flex gap-2 pt-1 border-t border-border/40">
+              <Button
+                size="sm"
+                variant="outline"
+                className="flex-1 h-7 text-[10px] gap-1.5 text-green-400 border-green-500/40 hover:bg-green-500/10 hover:border-green-500"
+                disabled={toggling || sys.status === "online"}
+                onClick={() => onControl(sys, "start")}
+              >
+                {toggling ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
+                START
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="flex-1 h-7 text-[10px] gap-1.5 text-red-400 border-red-500/40 hover:bg-red-500/10 hover:border-red-500"
+                disabled={toggling || sys.status === "offline"}
+                onClick={() => onControl(sys, "stop")}
+              >
+                {toggling ? <Loader2 className="w-3 h-3 animate-spin" /> : <Square className="w-3 h-3" />}
+                STOP
+              </Button>
+            </div>
+          )}
         </div>
       </CardContent>
     </Card>

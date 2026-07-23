@@ -1,5 +1,6 @@
-import { ReactNode } from "react";
+import { ReactNode, useContext } from "react";
 import { Link, useLocation } from "wouter";
+import { SoundAlertContext } from "@/App";
 import { 
   ShieldAlert, 
   Activity, 
@@ -16,6 +17,8 @@ import {
   LogOut,
   KeyRound,
   Chrome,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import {
@@ -56,6 +59,7 @@ const reportItems = [
 export function Layout({ children }: { children: ReactNode }) {
   const [location] = useLocation();
   const { user, logout } = useAuth();
+  const { enabled: soundEnabled, toggle: toggleSound } = useContext(SoundAlertContext);
 
   return (
     <SidebarProvider>
@@ -137,6 +141,17 @@ export function Layout({ children }: { children: ReactNode }) {
                 </span>
               </div>
             )}
+            <button
+              onClick={toggleSound}
+              title={soundEnabled ? "Mute sound alerts" : "Enable sound alerts"}
+              className="w-full flex items-center gap-2 px-3 py-2 rounded text-xs font-mono
+                         text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+            >
+              {soundEnabled
+                ? <Volume2 className="w-3.5 h-3.5 text-primary" />
+                : <VolumeX className="w-3.5 h-3.5" />}
+              <span>{soundEnabled ? "Sound: ON" : "Sound: OFF"}</span>
+            </button>
             <button
               onClick={logout}
               className="w-full flex items-center gap-2 px-3 py-2 rounded text-xs font-mono

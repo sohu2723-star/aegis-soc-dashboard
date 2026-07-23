@@ -310,16 +310,24 @@ export default function Dashboard() {
 
         <Card className="bg-card border-border">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground">Systems Online</CardTitle>
+            <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground">
+              {selectedDevice ? `Systems Online — ${selectedDevice.ip}` : "Systems Online"}
+            </CardTitle>
             <Server className="h-4 w-4 text-green-500" />
           </CardHeader>
           <CardContent>
             {isLoadingSummary && !summary
               ? <NumSkeleton />
               : <div className="text-3xl font-bold text-green-500">
-                  {summary?.systemsOnline ?? 0}/{summary?.systemsTotal ?? 0}
+                  {selectedDevice
+                    ? <>{summary?.deviceSystemsOnline ?? 0}<span className="text-lg text-muted-foreground">/{summary?.deviceSystemsTotal ?? 0}</span></>
+                    : <>{summary?.systemsOnline ?? 0}<span className="text-lg text-muted-foreground">/{summary?.systemsTotal ?? 0}</span></>
+                  }
                 </div>
             }
+            {selectedDevice && (
+              <div className="text-[10px] text-muted-foreground font-mono mt-1">sensors / infra</div>
+            )}
           </CardContent>
         </Card>
       </div>

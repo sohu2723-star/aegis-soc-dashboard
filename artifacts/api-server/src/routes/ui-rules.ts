@@ -42,6 +42,35 @@ function maybeAdmin(req: any, res: any, next: any) {
   res.status(403).json({ error: "X-AEGIS-Admin-Key required for write operations" });
 }
 
+// ─── Service Control ───────────────────────────────────────────────────────────
+// Queue a systemctl start/stop/restart command for a specific service on a VM.
+// The defense agent on that VM polls /api/defense/commands/pending and executes it.
+router.post("/ui/system/service-control", maybeAdmin, async (req, res) => {
+  const schema = z.object({
+    service:  z.enum(["fail2ban", "suricata", "snort", "cowrie", "apache2", "vsftpd", "bind9", "slapd"]),
+    action:   z.enum(["start", "stop", "restart"]),
+    targetVm: z.string().min(1).max(64),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: "Invalid body" }); return; }
+
+  const { service, action, targetVm } = parsed.data;
+  const commandText = `systemctl ${action} ${service}`;
+  const undoCommand = action === "stop" ? `systemctl start ${service}`
+    : action === "start" ? `systemctl stop ${service}`
+    : undefined;
+
+  const [cmd] = await db.insert(defenseCommandsTable).values({
+    targetVm,
+    commandType: "service_control",
+    commandText,
+    undoCommand: undoCommand ?? null,
+    status: "pending",
+  }).returning();
+
+  res.json({ queued: true, command: cmd });
+});
+
 // ─── Defense Rules ─────────────────────────────────────────────────────────────
 
 router.get("/ui/defense/rules", async (_req, res) => {

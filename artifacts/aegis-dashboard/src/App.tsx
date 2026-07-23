@@ -1,3 +1,4 @@
+import React, { createContext } from "react";
 import { Switch, Route, Router as WouterRouter } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -9,6 +10,7 @@ import LoginPage from "@/pages/login";
 import { Layout } from "@/components/layout";
 import { useSSE } from "@/hooks/use-sse";
 import { useKeepAlive } from "@/hooks/use-keep-alive";
+import { useSoundAlert } from "@/hooks/use-sound-alert";
 import { DeviceProvider } from "@/lib/device-context";
 
 import Dashboard from "@/pages/dashboard";
@@ -41,10 +43,14 @@ const queryClient = new QueryClient({
   },
 });
 
+export const SoundAlertContext = createContext<{ enabled: boolean; toggle: () => void }>({ enabled: true, toggle: () => {} });
+
 function ProtectedRouter() {
   useSSE();
   useKeepAlive();
+  const sound = useSoundAlert();
   return (
+    <SoundAlertContext.Provider value={sound}>
     <AuthGuard>
       <Layout>
         <Switch>
@@ -63,6 +69,7 @@ function ProtectedRouter() {
         </Switch>
       </Layout>
     </AuthGuard>
+    </SoundAlertContext.Provider>
   );
 }
 

@@ -37,10 +37,17 @@ export function useSSE() {
       queryClient.invalidateQueries({ queryKey: getListEventsQueryKey({}) });
     });
 
-    es.addEventListener("alert", () => {
+    es.addEventListener("alert", (e: MessageEvent) => {
       queryClient.invalidateQueries({ queryKey: getListAlertsQueryKey({}) });
       // Also invalidate custom alerts key used in alerts.tsx
       queryClient.invalidateQueries({ queryKey: ["alerts"] });
+      // Dispatch custom event so sound-alert hook can play a tone
+      try {
+        const data = JSON.parse(e.data ?? "{}");
+        if (data.severity === "critical" || data.severity === "high") {
+          window.dispatchEvent(new CustomEvent("aegis:alert", { detail: { severity: data.severity } }));
+        }
+      } catch { /* malformed data — skip */ }
     });
 
     es.addEventListener("stats_update", () => {
