@@ -2970,3 +2970,116 @@ sudo systemctl restart aegis-forwarder
 
 **Test:** Kali ကနေ `nmap -sS 10.10.10.10` → dashboard မှာ event ပေါ်ရမည်  
 Hub SSH / update traffic → event မပေါ်ရ
+
+---
+
+### [2026-07-23] — Severity Policy, pfSense Device Visibility, and Stable System Count
+
+**Status:** ✅ Done  
+**What:** Unauthorized access and unknown attacks are now treated as critical. pfSense is visible as an infrastructure device and its Suricata sensor is available in Network Monitor, the global device selector, and Defense Center. System status seeding/update races were also made deterministic.
+
+**How:**
+1. Shared severity policy classifies attacker-originated successful authentication/access, explicit unauthorized access, breach/intrusion wording, and unknown/unclassified attacks as `critical`.
+2. Low severity remains for known, low-impact informational telemetry only; it is not used for unauthorized access or unknown attacks.
+3. pfSense (`10.30.30.1`) is exposed as a protected infrastructure host, and the global pfSense Suricata row is included in Defense Center device-scoped status.
+4. System-status seed and heartbeat mutations use one queue plus canonical `(hostIp, component)` identities; dashboard and system endpoints deduplicate using the same identity.
+5. Legacy invalid sensors are purged before Defense Center status is returned.
+
+**Result:**
+- Attacker first-login/success events → `critical`
+- Unknown attack subtype/type → `critical`
+- Network Monitor host list includes `pfSense (10.30.30.1)`
+- `GET /api/defense/status?device=10.30.30.1` reports `suricataActive: true`
+- Repeated status checks remain `18/18` instead of oscillating between `18/19`
+- Typecheck and production build pass
+
+**Next:** Confirm with a real Kali login attempt and real pfSense Suricata event after updating the forwarder/runtime in the lab.
+
+## [2026-07-23] — Severity Policy, pfSense Integration & System Count Stabilization
+
+**Status:** ✅ Done  
+**What:** User-requested fixes across 4 areas: severity policy enforcement, pfSense visibility in Network Monitor/Defense Center/Device Selector, system status count oscillation fix.
+
+---
+
+### 1. Severity Policy (`artifacts/api-server/src/lib/security-severity.ts` — new file)
+
+Extracted shared `resolveSeverity()` function with explicit policy rules:
+
+| Condition | Result |
+|---|---|
+| `authentication: "success"` + untrusted source | `critical` |
+| `untrustedSource: true` + login/access success language | `critical` |
+| Unauthorized/breach/intrusion in text | `critical` |
+| Unknown/unclassified attack type | `critical` |
+| Sensor-reported known severity | preserved |
+| Missing/unknown sensor severity | `medium` (not `low`) |
+
+**Low severity policy:** Reserved for confirmed benign/informational events only (e.g. trusted admin operational telemetry). Unknown attack type is never `low`.
+
+Affected ingest routes:
+- `/ingest/event` — `untrustedSource` flag from `isAttackerSubnetIp(src_ip)`
+- `/ingest/ssh` — successful login from any attacker IP = `critical` (was conditional)
+- `/ingest/http_access` — same
+- `/ingest/pfsense` — `action=null` = `critical`; `block+SSH/RDP(22/3389)` = `high`; other blocks = `medium`
+- `/ingest/suricata` — unknown signature = `critical` (via `isUnknownAttack()`)
+
+---
+
+### 2. pfSense Synthetic Host (`artifacts/api-server/src/routes/network.ts`)
+
+pfSense does not register via the forwarder heartbeat loop (it's a firewall appliance, not a Linux VM). Solution: inject a synthetic host record into `GET /network/hosts` response derived from the `pfSense Firewall` global `system_status` row.
+
+- `id: -1` (sentinel — never in DB, never deletable)
+- `ip: 10.30.30.1`, `hostname: pfSense`, `role: pfsense`
+- `status` derived from `pfSense Firewall` global row + 2 min stale check
+- `DELETE /network/hosts/-1` → 403 (infrastructure hosts cannot be removed)
+- `role: "pfsense"` added to enum validator
+
+Frontend changes:
+- `device-selector.tsx` — `pfsense` role label added → "FIREWALL"
+- `network.tsx` — `pfsense` role badge (infra purple color)
+
+---
+
+### 3. Defense Center pfSense Suricata (`artifacts/api-server/src/routes/defense.ts`)
+
+`GET /defense/status?device=10.30.30.1`:
+- `sensorOnline("suricata")` now checks global rows (no hostIp) when device = pfSense IP
+- `perHostSensors` includes a pfSense group (`hostIp: 10.30.30.1`) with `pfSense Suricata IDS` sensor when online
+
+All Devices view: pfSense Suricata group appears as the 6th entry (one per host + pfSense global).
+
+---
+
+### 4. System Count Stabilization (`artifacts/api-server/src/routes/dashboard.ts` + `system.ts`)
+
+**Root cause of 18/19 oscillation:** `GET /dashboard/summary` counted raw `system_status` rows without seed/purge or staleness logic. `GET /system/status` ran full seed+purge. Any orphan/legacy row (e.g. `FTP Monitor`) counted in dashboard but not system page, or vice versa.
+
+**Fix:**
+- `ensureSystemStatusSeeded()` exported from `system.ts` — idempotent, non-blocking
+- `dashboard/summary` calls it before counting
+- Dashboard count uses same canonical dedupe (`Map<hostIp::component, latest row>`) + stale resolution (VM: 3 min, global: 2 min)
+- Repeated polling test: `18/18` stable across 5 consecutive calls
+
+**Legacy row cleanup:** `FTP Monitor` added to `ALWAYS_DELETE_COMPONENTS` — purged on next `/system/status` call.
+
+---
+
+**Verification:**
+```
+GET /api/network/hosts        → pfSense (10.30.30.1) id:-1 included ✅
+GET /api/defense/status       → perHostSensors[10.30.30.1] = pfSense Suricata IDS ✅
+GET /api/system/status        → 18 rows, no FTP Monitor ✅
+GET /api/dashboard/summary    → systemsOnline/systemsTotal = 18/18 stable ✅
+typecheck (api-server)        → pass ✅
+typecheck (aegis-dashboard)   → pass ✅
+production build              → pass ✅
+```
+
+**Lab action required (update forwarder on aegis-company-admin):**
+```bash
+wget -O /opt/aegis/scripts/src/aegis_forwarder.py \
+  https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/scripts/src/aegis_forwarder.py
+sudo systemctl restart aegis-forwarder
+```

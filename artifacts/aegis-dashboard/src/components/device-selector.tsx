@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/select";
 
 const roleLabels: Record<string, string> = {
-  ubuntu: "DEFENDER", honeypot: "HONEYPOT", router: "ROUTER", unknown: "UNKNOWN",
+  ubuntu: "DEFENDER", honeypot: "HONEYPOT", router: "ROUTER", pfsense: "INFRASTRUCTURE", unknown: "UNKNOWN",
   "web-server": "WEB SERVER", "mail-server": "MAIL SERVER", workstation: "WORKSTATION", database: "DATABASE", forwarder: "FORWARDER",
 };
 

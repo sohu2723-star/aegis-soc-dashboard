@@ -75,11 +75,12 @@ const roleColors: Record<string, string> = {
   ubuntu:   "text-cyan-400 border-cyan-400",
   honeypot: "text-yellow-400 border-yellow-400",
   router:   "text-green-400 border-green-400",
+  pfsense:  "text-purple-400 border-purple-400",
   unknown:  "text-gray-400 border-gray-400",
 };
 
 const roleLabels: Record<string, string> = {
-  kali: "ATTACKER", ubuntu: "DEFENDER", honeypot: "HONEYPOT", router: "ROUTER", unknown: "UNKNOWN",
+  kali: "ATTACKER", ubuntu: "DEFENDER", honeypot: "HONEYPOT", router: "ROUTER", pfsense: "PFSENSE FIREWALL", unknown: "UNKNOWN",
 };
 
 const severityColor: Record<string, string> = {
@@ -670,7 +671,7 @@ export default function Network() {
                         <LastSeenTicker lastSeen={h.lastSeen} status={h.status} />
                       </td>
                       <td className="py-2 px-3" onClick={e => e.stopPropagation()}>
-                        <Button
+                        {h.id !== -1 && <Button
                           variant="ghost" size="icon"
                           className="h-7 w-7 text-red-500 hover:text-red-400 hover:bg-red-500/10"
                           title="Remove from list"
@@ -678,7 +679,7 @@ export default function Network() {
                           onClick={e => removeHost(e, h)}
                         >
                           <Trash2 className="w-3.5 h-3.5" />
-                        </Button>
+                        </Button>}
                       </td>
                     </tr>
                   ))}

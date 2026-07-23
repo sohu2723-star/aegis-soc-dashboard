@@ -4,8 +4,10 @@ import { eq, desc, and, sql } from "drizzle-orm";
 import { z } from "zod";
 import { isAutoDefenseEnabled, setSetting } from "../lib/app-settings";
 import { sanitizeIp } from "../lib/defense-sanitize";
+import { ensureSystemStatusSeeded } from "./system";
 
 const router = Router();
+const PFSENSE_IP = "10.30.30.1";
 
 router.get("/defense/blocks", async (req, res) => {
   const device = (req.query.device as string) || undefined;
@@ -129,6 +131,7 @@ router.get("/defense/actions", async (req, res) => {
 
 router.get("/defense/status", async (req, res) => {
   const device = (req.query.device as string) || null;
+  await ensureSystemStatusSeeded();
 
   // 3-minute staleness threshold — same as system.ts
   const STALE_MS = 3 * 60 * 1000;
@@ -157,6 +160,11 @@ router.get("/defense/status", async (req, res) => {
       r.component.toLowerCase().includes(name.toLowerCase())
     );
     if (device) {
+      // pfSense is represented by global infrastructure rows because its
+      // Suricata sensor covers all zones rather than one VM host.
+      if (device === PFSENSE_IP && name.toLowerCase().includes("suricata")) {
+        return matching.some(r => !r.hostIp && r.status === "online");
+      }
       const row = matching.find(r => r.hostIp === device);
       return row?.status === "online";
     }
@@ -178,6 +186,17 @@ router.get("/defense/status", async (req, res) => {
       suricata: surRow != null ? surRow.status === "online" : null,
     };
   });
+  const pfsenseSuricata = liveSensorRows.find(
+    r => r.component.toLowerCase().includes("pfsense suricata") && !r.hostIp,
+  );
+  if (pfsenseSuricata) {
+    perHostSensors.push({
+      hostIp: PFSENSE_IP,
+      sensors: [{ component: pfsenseSuricata.component, status: pfsenseSuricata.status }],
+      fail2ban: null,
+      suricata: pfsenseSuricata.status === "online",
+    });
+  }
 
   res.json({
     autoDefenseEnabled,

@@ -25,6 +25,10 @@ import { getSetting } from "../lib/app-settings";
 import { isDefenderIp, isLabInternalIp, isAttackerSubnetIp, isSuricataProtocolNoiseSid } from "../lib/ip-classifier";
 import { eq } from "drizzle-orm";
 import { recordTrafficStats } from "./network";
+import {
+  resolveSeverity,
+  type SecuritySeverity,
+} from "../lib/security-severity";
 
 const router = Router();
 const INGEST_KEY = process.env.AEGIS_INGEST_KEY;
@@ -45,12 +49,11 @@ function auth(req: any, res: any, next: any) {
   next();
 }
 
-function sev(s: string): "critical" | "high" | "medium" | "low" {
-  const v = (s ?? "").toLowerCase();
-  if (v === "critical" || v === "1") return "critical";
-  if (v === "high"     || v === "2") return "high";
-  if (v === "medium"   || v === "3" || v === "warning") return "medium";
-  return "low";
+function sev(
+  s: unknown,
+  context: Parameters<typeof resolveSeverity>[1] = {},
+): SecuritySeverity {
+  return resolveSeverity(s, context);
 }
 
 async function insertEvent(values: typeof securityEventsTable.$inferInsert) {
@@ -115,14 +118,22 @@ router.post("/ingest/event", auth, async (req, res) => {
     return;
   }
 
+  const eventType = type ?? source ?? "network_attack";
+  const eventSubtype = subtype ?? "Unknown Attack";
+  const severity = sev(s, {
+    type: eventType,
+    subtype: eventSubtype,
+    description,
+    status: blocked ? "blocked" : "detected",
+    untrustedSource: isAttackerSubnetIp(sourceIp),
+  });
   const event = await insertEvent({
-    type: type ?? source ?? "network_attack", subtype: subtype ?? "Unknown",
-    severity: sev(s), sourceIp, targetHost: targetHost ?? "internal-network",
+    type: eventType, subtype: eventSubtype,
+    severity, sourceIp, targetHost: targetHost ?? "internal-network",
     toolUsed: toolUsed ?? source ?? null, description,
     status: blocked ? "blocked" : "detected", layer: layer ?? "perimeter",
     signatureText: signature_text ? String(signature_text).slice(0, 2000) : null,
   });
-  const severity = sev(s);
   if (severity === "critical" || severity === "high")
     await mkAlert(event.id, severity, `${severity.toUpperCase()} [${source ?? "sensor"}]: ${description.slice(0, 120)}`);
 
@@ -172,7 +183,8 @@ router.post("/ingest/suricata", auth, async (req, res) => {
     res.status(200).json({ ok: true, skipped: "not_attacker_subnet" });
     return;
   }
-  const s = sev(String(a.severity ?? 3));
+  const subtype = a.signature ? String(a.signature) : "Unknown Attack";
+  const s = sev(a.severity ?? 3, { subtype });
 
   // Pull every useful field out of the EVE JSON alert object
   const signatureId:   number | null = typeof a.signature_id === "number" ? a.signature_id : null;
@@ -188,7 +200,7 @@ router.post("/ingest/suricata", auth, async (req, res) => {
 
   const event = await insertEvent({
     type: "network_attack",
-    subtype: a.signature ?? "Suricata Alert",
+    subtype,
     severity: s,
     sourceIp: src_ip ?? "unknown",
     targetHost: dest_ip ?? "internal-network",
@@ -291,16 +303,21 @@ router.post("/ingest/ssh", auth, async (req, res) => {
 
   if (st === "success") {
     const isBreach = priorFails >= 3;
+    const severity = sev(isBreach ? "critical" : "critical", {
+      authentication: "success",
+      trustedSource: false,
+      subtype: isBreach ? "Brute Force Success" : "Unauthorized Access",
+    });
     const event = await insertEvent({
       type:      isBreach ? "network_attack" : "auth_event",
-      subtype:   isBreach ? "Brute Force Success" : "Authorized Login",
-      severity:  isBreach ? "critical" : "low",
+      subtype:   isBreach ? "Brute Force Success" : "Unauthorized Access",
+      severity,
       sourceIp:  src_ip ?? "unknown", targetHost,
       toolUsed:  "ssh",
       description: isBreach
         ? `SSH BREACH: ${src_ip} logged in as '${username}' after ${priorFails} failed attempt(s) — attacker is IN!`
-        : `Authorized SSH login from ${src_ip} as '${username}' (no prior brute-force attempts)`,
-      status: isBreach ? "breach" : "allowed",
+        : `UNAUTHORIZED SSH ACCESS: ${src_ip} logged in as '${username}' on the monitored host`,
+      status: "breach",
       layer: "perimeter",
       signatureText: sigText,
     });
@@ -353,23 +370,26 @@ router.post("/ingest/http_access", auth, async (req, res) => {
 
   if (isSuccess) {
     const isBreach = priorFails >= 3;
+    const severity = sev("critical", {
+      authentication: "success",
+      trustedSource: false,
+      subtype: isBreach ? "Web Login Breach" : "Unauthorized Access",
+    });
     const event = await insertEvent({
       type:      isBreach ? "web_attack"  : "auth_event",
-      subtype:   isBreach ? "Web Login Breach" : "Web Authorized Login",
-      severity:  isBreach ? "critical" : "low",
+      subtype:   isBreach ? "Web Login Breach" : "Unauthorized Access",
+      severity,
       sourceIp:  src_ip, targetHost: host,
       toolUsed:  "apache",
       description: isBreach
         ? `WEB BREACH: ${src_ip} authenticated to ${url} after ${priorFails} failed attempt(s) — attacker logged in!`
-        : `Web login success from ${src_ip} to ${url} (no prior failed attempts — authorized)`,
-      status: isBreach ? "breach" : "allowed",
+        : `UNAUTHORIZED WEB ACCESS: ${src_ip} authenticated to ${url} on the monitored host`,
+      status: "breach",
       layer:  "application",
       signatureText: sigText,
     });
-    if (isBreach) {
-      await mkAlert(event.id, "critical",
-        `🚨 WEB BREACH: ${src_ip} authenticated to ${url} after ${priorFails} failures`);
-    }
+    await mkAlert(event.id, "critical",
+      `🚨 WEB BREACH: ${src_ip} authenticated to ${url}${priorFails ? ` after ${priorFails} failures` : ""}`);
   } else {
     if (priorFails === 1 || priorFails % 5 === 0) {
       const severity = priorFails >= 5 ? "high" : "medium";
@@ -415,15 +435,19 @@ router.post("/ingest/http", auth, async (req, res) => {
     logSource: http_log_source ? String(http_log_source).slice(0,128) : "/var/log/apache2/modsec_audit.log",
   });
 
-  const sevMap: Record<string,"critical"|"high"|"medium"|"low"> = {
+  const sevMap: Record<string, SecuritySeverity> = {
     SQLi:"critical", XSS:"high", LFI:"critical", RFI:"critical",
     "Command Injection":"critical", SSRF:"high", XXE:"high",
     CSRF:"medium", DirTraversal:"high", Brute:"high",
   };
-  const s = sevMap[attack_type ?? ""] ?? "medium";
+  const subtype = attack_type ?? "Unknown Attack";
+  const s = sev(sevMap[attack_type ?? ""] ?? "critical", {
+    type: "web_attack",
+    subtype,
+  });
 
   const event = await insertEvent({
-    type:"web_attack", subtype: attack_type ?? "HTTP Attack", severity: s,
+    type:"web_attack", subtype, severity: s,
     sourceIp: src_ip, targetHost: url.slice(0,128),
     toolUsed:"modsecurity",
     description:`HTTP ${attack_type ?? "attack"}: ${method} ${url.slice(0,100)} | Rule:${rule_id ?? "N/A"} | ${blocked ? "BLOCKED":"DETECTED"}`,
@@ -675,10 +699,18 @@ router.post("/ingest/pfsense", auth, async (req, res) => {
   const { message, src_ip, dest_ip, src_port, dest_port, proto, rule_number, action } = req.body;
 
   const isBlock = action === "block" || action === "reject";
-  const s = isBlock && (dest_port === "22" || dest_port === "3389") ? "high" : "medium";
+  const subtype = action ? `pfSense ${action}` : "Unknown Attack";
+  const s = sev(
+    !action
+      ? "critical"
+      : isBlock && (dest_port === "22" || dest_port === "3389")
+        ? "high"
+        : "medium",
+    { type: "network_attack", subtype },
+  );
 
   const event = await insertEvent({
-    type:"network_attack", subtype:`pfSense ${action ?? "log"}`, severity: s,
+    type:"network_attack", subtype, severity: s,
     sourceIp: src_ip ?? "unknown", targetHost: dest_ip ?? "internal-network",
     toolUsed:"pfsense",
     description:`pfSense: ${action ?? "log"} | ${proto ?? "TCP"} | ${src_ip}:${src_port ?? "?"} → ${dest_ip}:${dest_port ?? "?"} | Rule:${rule_number ?? "N/A"} | ${message ?? ""}`,
@@ -694,7 +726,13 @@ router.post("/ingest/cowrie", auth, async (req, res) => {
   const { eventid, src_ip, input, session, username, password } = req.body;
   const isLogin = eventid === "cowrie.login.failed" || eventid === "cowrie.login.success";
   const isCmd   = eventid === "cowrie.command.input";
-  const s       = eventid === "cowrie.login.success" ? "critical" : "high";
+  const isUnknown = !isLogin && !isCmd;
+  const s       = eventid === "cowrie.login.success"
+    ? "critical"
+    : isUnknown
+      ? "critical"
+      : "high";
+  const subtype = isUnknown ? "Unknown Attack" : "Honeypot Trap";
 
   const desc = isLogin
     ? `Honeypot: ${eventid === "cowrie.login.success" ? "SUCCESSFUL" : "Failed"} login from ${src_ip}. Creds: ${username}/${password}. Session: ${session}`
@@ -705,7 +743,7 @@ router.post("/ingest/cowrie", auth, async (req, res) => {
   // dest_ip: IP of the honeypot host (e.g. 10.10.10.10 or dedicated honeypot IP)
   const dest_ip = req.body.dest_ip;
   const event = await insertEvent({
-    type:"network_attack", subtype:"Honeypot Trap", severity: s as any,
+    type:"network_attack", subtype, severity: s as any,
     sourceIp: src_ip ?? "unknown", targetHost: dest_ip ?? "cowrie-honeypot",
     toolUsed:"cowrie", description: desc, status:"detected", layer:"perimeter",
   });

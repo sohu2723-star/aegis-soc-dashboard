@@ -7,6 +7,7 @@ import { broadcaster } from "../lib/broadcaster";
 import { sanitizeIp } from "../lib/defense-sanitize";
 
 const router = Router();
+const PFSENSE_IP = "10.30.30.1";
 
 // ─── In-memory traffic stats ring buffer (last 24 hourly buckets) ─────────────
 interface TrafficBucket { time: string; inbound: number; outbound: number; blocked: number; packets: number }
@@ -73,8 +74,41 @@ router.get("/network/hosts", async (_req, res) => {
   // Inline stale check: if the background interval missed ticks (Render sleep),
   // this ensures hosts go offline the moment the dashboard next polls.
   await markStaleHostsOffline();
-  const hosts = await db.select().from(networkHostsTable).orderBy(desc(networkHostsTable.lastSeen));
-  res.json(hosts.map(h => ({ ...h, lastSeen: h.lastSeen.toISOString(), createdAt: h.createdAt.toISOString() })));
+  const [hosts, pfsenseRows] = await Promise.all([
+    db.select().from(networkHostsTable).orderBy(desc(networkHostsTable.lastSeen)),
+    db.select().from(systemStatusTable),
+  ]);
+  const pfsenseStatus = pfsenseRows.find(
+    row => row.component === "pfSense Firewall" && !row.hostIp,
+  );
+  const pfsenseLastSeen = pfsenseStatus?.lastCheck ?? new Date(0);
+  const pfsenseAge = Date.now() - pfsenseLastSeen.getTime();
+  const pfsenseResolvedStatus =
+    pfsenseStatus?.status === "online" && pfsenseAge > 2 * 60 * 1000
+      ? "offline"
+      : pfsenseStatus?.status ?? "unknown";
+  const hasPersistedPfsense = hosts.some(h => h.ip === PFSENSE_IP);
+  const serialized = hosts.map(h => ({
+    ...h,
+    lastSeen: h.lastSeen.toISOString(),
+    createdAt: h.createdAt.toISOString(),
+  }));
+  if (!hasPersistedPfsense) {
+    serialized.push({
+      id: -1,
+      ip: PFSENSE_IP,
+      hostname: "pfSense",
+      role: "pfsense",
+      os: "pfSense",
+      mac: null,
+      openPorts: "22, 443",
+      status: pfsenseResolvedStatus,
+      isMonitored: true,
+      lastSeen: pfsenseLastSeen.toISOString(),
+      createdAt: pfsenseLastSeen.toISOString(),
+    });
+  }
+  res.json(serialized);
 });
 
 // ─── Register / heartbeat ──────────────────────────────────────────────────────
@@ -82,7 +116,7 @@ router.post("/network/hosts", async (req, res) => {
   const schema = z.object({
     ip:          z.string(),
     hostname:    z.string(),
-    role:        z.enum(["kali", "ubuntu", "honeypot", "router", "unknown", "web-server", "mail-server", "workstation", "database", "forwarder"]).optional(),
+    role:        z.enum(["kali", "ubuntu", "honeypot", "router", "pfsense", "unknown", "web-server", "mail-server", "workstation", "database", "forwarder"]).optional(),
     os:          z.string().nullish(),
     mac:         z.string().nullish(),
     openPorts:   z.string().nullish(),
@@ -143,6 +177,10 @@ router.post("/network/hosts", async (req, res) => {
 // ─── Remove host (+ cascade-delete its sensor rows) ───────────────────────────
 router.delete("/network/hosts/:id", async (req, res) => {
   const id = Number(req.params.id);
+  if (id === -1) {
+    res.status(403).json({ error: "Infrastructure hosts cannot be removed" });
+    return;
+  }
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
   // Grab the host's IP before deleting so we can clean up sensors

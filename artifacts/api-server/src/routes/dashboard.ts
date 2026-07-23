@@ -2,10 +2,12 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { securityEventsTable, incidentsTable, alertsTable, systemStatusTable } from "@workspace/db";
 import { count, eq, and, gte, desc, sql } from "drizzle-orm";
+import { ensureSystemStatusSeeded } from "./system";
 
 const router = Router();
 
 router.get("/dashboard/summary", async (req, res) => {
+  await ensureSystemStatusSeeded();
   // Optional ?targetHost=IP — scope all event stats to a specific host
   const targetHost =
     typeof req.query.targetHost === "string" && req.query.targetHost
@@ -53,6 +55,7 @@ router.get("/dashboard/summary", async (req, res) => {
 
     // 6. System status — fetch status + lastCheck + hostIp to apply stale timeout
     db.select({
+      component: systemStatusTable.component,
       status:    systemStatusTable.status,
       lastCheck: systemStatusTable.lastCheck,
       hostIp:    systemStatusTable.hostIp,
@@ -103,7 +106,15 @@ router.get("/dashboard/summary", async (req, res) => {
   const STALE_VM_MS     = 3 * 60 * 1000;
   const STALE_GLOBAL_MS = 2 * 60 * 1000;
   const now = Date.now();
-  const resolvedStatuses = allStatuses.map(s => {
+  const canonicalStatuses = new Map<string, (typeof allStatuses)[number]>();
+  for (const row of allStatuses) {
+    const key = `${row.hostIp ?? "GLOBAL"}::${row.component}`;
+    const current = canonicalStatuses.get(key);
+    if (!current || row.lastCheck > current.lastCheck) {
+      canonicalStatuses.set(key, row);
+    }
+  }
+  const resolvedStatuses = [...canonicalStatuses.values()].map(s => {
     const ageMs = s.lastCheck ? now - new Date(s.lastCheck).getTime() : Infinity;
     const staleMs = s.hostIp ? STALE_VM_MS : STALE_GLOBAL_MS;
     const stale = s.status === "online" && ageMs > staleMs;

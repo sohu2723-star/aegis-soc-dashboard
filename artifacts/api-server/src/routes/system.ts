@@ -5,6 +5,7 @@ import { asc, eq, inArray, isNotNull } from "drizzle-orm";
 import { broadcaster } from "../lib/broadcaster";
 
 const router = Router();
+const PFSENSE_IP = "10.30.30.1";
 
 // Global infrastructure components — always present, no specific host
 const GLOBAL_COMPONENTS = [
@@ -235,7 +236,7 @@ async function purgeStaleRows() {
   }
 }
 
-async function seedSystemStatus() {
+async function seedSystemStatusUnlocked() {
   await purgeStaleRows();
 
   const remaining = await db.select().from(systemStatusTable);
@@ -258,8 +259,30 @@ async function seedSystemStatus() {
   }
 }
 
+// GET /system/status and POST /system/status can arrive at the same time:
+// the dashboard polls every 5 seconds while the forwarder reports heartbeats.
+// Serialize seed/update mutations so two callers cannot both observe a missing
+// component and insert duplicate rows.
+let statusMutationQueue: Promise<void> = Promise.resolve();
+
+async function withStatusMutation<T>(operation: () => Promise<T>): Promise<T> {
+  const previous = statusMutationQueue;
+  let release!: () => void;
+  statusMutationQueue = new Promise<void>(resolve => { release = resolve; });
+  await previous;
+  try {
+    return await operation();
+  } finally {
+    release();
+  }
+}
+
+export async function ensureSystemStatusSeeded(): Promise<void> {
+  await withStatusMutation(() => seedSystemStatusUnlocked());
+}
+
 router.get("/system/status", async (_req, res) => {
-  await seedSystemStatus();
+  await ensureSystemStatusSeeded();
 
   // Only return global rows (no hostIp) + rows whose hostIp is a registered host
   const [allRows, hosts] = await Promise.all([
@@ -268,9 +291,18 @@ router.get("/system/status", async (_req, res) => {
   ]);
   const activeIps = new Set(hosts.map(h => h.ip).filter(Boolean));
 
-  const statuses = allRows.filter(
+  const filteredRows = allRows.filter(
     s => !s.hostIp || activeIps.has(s.hostIp),
   );
+  // Defensive read-time canonicalization keeps the visible count stable even
+  // if legacy duplicates exist before the serialized cleanup completes.
+  const canonical = new Map<string, (typeof filteredRows)[number]>();
+  for (const row of filteredRows) {
+    const key = `${row.hostIp ?? "GLOBAL"}::${row.component}`;
+    const current = canonical.get(key);
+    if (!current || row.id > current.id) canonical.set(key, row);
+  }
+  const statuses = [...canonical.values()];
 
   // If a VM forwarder goes silent (crash/reboot/shutdown), its sensor rows stay
   // "online" in the DB forever.  Treat any VM-reported row whose lastCheck is
@@ -305,53 +337,59 @@ router.post("/system/status", async (req, res) => {
     return;
   }
 
-  const existing = await db.select().from(systemStatusTable);
-  // Match on (component, hostIp) so multiple VMs reporting the same service
-  // (e.g. Fail2ban on two Ubuntu hosts) don't overwrite each other. Rows
-  // without a hostIp (legacy/global components) still match by component name.
-  const match = existing.find(s => s.component === component && (hostIp ? s.hostIp === hostIp : !s.hostIp));
+  await withStatusMutation(async () => {
+    // A forwarder heartbeat can arrive before the first dashboard GET after a
+    // restart. Seed the canonical set inside the same mutation lock so that
+    // this request cannot create a transient 19th component.
+    await seedSystemStatusUnlocked();
+    const existing = await db.select().from(systemStatusTable);
+    // Match on (component, hostIp) so multiple VMs reporting the same service
+    // (e.g. Fail2ban on two Ubuntu hosts) don't overwrite each other. Rows
+    // without a hostIp (legacy/global components) still match by component name.
+    const match = existing.find(s => s.component === component && (hostIp ? s.hostIp === hostIp : !s.hostIp));
 
-  let result;
-  if (match) {
-    const prevStatus = match.status;
-    const [updated] = await db
-      .update(systemStatusTable)
-      .set({ status, metrics: metrics ?? null, hostIp: hostIp ?? match.hostIp, lastCheck: new Date() })
-      .where(eq(systemStatusTable.id, match.id))
-      .returning();
-    result = { ...updated, lastCheck: updated.lastCheck.toISOString() };
+    let result;
+    if (match) {
+      const prevStatus = match.status;
+      const [updated] = await db
+        .update(systemStatusTable)
+        .set({ status, metrics: metrics ?? null, hostIp: hostIp ?? match.hostIp, lastCheck: new Date() })
+        .where(eq(systemStatusTable.id, match.id))
+        .returning();
+      result = { ...updated, lastCheck: updated.lastCheck.toISOString() };
 
-    // Broadcast only when status actually changed
-    if (prevStatus !== status) {
+      // Broadcast only when status actually changed
+      if (prevStatus !== status) {
+        broadcaster.broadcast("service_status_change", {
+          component,
+          status,
+          prevStatus,
+          layer,
+          hostIp: hostIp ?? null,
+          lastCheck: result.lastCheck,
+        });
+      }
+    } else {
+      const [row] = await db.insert(systemStatusTable).values({
+        component, layer, status,
+        description: description ?? component,
+        metrics: metrics ?? null,
+        hostIp: hostIp ?? null,
+      }).returning();
+      result = { ...row, lastCheck: row.lastCheck.toISOString() };
+
       broadcaster.broadcast("service_status_change", {
         component,
         status,
-        prevStatus,
+        prevStatus: "unknown",
         layer,
         hostIp: hostIp ?? null,
         lastCheck: result.lastCheck,
       });
     }
-  } else {
-    const [row] = await db.insert(systemStatusTable).values({
-      component, layer, status,
-      description: description ?? component,
-      metrics: metrics ?? null,
-      hostIp: hostIp ?? null,
-    }).returning();
-    result = { ...row, lastCheck: row.lastCheck.toISOString() };
 
-    broadcaster.broadcast("service_status_change", {
-      component,
-      status,
-      prevStatus: "unknown",
-      layer,
-      hostIp: hostIp ?? null,
-      lastCheck: result.lastCheck,
-    });
-  }
-
-  res.json(result);
+    res.json(result);
+  });
 });
 
 export default router;
