@@ -457,7 +457,7 @@ export default function Defense() {
                   return (
                     <div key={h.hostIp} className="bg-background rounded border border-border/50 px-3 py-2">
                       <div className="flex items-center gap-2 mb-2">
-                        <div className="w-52 shrink-0">
+                        <div className="shrink-0 whitespace-nowrap">
                           <HostLabel ip={h.hostIp} showIp={true} />
                         </div>
                         <div className="ml-auto">
