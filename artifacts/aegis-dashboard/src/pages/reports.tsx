@@ -391,9 +391,13 @@ function VoiceReader({ text, language }: { text: string; language: "en" | "my" }
         if (fired) return;
         fired = true;
         clearTimeout(safety);
-        // 350 ms pause after section headers — broadcast breath between sections
-        if (isSectionHead) setTimeout(speakNext, 350);
-        else speakNext();
+        // Always yield to event loop before next utterance.
+        // Chrome bug: calling speechSynthesis.speak() synchronously inside
+        // onend/onerror causes the next utterance to immediately error →
+        // cascade-fail all remaining lines → setSpeaking(false) instantly.
+        // 350 ms pause after section headers; 50 ms minimum gap otherwise.
+        const delay = isSectionHead ? 350 : 50;
+        setTimeout(speakNext, delay);
       };
       utter.onend   = advance;
       // Always advance on ANY error — root fix, never skip remaining text
@@ -541,11 +545,12 @@ export default function Reports() {
     }
   }
 
-  /** Switch language — clear previous result so user sees it's a different briefing */
+  /** Switch language — clear previous result and auto-fetch in the new language */
   function handleLangChange(lang: "en" | "my") {
     setBriefingLang(lang);
     setAiData(null);
     setAiError(null);
+    loadAiBriefing(lang);  // pass lang explicitly — briefingLang state is still the old value here
   }
 
   function handleDownload(id: number, reportTitle: string, reportType: string) {

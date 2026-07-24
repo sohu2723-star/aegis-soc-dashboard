@@ -74,7 +74,7 @@ export function Layout({ children }: { children: ReactNode }) {
           </SidebarHeader>
           <SidebarContent>
             <SidebarGroup>
-              <SidebarGroupLabel className="text-[10px] tracking-widest text-muted-foreground/50 px-3 pt-3 pb-1">
+              <SidebarGroupLabel className="text-[11px] font-semibold tracking-widest text-muted-foreground/70 px-3 pt-3 pb-1">
                 OPERATIONS
               </SidebarGroupLabel>
               <SidebarGroupContent>
@@ -94,7 +94,7 @@ export function Layout({ children }: { children: ReactNode }) {
             </SidebarGroup>
 
             <SidebarGroup>
-              <SidebarGroupLabel className="text-[10px] tracking-widest text-muted-foreground/50 px-3 pt-3 pb-1">
+              <SidebarGroupLabel className="text-[11px] font-semibold tracking-widest text-muted-foreground/70 px-3 pt-3 pb-1">
                 NETWORK &amp; DEFENSE
               </SidebarGroupLabel>
               <SidebarGroupContent>
@@ -114,7 +114,7 @@ export function Layout({ children }: { children: ReactNode }) {
             </SidebarGroup>
 
             <SidebarGroup>
-              <SidebarGroupLabel className="text-[10px] tracking-widest text-muted-foreground/50 px-3 pt-3 pb-1">
+              <SidebarGroupLabel className="text-[11px] font-semibold tracking-widest text-muted-foreground/70 px-3 pt-3 pb-1">
                 INTELLIGENCE
               </SidebarGroupLabel>
               <SidebarGroupContent>
