@@ -1,10 +1,14 @@
 /**
  * Auto-report scheduler — generates SOC reports on a configurable interval.
- * Interval is stored in app_settings as "reportIntervalMinutes".
- * Default: 1440 min (24 h). Minimum: 1 min.
  *
- * Events pulled for each report cover exactly the SAME duration as the interval.
- * e.g. interval=60 → pulls the last 60 minutes of events.
+ * RELIABILITY: Uses a 30-second polling loop + DB-persisted "lastAutoReportAt"
+ * timestamp instead of setTimeout. This means the scheduler survives Render
+ * free-tier sleep/restart cycles — on wake it checks immediately whether the
+ * interval has elapsed and fires if so.
+ *
+ * Interval unit: SECONDS (not minutes).
+ * Default: 86400 s (24 h). Minimum: 15 s.
+ * Max: 604800 s (7 days).
  *
  * All timestamps shown to users are Myanmar Standard Time (UTC+6:30).
  */
@@ -16,21 +20,19 @@ import { askGroq, groqAvailable } from "./groq-client";
 import { sendTelegramMessage, telegramAvailable } from "./telegram";
 import { logger } from "./logger";
 
-const DEFAULT_INTERVAL_MINUTES = 1440; // 24 hours
-const MIN_INTERVAL_MINUTES     = 1;
+export const DEFAULT_INTERVAL_SECONDS = 86400;   // 24 h
+export const MIN_INTERVAL_SECONDS     = 15;       // 15 s
+export const MAX_INTERVAL_SECONDS     = 604800;   // 7 days
+
+const POLL_TICK_MS = 30_000; // check every 30 s
 
 // ── Myanmar Standard Time helper (UTC+6:30) ───────────────────────────────────
-const MST_OFFSET_MS = (6 * 60 + 30) * 60 * 1000; // 6h 30m in ms
+const MST_OFFSET_MS = (6 * 60 + 30) * 60 * 1000;
 
-/** Return a Date object shifted to Myanmar Standard Time (for display only). */
 function toMST(date: Date): Date {
   return new Date(date.getTime() + MST_OFFSET_MS);
 }
 
-/**
- * Format a UTC Date as a Myanmar-time string.
- * e.g. "2026-07-19 10:35 (MST)"
- */
 function fmtMST(date: Date, includeSeconds = false): string {
   const mst = toMST(date);
   const y  = mst.getUTCFullYear();
@@ -44,53 +46,75 @@ function fmtMST(date: Date, includeSeconds = false): string {
     : `${y}-${mo}-${d} ${h}:${mi} (MST)`;
 }
 
-/** Human-readable label for the interval. */
-function intervalLabel(minutes: number): string {
-  if (minutes < 60)   return `${minutes} မိနစ်`;
-  if (minutes < 1440) return `${Math.round(minutes / 60)} နာရီ`;
-  if (minutes === 1440) return `၂၄ နာရီ (Daily)`;
-  return `${Math.round(minutes / 1440)} ရက်`;
+function intervalLabel(secs: number): string {
+  if (secs < 60)    return `${secs} စက္ကန့်`;
+  if (secs < 3600)  return `${Math.round(secs / 60)} မိနစ်`;
+  if (secs < 86400) return `${Math.round(secs / 3600)} နာရီ`;
+  if (secs === 86400) return `၂၄ နာရီ (Daily)`;
+  return `${Math.round(secs / 86400)} ရက်`;
 }
 
-/** Report type tag stored in DB */
-function reportType(minutes: number): string {
-  if (minutes <= 60)  return "hourly";
-  if (minutes < 1440) return "periodic";
+function reportType(secs: number): string {
+  if (secs <= 3600)  return "hourly";
+  if (secs < 86400)  return "periodic";
   return "daily";
 }
 
-let _timer: ReturnType<typeof setTimeout> | null = null;
+// ── Interval storage (seconds) ────────────────────────────────────────────────
 
-export async function getReportInterval(): Promise<number> {
-  const v = await getSetting("reportIntervalMinutes");
-  const n = v ? Number(v) : DEFAULT_INTERVAL_MINUTES;
-  return isNaN(n) || n < MIN_INTERVAL_MINUTES ? DEFAULT_INTERVAL_MINUTES : n;
+export async function getIntervalSeconds(): Promise<number> {
+  // Try new seconds key first
+  const sv = await getSetting("reportIntervalSeconds");
+  if (sv) {
+    const n = Number(sv);
+    if (!isNaN(n) && n >= MIN_INTERVAL_SECONDS) return n;
+  }
+  // Legacy fallback: old key stored minutes → convert to seconds
+  const mv = await getSetting("reportIntervalMinutes");
+  if (mv) {
+    const n = Number(mv) * 60;
+    if (!isNaN(n) && n >= MIN_INTERVAL_SECONDS) return n;
+  }
+  return DEFAULT_INTERVAL_SECONDS;
 }
 
-export async function setReportInterval(minutes: number): Promise<void> {
-  const clamped = Math.max(MIN_INTERVAL_MINUTES, Math.round(minutes));
-  await setSetting("reportIntervalMinutes", String(clamped));
-  restartScheduler();
+/** Kept for backward compat with settings.ts import */
+export async function getReportInterval(): Promise<number> {
+  return getIntervalSeconds();
+}
+
+export async function setIntervalSeconds(seconds: number): Promise<void> {
+  const clamped = Math.max(MIN_INTERVAL_SECONDS, Math.min(MAX_INTERVAL_SECONDS, Math.round(seconds)));
+  await setSetting("reportIntervalSeconds", String(clamped));
+  // Clear legacy minutes key to avoid confusion
+  await setSetting("reportIntervalMinutes", "");
+  // Reset lastAutoReportAt so the new interval starts fresh from now
+  await setSetting("lastAutoReportAt", new Date().toISOString());
+  logger.info({ intervalSeconds: clamped }, "Report interval updated");
+}
+
+/** Backward-compat alias used by settings.ts */
+export async function setReportInterval(seconds: number): Promise<void> {
+  return setIntervalSeconds(seconds);
 }
 
 // ── Core report generation ────────────────────────────────────────────────────
 
-async function runAutoReport(intervalMinutes: number): Promise<void> {
-  logger.info({ intervalMinutes }, "Auto-report: generating scheduled report");
+async function runAutoReport(intervalSeconds: number): Promise<void> {
+  logger.info({ intervalSeconds }, "Auto-report: generating scheduled report");
 
   try {
     const now   = new Date();
-    const since = new Date(now.getTime() - intervalMinutes * 60_000); // exactly the interval window
+    const since = new Date(now.getTime() - intervalSeconds * 1_000);
 
-    // Events & incidents within the interval window
-    const [windowEventsResult]  = await db.select({ count: count() }).from(securityEventsTable)
+    const [windowEventsResult]   = await db.select({ count: count() }).from(securityEventsTable)
       .where(gte(securityEventsTable.createdAt, since));
     const [windowIncidentResult] = await db.select({ count: count() }).from(incidentsTable)
       .where(gte(incidentsTable.createdAt, since));
     const eventsCount    = Number(windowEventsResult?.count    ?? 0);
     const incidentsCount = Number(windowIncidentResult?.count  ?? 0);
 
-    const periodLabel = intervalLabel(intervalMinutes);
+    const periodLabel = intervalLabel(intervalSeconds);
     const sinceLabel  = fmtMST(since);
     const nowLabel    = fmtMST(now);
 
@@ -136,14 +160,14 @@ async function runAutoReport(intervalMinutes: number): Promise<void> {
 
     await db.insert(reportsTable).values({
       title,
-      type:   reportType(intervalMinutes),
+      type:   reportType(intervalSeconds),
       format: "html",
       summary,
       eventsCount,
       incidentsCount,
     });
 
-    logger.info({ aiGenerated, eventsCount, incidentsCount, intervalMinutes }, "Auto-report saved");
+    logger.info({ aiGenerated, eventsCount, incidentsCount, intervalSeconds }, "Auto-report saved");
 
     // ── Telegram notification ─────────────────────────────────────────────────
     if (telegramAvailable()) {
@@ -175,27 +199,48 @@ async function runAutoReport(intervalMinutes: number): Promise<void> {
   }
 }
 
-// ── Scheduler loop ────────────────────────────────────────────────────────────
+// ── Polling scheduler ─────────────────────────────────────────────────────────
+// Uses setInterval + DB-persisted lastAutoReportAt so it survives server
+// restarts (Render free-tier sleep kills setTimeout timers).
 
-function scheduleNext(intervalMs: number): void {
-  _timer = setTimeout(async () => {
-    const minutes = await getReportInterval();
-    await runAutoReport(minutes);
-    const nextMs = minutes * 60_000;
-    scheduleNext(nextMs);
-  }, intervalMs);
+let _pollTimer: ReturnType<typeof setInterval> | null = null;
+
+async function poll(): Promise<void> {
+  try {
+    const intervalSecs = await getIntervalSeconds();
+    const lastRunStr   = await getSetting("lastAutoReportAt");
+    const lastRun      = lastRunStr ? new Date(lastRunStr).getTime() : 0;
+    const now          = Date.now();
+
+    if (now - lastRun >= intervalSecs * 1_000) {
+      // Persist before running to prevent double-fire if runAutoReport is slow
+      await setSetting("lastAutoReportAt", new Date().toISOString());
+      await runAutoReport(intervalSecs);
+    }
+  } catch (err: any) {
+    logger.error({ err: err.message }, "Scheduler poll error");
+  }
 }
 
 export async function startScheduler(): Promise<void> {
-  const minutes = await getReportInterval();
-  logger.info({ intervalMinutes: minutes }, "Auto-report scheduler starting");
-  scheduleNext(minutes * 60_000);
+  if (_pollTimer !== null) return; // already running
+
+  // Seed lastAutoReportAt if this is first ever start (so we don't fire on cold boot)
+  const existing = await getSetting("lastAutoReportAt");
+  if (!existing) {
+    await setSetting("lastAutoReportAt", new Date().toISOString());
+  }
+
+  logger.info({ pollTickMs: POLL_TICK_MS }, "Auto-report polling scheduler started");
+  // Run once immediately to catch up after a restart
+  await poll();
+  _pollTimer = setInterval(() => { poll(); }, POLL_TICK_MS);
 }
 
 export function stopScheduler(): void {
-  if (_timer !== null) {
-    clearTimeout(_timer);
-    _timer = null;
+  if (_pollTimer !== null) {
+    clearInterval(_pollTimer);
+    _pollTimer = null;
   }
 }
 
@@ -204,11 +249,10 @@ export function restartScheduler(): void {
   startScheduler().catch(e => logger.error({ err: e.message }, "Scheduler restart failed"));
 }
 
-/** Manual trigger — runs a report immediately using the current interval setting. */
+/** Manual trigger — runs a report immediately. */
 export async function triggerReportNow(): Promise<void> {
-  const minutes = await getReportInterval();
-  await runAutoReport(minutes);
+  const secs = await getIntervalSeconds();
+  await runAutoReport(secs);
 }
 
-/** Expose Myanmar time formatter for use in other modules. */
 export { fmtMST, toMST };

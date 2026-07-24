@@ -3236,3 +3236,31 @@ pnpm install   # workspace root မှာ
 4. **Analysis container height** — max-h-64 (256px) → max-h-[32rem] (512px) ပြောင်း — scroll မလိုဘဲ recommendations ပြည့်ပြည့်မြင်ရ
 **Result:** Files changed: `artifacts/api-server/src/routes/ai.ts`, `artifacts/api-server/src/routes/tts.ts`, `artifacts/aegis-dashboard/src/pages/reports.tsx`
 **Next:** Render/Vercel deploy → production မှာ bugs ပြောင်းသွားမယ်
+
+---
+
+### [2026-07-24] — Settings Page Overhaul + Scheduler Reliability Fix
+**Status:** ✅ Done
+**What:** Settings page UI cleanup + scheduler "24h not sending" bug fix + Telegram alert improvements
+**How:**
+**UI Changes (settings.tsx):**
+- PRESETS: 1min/5min/30min/1hr/6hr ဖြုတ်ပြီး 12hr + 24hr ဘဲ ကျန်ခဲ့
+- Yellow "Telegram not configured" warning box ဖြုတ်
+- "Send Report Now" section + button ဖြုတ်
+- Custom interval: minutes → seconds (min=15sec, max=604800sec=7days); inline hint shows human-readable equivalent
+- "Server restart မလိုဘဲ..." hint text ဖြုတ်
+
+**Scheduler Fix (scheduler.ts):**
+- Bug: `setTimeout` timer dies when Render free-tier server sleeps/restarts → 24h timer never fires
+- Fix: Replaced setTimeout with `setInterval` polling loop (30s tick) + `lastAutoReportAt` DB timestamp
+- On each poll: check `now - lastRunAt >= intervalSeconds` → fire if elapsed
+- On server restart: immediately polls → catches up if interval has passed
+- Changed unit from minutes to seconds throughout; MIN=15s, MAX=604800s
+
+**API Fix (settings.ts):**
+- POST /settings/report-interval accepts `{ seconds: number }` (min:15, max:604800)
+- Legacy `{ minutes }` field still accepted and converted
+- GET /settings returns both `reportIntervalSeconds` and legacy `reportIntervalMinutes`
+
+**Result:** TypeScript compile ✅ no new errors
+**Next:** GitHub push → Render redeploy → production မှာ scheduler polling loop start ဖြစ်မယ်; 24h auto-report ပို့ပြီ

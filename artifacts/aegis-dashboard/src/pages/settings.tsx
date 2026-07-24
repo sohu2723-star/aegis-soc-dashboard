@@ -8,22 +8,19 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import {
   Clock, Send, RefreshCcw, CheckCircle2, XCircle, Bot,
-  Sparkles, AlertTriangle, Settings2, Zap,
+  Sparkles, Settings2, Zap,
 } from "lucide-react";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
+// Preset intervals in seconds — only 12 hr and 24 hr
 const PRESETS = [
-  { label: "1 min",  value: 1 },
-  { label: "5 min",  value: 5 },
-  { label: "30 min", value: 30 },
-  { label: "1 hr",   value: 60 },
-  { label: "6 hr",   value: 360 },
-  { label: "24 hr",  value: 1440 },
+  { label: "12 hr",  value: 43200  },
+  { label: "24 hr",  value: 86400  },
 ];
 
 interface Settings {
-  reportIntervalMinutes: number;
+  reportIntervalSeconds: number;
   telegramEnabled: boolean;
   telegramConfigured: boolean;
 }
@@ -47,6 +44,21 @@ async function apiPost<T>(path: string, body?: unknown): Promise<T> {
   return r.json();
 }
 
+/** Human-readable interval label. */
+function formatInterval(secs: number): string {
+  if (secs < 60)    return `${secs} sec`;
+  if (secs < 3600)  return `${Math.round(secs / 60)} min`;
+  if (secs < 86400) return `${Math.round(secs / 3600)} hr`;
+  return `${Math.round(secs / 86400)} day${secs >= 2 * 86400 ? "s" : ""}`;
+}
+
+/** Show what the entered seconds translate to in human terms. */
+function secsHint(raw: string): string {
+  const n = Number(raw);
+  if (!raw || isNaN(n) || n <= 0) return "";
+  return formatInterval(n);
+}
+
 export default function SettingsPage() {
   const { toast } = useToast();
 
@@ -54,16 +66,13 @@ export default function SettingsPage() {
   const [loading,  setLoading]  = useState(true);
 
   // Interval state
-  const [customMinutes, setCustomMinutes] = useState("");
+  const [customSecs, setCustomSecs] = useState("");
   const [savingInterval, setSavingInterval] = useState(false);
 
   // Telegram state
   const [savingTelegram, setSavingTelegram] = useState(false);
   const [testingTelegram, setTestingTelegram] = useState(false);
   const [telegramTestResult, setTelegramTestResult] = useState<{ ok: boolean; botName?: string; error?: string } | null>(null);
-
-  // Send now
-  const [sendingNow, setSendingNow] = useState(false);
 
   useEffect(() => {
     load();
@@ -72,8 +81,13 @@ export default function SettingsPage() {
   async function load() {
     setLoading(true);
     try {
-      const s = await apiGet<Settings>("/settings");
-      setSettings(s);
+      const s = await apiGet<any>("/settings");
+      setSettings({
+        // Accept both new (seconds) and legacy (minutes) field names
+        reportIntervalSeconds: s.reportIntervalSeconds ?? (s.reportIntervalMinutes ?? 1440) * 60,
+        telegramEnabled:       s.telegramEnabled,
+        telegramConfigured:    s.telegramConfigured,
+      });
     } catch (err: any) {
       toast({ title: "Failed to load settings", description: err.message, variant: "destructive" });
     } finally {
@@ -81,16 +95,16 @@ export default function SettingsPage() {
     }
   }
 
-  async function setInterval(minutes: number) {
+  async function setIntervalSecs(seconds: number) {
     if (!settings) return;
     setSavingInterval(true);
     try {
-      await apiPost("/settings/report-interval", { minutes });
-      setSettings(s => s ? { ...s, reportIntervalMinutes: minutes } : s);
-      setCustomMinutes("");
+      await apiPost("/settings/report-interval", { seconds });
+      setSettings(s => s ? { ...s, reportIntervalSeconds: seconds } : s);
+      setCustomSecs("");
       toast({
         title: "Interval Updated",
-        description: `Auto-report ကို ${formatInterval(minutes)} တစ်ကြိမ် generate လုပ်မည်`,
+        description: `Auto-report ကို ${formatInterval(seconds)} တစ်ကြိမ် generate လုပ်မည်`,
       });
     } catch (err: any) {
       toast({ title: "Failed", description: err.message, variant: "destructive" });
@@ -100,12 +114,16 @@ export default function SettingsPage() {
   }
 
   async function applyCustomInterval() {
-    const n = Number(customMinutes);
-    if (isNaN(n) || n < 1) {
-      toast({ title: "Invalid", description: "အနည်းဆုံး 1 minute ဖြစ်ရမည်", variant: "destructive" });
+    const n = Number(customSecs);
+    if (isNaN(n) || n < 15) {
+      toast({ title: "Invalid", description: "အနည်းဆုံး 15 seconds ဖြစ်ရမည်", variant: "destructive" });
       return;
     }
-    await setInterval(n);
+    if (n > 604800) {
+      toast({ title: "Invalid", description: "အများဆုံး 7 days (604800 seconds) ဖြစ်ရမည်", variant: "destructive" });
+      return;
+    }
+    await setIntervalSecs(n);
   }
 
   async function toggleTelegram(enabled: boolean) {
@@ -140,27 +158,6 @@ export default function SettingsPage() {
     }
   }
 
-  async function sendReportNow() {
-    setSendingNow(true);
-    try {
-      await apiPost("/settings/send-report-now");
-      toast({
-        title: "✅ Report Sent",
-        description: "Report generate ပြီး Telegram ပို့ပြီးပြီ (configured ဆိုရင်)။ Reports page မှာ ကြည့်နိုင်သည်။",
-      });
-    } catch (err: any) {
-      toast({ title: "Failed", description: err.message, variant: "destructive" });
-    } finally {
-      setSendingNow(false);
-    }
-  }
-
-  function formatInterval(mins: number): string {
-    if (mins < 60) return `${mins} min`;
-    if (mins < 1440) return `${mins / 60} hr`;
-    return `${mins / 1440} day`;
-  }
-
   if (loading) {
     return (
       <div className="flex items-center justify-center py-24 text-muted-foreground gap-3">
@@ -169,6 +166,8 @@ export default function SettingsPage() {
       </div>
     );
   }
+
+  const hint = secsHint(customSecs);
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -192,7 +191,7 @@ export default function SettingsPage() {
               <CardDescription className="text-xs">
                 လက်ရှိ interval —{" "}
                 <span className="font-mono text-foreground font-bold">
-                  {settings ? formatInterval(settings.reportIntervalMinutes) : "—"}
+                  {settings ? formatInterval(settings.reportIntervalSeconds) : "—"}
                 </span>
                 {" "}တစ်ကြိမ် auto-report generate မည်
               </CardDescription>
@@ -200,12 +199,12 @@ export default function SettingsPage() {
           </div>
         </CardHeader>
         <CardContent className="pt-5 space-y-5">
-          {/* Preset buttons */}
+          {/* Preset buttons — 12 hr and 24 hr only */}
           <div>
             <Label className="text-xs uppercase text-muted-foreground tracking-wider mb-3 block">Preset Intervals</Label>
             <div className="flex flex-wrap gap-2">
               {PRESETS.map(p => {
-                const isActive = settings?.reportIntervalMinutes === p.value;
+                const isActive = settings?.reportIntervalSeconds === p.value;
                 return (
                   <Button
                     key={p.value}
@@ -213,7 +212,7 @@ export default function SettingsPage() {
                     variant={isActive ? "default" : "outline"}
                     className={isActive ? "" : "border-border text-muted-foreground hover:text-primary hover:border-primary/50"}
                     disabled={savingInterval}
-                    onClick={() => setInterval(p.value)}
+                    onClick={() => setIntervalSecs(p.value)}
                   >
                     {isActive && <Zap className="w-3 h-3 mr-1" />}
                     {p.label}
@@ -223,51 +222,38 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          {/* Custom interval */}
+          {/* Custom interval (seconds) */}
           <div>
-            <Label className="text-xs uppercase text-muted-foreground tracking-wider mb-2 block">Custom Interval (minutes)</Label>
+            <Label className="text-xs uppercase text-muted-foreground tracking-wider mb-2 block">
+              Custom Interval (seconds)
+            </Label>
             <div className="flex gap-2 max-w-xs">
-              <Input
-                type="number"
-                min={1}
-                max={10080}
-                placeholder="e.g. 120"
-                value={customMinutes}
-                onChange={e => setCustomMinutes(e.target.value)}
-                className="bg-background border-border font-mono"
-                onKeyDown={e => e.key === "Enter" && applyCustomInterval()}
-              />
+              <div className="flex-1 relative">
+                <Input
+                  type="number"
+                  min={15}
+                  max={604800}
+                  placeholder="e.g. 43200"
+                  value={customSecs}
+                  onChange={e => setCustomSecs(e.target.value)}
+                  className="bg-background border-border font-mono"
+                  onKeyDown={e => e.key === "Enter" && applyCustomInterval()}
+                />
+                {hint && (
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-primary/70 font-mono pointer-events-none">
+                    {hint}
+                  </span>
+                )}
+              </div>
               <Button
                 onClick={applyCustomInterval}
-                disabled={savingInterval || !customMinutes}
+                disabled={savingInterval || !customSecs}
                 className="shrink-0"
               >
                 {savingInterval ? <RefreshCcw className="w-4 h-4 animate-spin" /> : "Apply"}
               </Button>
             </div>
-            <p className="text-xs text-muted-foreground mt-1">1–10080 minutes (max 7 days). Server restart မလိုဘဲ ချက်ချင်း သက်ရောက်မည်။</p>
-          </div>
-
-          {/* Send now */}
-          <div className="pt-2 border-t border-border/50">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium">Send Report Now</p>
-                <p className="text-xs text-muted-foreground">Schedule မဆိုင်ဘဲ ချက်ချင်း report generate ပြီး Telegram ပို့မည်</p>
-              </div>
-              <Button
-                onClick={sendReportNow}
-                disabled={sendingNow}
-                variant="outline"
-                className="border-primary/50 text-primary hover:bg-primary/10"
-              >
-                {sendingNow ? (
-                  <><RefreshCcw className="w-4 h-4 mr-2 animate-spin" />Generating...</>
-                ) : (
-                  <><Sparkles className="w-4 h-4 mr-2" />Generate & Send Now</>
-                )}
-              </Button>
-            </div>
+            <p className="text-xs text-muted-foreground mt-1">15 sec — 604800 sec (7 days)</p>
           </div>
         </CardContent>
       </Card>
@@ -282,7 +268,7 @@ export default function SettingsPage() {
               </div>
               <div>
                 <CardTitle className="text-sm uppercase tracking-widest text-primary">Telegram Notifications</CardTitle>
-                <CardDescription className="text-xs">Auto-report နဲ့ critical alert တွေကို Telegram bot မှတဆင့် ပို့မည်</CardDescription>
+                <CardDescription className="text-xs">Auto-report နဲ့ critical/high alert တွေကို Telegram bot မှတဆင့် ပို့မည်</CardDescription>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -300,23 +286,6 @@ export default function SettingsPage() {
           </div>
         </CardHeader>
         <CardContent className="pt-5 space-y-4">
-          {!settings?.telegramConfigured && (
-            <div className="flex gap-2 items-start bg-yellow-500/10 border border-yellow-500/30 rounded p-3 text-sm text-yellow-300">
-              <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="font-medium">Telegram not configured</p>
-                <p className="text-xs mt-1 text-yellow-300/70">
-                  Render Dashboard → Environment Variables မှာ ထည့်ပါ—
-                </p>
-                <div className="mt-2 space-y-1 font-mono text-xs bg-black/30 rounded p-2">
-                  <div><span className="text-primary">TELEGRAM_BOT_TOKEN</span> = [BotFather မှ token]</div>
-                  <div><span className="text-primary">TELEGRAM_CHAT_ID</span>   = [သင့် chat/group ID]</div>
-                </div>
-                <p className="text-xs mt-2 text-yellow-300/70">ထည့်ပြီးရင် Render မှာ Redeploy လုပ်ပါ။</p>
-              </div>
-            </div>
-          )}
-
           {/* Test connection */}
           <div className="flex items-center justify-between">
             <div>
@@ -347,7 +316,6 @@ export default function SettingsPage() {
               )}
             </div>
           )}
-
         </CardContent>
       </Card>
 
