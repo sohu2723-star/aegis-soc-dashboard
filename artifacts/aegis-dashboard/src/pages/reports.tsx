@@ -127,7 +127,12 @@ function VoiceReader({ text, language }: { text: string; language: "en" | "my" }
     setPaused(false);
 
     try {
-      const r = await fetch(`${BASE}/api/tts/speak?text=${encodeURIComponent(text)}&lang=my`);
+      // Use POST to avoid URL-too-long errors with full AI analysis text
+      const r = await fetch(`${BASE}/api/tts/speak`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, lang: "my" }),
+      });
       if (!r.ok) throw new Error("TTS backend error");
       const data = await r.json();
       const urls: string[] = data.urls ?? [];
@@ -588,7 +593,7 @@ export default function Reports() {
                 )}
               </div>
               {/* Analysis Text */}
-              <div className="lg:col-span-2 bg-background border border-border rounded p-4 overflow-y-auto max-h-64">
+              <div className="lg:col-span-2 bg-background border border-border rounded p-4 overflow-y-auto max-h-[32rem]">
                 <AiAnalysisText text={aiData.analysis} />
               </div>
             </div>

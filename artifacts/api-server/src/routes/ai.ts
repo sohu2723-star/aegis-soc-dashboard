@@ -112,6 +112,23 @@ router.get("/ai/threat-analysis", async (req, res) => {
     const recentDefenseActions = await db.select().from(defenseActionsTable)
       .orderBy(desc(defenseActionsTable.createdAt)).limit(20);
 
+    // Fail2ban ban events from security_events (these ARE real blocks even if defense_actions is empty)
+    const fail2banBans = await db.select({
+      sourceIp: securityEventsTable.sourceIp,
+      targetHost: securityEventsTable.targetHost,
+      description: securityEventsTable.description,
+      createdAt: securityEventsTable.createdAt,
+    }).from(securityEventsTable)
+      .where(gte(securityEventsTable.createdAt, since24h))
+      .orderBy(desc(securityEventsTable.createdAt))
+      .limit(50)
+      .then(rows => rows.filter(e =>
+        // include ban/block events
+        (e.description ?? "").toLowerCase().includes("ban") ||
+        (e.description ?? "").toLowerCase().includes("block") ||
+        (e.targetHost ?? "").toLowerCase().includes("fail2ban")
+      ));
+
     // Compute stats
     const bySeverity: Record<string, number> = {};
     const byType: Record<string, number> = {};
@@ -144,6 +161,13 @@ router.get("/ai/threat-analysis", async (req, res) => {
       .slice(0, 5)
       .map(a => `${a.action} on ${a.targetIp} (${a.status})`).join("; ");
 
+    // Fail2ban bans are real blocks — surface them separately so AI sees actual blocking activity
+    const fail2banSummary = fail2banBans.length > 0
+      ? fail2banBans.slice(0, 10)
+          .map(b => `Fail2ban banned ${b.sourceIp} on ${b.targetHost}: ${b.description ?? ""}`)
+          .join("; ")
+      : "none";
+
     const dataBlock = `
 Security data — last 24 hours
 
@@ -154,7 +178,8 @@ Top attacker IPs: ${topAttackers || "none"}
 Targeted hosts: ${topTargets || "none"}
 Open incidents: ${openIncidents.length}
 Unacknowledged alerts: ${unackedAlerts[0]?.count ?? 0}
-Recent defense actions: ${defenseActSummary || "none"}
+Fail2ban IP bans (last 24h): ${fail2banSummary}
+Defense actions (manual/auto): ${defenseActSummary || "none"}
 `.trim();
 
     // ── English mode: single-step, direct ────────────────────────────────────
@@ -228,10 +253,11 @@ STRICT RULES:
       });
 
       // Step 2: Translate English → Natural Burmese (slightly higher temp for fluency)
+      // NOTE: maxTokens must be high enough to complete ALL four sections including RECOMMENDATIONS
       analysis = await askGroq({
         system: myStep2System,
-        user: `Translate the following cybersecurity briefing into natural Burmese following all the rules above:\n\n${englishBrief}`,
-        maxTokens: 1200,
+        user: `Translate the following cybersecurity briefing into natural Burmese following all the rules above. CRITICAL: You MUST translate ALL four sections completely — THREAT SUMMARY, TOP THREATS, DEFENSE STATUS, and RECOMMENDATIONS. Do NOT stop mid-sentence or omit any section.\n\n${englishBrief}`,
+        maxTokens: 2000,
         temperature: 0.3,
         topP: 0.9,
       });

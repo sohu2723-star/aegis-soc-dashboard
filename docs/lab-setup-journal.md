@@ -3223,3 +3223,16 @@ pnpm install   # workspace root မှာ
 476 packages resolved + downloaded, lockfile up to date. Both workflows (Start application + API Server) ready to start after secrets are configured.
 **Result:** `node_modules` ပြည့်စုံပြီ — code editing အဆင်သင့်ဖြစ်ပြီ
 **Next:** Secrets (SUPABASE_DB_URL, AEGIS_INGEST_KEY, AEGIS_ADMIN_KEY) ထည့်ရင် workflows run လို့ရမယ်
+
+---
+
+### [2026-07-24] — Bug Fixes: Recommendations Truncation + Defense Status + Myanmar TTS
+**Status:** ✅ Done
+**What:** Reports page မှာ bugs ၃ ခု fix လုပ်ခဲ့
+**How:**
+1. **Recommendations truncated** — Burmese translation step maxTokens 1200→2000 ပြောင်း; "MUST translate ALL four sections" instruction ထည့်
+2. **Defense status မှားနေ ("block ခဲ့ခြင်းမရှိပါ")** — AI prompt data block မှာ Fail2ban ban events (security_events table ထဲ) query ထည့်; `fail2banBans` variable နဲ့ "Fail2ban IP bans" field ထည့်ပေးလိုက်
+3. **Myanmar TTS button မနှိပ်ရ (URL too long)** — `speakGoogle()` GET→POST ပြောင်း; `/api/tts/speak` POST endpoint ထည့်; text 5000 chars အထိ support
+4. **Analysis container height** — max-h-64 (256px) → max-h-[32rem] (512px) ပြောင်း — scroll မလိုဘဲ recommendations ပြည့်ပြည့်မြင်ရ
+**Result:** Files changed: `artifacts/api-server/src/routes/ai.ts`, `artifacts/api-server/src/routes/tts.ts`, `artifacts/aegis-dashboard/src/pages/reports.tsx`
+**Next:** Render/Vercel deploy → production မှာ bugs ပြောင်းသွားမယ်
