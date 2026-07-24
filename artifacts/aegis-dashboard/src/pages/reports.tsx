@@ -165,7 +165,11 @@ function VoiceReader({ text, language }: { text: string; language: "en" | "my" }
       const line = lines[idx++];
       // Use the selected language — section headings are always English so read them in English
       const isSectionHeading = /^[A-Z][A-Z\s]{2,}:/.test(line.trim()) && line.trim().length < 80;
-      const lineLang = (language === "my" && !isSectionHeading) ? "my-MM" : "en-US";
+      // If Myanmar selected but no Burmese voice installed → fall back silently to English
+      const hasBurmese = voices.some(
+        (v) => v.lang.startsWith("my") || v.name.toLowerCase().includes("myanmar") || v.name.toLowerCase().includes("burmese")
+      );
+      const lineLang = (language === "my" && !isSectionHeading && hasBurmese) ? "my-MM" : "en-US";
 
       // UPPERCASE headings → Title Case so TTS reads naturally (not letter-by-letter)
       const rawText = line.replace(/:$/, "");
@@ -222,44 +226,40 @@ function VoiceReader({ text, language }: { text: string; language: "en" | "my" }
       v.name.toLowerCase().includes("burmese")
   );
 
+  // When Myanmar mode selected but no Burmese voice — read in English silently (no warning)
+  const effectiveLang = (language === "my" && !hasBurmeseVoice && voices.length > 0) ? "en" : language;
+
   return (
-    <div className="flex flex-col items-end gap-1">
-      <div className="flex items-center gap-2">
-        {!speaking ? (
-          <button
-            onClick={speak}
-            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors border border-border hover:border-primary/50 rounded px-2.5 py-1.5"
-          >
-            <Volume2 className="w-3.5 h-3.5" />
-            {language === "en" ? "Listen" : "နားထောင်"}
+    <div className="flex items-center gap-2">
+      {!speaking ? (
+        <button
+          onClick={speak}
+          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors border border-border hover:border-primary/50 rounded px-2.5 py-1.5"
+          title={effectiveLang !== language ? "မြန်မာ voice မတွေ့ — English voice ဖြင့် ဖတ်မည်" : undefined}
+        >
+          <Volume2 className="w-3.5 h-3.5" />
+          {language === "en" ? "Listen" : "နားထောင်"}
+        </button>
+      ) : (
+        <>
+          <div className="flex gap-0.5 items-center h-5">
+            {[3, 6, 10, 7, 4, 8, 5].map((h, i) => (
+              <span
+                key={i}
+                className={`w-0.5 rounded-full bg-primary transition-all ${paused ? "" : "animate-pulse"}`}
+                style={{ height: paused ? "3px" : `${h}px`, animationDelay: `${i * 80}ms`, animationDuration: "600ms" }}
+              />
+            ))}
+          </div>
+          <button onClick={togglePause} title={paused ? "Resume" : "Pause"}
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary border border-border hover:border-primary/40 rounded px-2 py-1.5">
+            {paused ? <Play className="w-3 h-3" /> : <Pause className="w-3 h-3" />}
           </button>
-        ) : (
-          <>
-            <div className="flex gap-0.5 items-center h-5">
-              {[3, 6, 10, 7, 4, 8, 5].map((h, i) => (
-                <span
-                  key={i}
-                  className={`w-0.5 rounded-full bg-primary transition-all ${paused ? "" : "animate-pulse"}`}
-                  style={{ height: paused ? "3px" : `${h}px`, animationDelay: `${i * 80}ms`, animationDuration: "600ms" }}
-                />
-              ))}
-            </div>
-            <button onClick={togglePause} title={paused ? "Resume" : "Pause"}
-              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary border border-border hover:border-primary/40 rounded px-2 py-1.5">
-              {paused ? <Play className="w-3 h-3" /> : <Pause className="w-3 h-3" />}
-            </button>
-            <button onClick={stop} title="Stop"
-              className="flex items-center gap-1 text-xs text-red-400 border border-red-500/30 hover:border-red-500/60 rounded px-2 py-1.5">
-              <Square className="w-3 h-3" />
-            </button>
-          </>
-        )}
-      </div>
-      {/* Warn if Myanmar language selected but no Burmese TTS voice installed */}
-      {language === "my" && !hasBurmeseVoice && voices.length > 0 && (
-        <p className="text-[10px] text-yellow-500/60 text-right leading-tight">
-          မြန်မာ voice မတွေ့ — English voice ဖြင့် ဖတ်မည်
-        </p>
+          <button onClick={stop} title="Stop"
+            className="flex items-center gap-1 text-xs text-red-400 border border-red-500/30 hover:border-red-500/60 rounded px-2 py-1.5">
+            <Square className="w-3 h-3" />
+          </button>
+        </>
       )}
     </div>
   );
