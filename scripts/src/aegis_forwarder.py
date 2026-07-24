@@ -96,7 +96,6 @@ REMOTE_HOSTS = [h for h in [
             ("ssh",       "SSH Monitor",     "sensor"),
             ("apache2",   "Apache Monitor",  "sensor"),
             ("vsftpd",    "FTP Monitor",     "sensor"),
-            ("cowrie",    "Cowrie Honeypot", "sensor"),
         ],
     } if COMPANYWEB_IP else None,
     {
@@ -104,10 +103,9 @@ REMOTE_HOSTS = [h for h in [
         "ip":   CUSTOMERDB_IP,
         "sensors": ["fail2ban", "ssh", "mysql"],
         "health_services": [
-            ("fail2ban",  "Fail2ban",        "sensor"),
-            ("ssh",       "SSH Monitor",     "sensor"),
-            ("mysql",     "MySQL Monitor",   "sensor"),
-            ("cowrie",    "Cowrie Honeypot", "sensor"),
+            ("fail2ban",  "Fail2ban",      "sensor"),
+            ("ssh",       "SSH Monitor",   "sensor"),
+            ("mysql",     "MySQL Monitor", "sensor"),
         ],
     } if CUSTOMERDB_IP else None,
     {
