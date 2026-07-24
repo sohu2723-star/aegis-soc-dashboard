@@ -3307,3 +3307,22 @@ sudo -n systemctl status fail2ban
 - `artifacts/aegis-dashboard/src/pages/reports.tsx` — VoiceReader full overhaul (mixed TTS)
 **Result:** Frontend running ✅ (port 5000). API server builds OK; fails at startup because SUPABASE_DB_URL not set in local Replit env (expected — secrets needed)
 **Next:** GitHub push → Render/Vercel auto-deploy → production မှာ changes ထင်မယ်
+
+---
+
+### [2026-07-24] — Reports Page TTS Fix + Default English + Sidebar Headers
+**Status:** ✅ Done
+**What:** 6 ချက် fix လုပ်ခဲ့
+1. **Listen button ပိတ်သွားတာ root cause fix** — Chrome SpeechSynthesis `onerror` handler မှာ `"interrupted"`/`"canceled"` ဖြစ်ရင် `return` ထားတာ (`advance()/finish()` မခေါ်ဘဲ) → promise hang → chain ရပ်သွား။ Fix: error type မရွေး always `finish()/advance()` call ပေးပြီး stop flag ကသာ gate လုပ်
+2. **keepAlive `pause(); resume()` ဖြုတ်ပြီး safety timeout ထည့်** — keepAlive interval က `pause(); resume()` ခေါ်တာ "interrupted" error trigger ဖြစ်ကာ bug #1 ကို circular သွားခဲ့တာ။ Removed; per-utterance safety timeout (length×200ms) နဲ့ replace
+3. **Defense Status + Recommendations မပြောဘဲ ရပ်သွားတာ fix** — bug #1 ကြောင့် Top Threats ပြီးရင် chain hang ဖြစ်ပြီး ရပ်နေတာ။ Root fix ကြောင့် full 4 sections ဖတ်မယ်
+4. **English default** — `briefingLang` state `"my"` → `"en"` (page load တွင် English ကို default ထားပြီ)
+5. **Broadcast news presenter tone** — `speakWeb()` မှာ "Security briefing. Stand by." intro ထည့်; section headers rate 0.80 (slower + gravitas); body text rate 0.88; 350ms pause after each section header
+6. **Sidebar group labels uppercase** — `SidebarGroupLabel` text content ကို "OPERATIONS", "NETWORK & DEFENSE", "INTELLIGENCE" literal uppercase ပြောင်း (CSS `uppercase` class override ဖြစ်နေတာ ကျော်)
+7. **English AI maxTokens 900→1400** — English mode analysis truncate မဖြစ်အောင်
+**How:** Files changed:
+- `artifacts/aegis-dashboard/src/pages/reports.tsx` — VoiceReader full rewrite (onerror fix, no keepAlive, safety timeouts, pause wait loops, broadcast intro, section pauses)
+- `artifacts/aegis-dashboard/src/components/layout.tsx` — 3 SidebarGroupLabel text → uppercase
+- `artifacts/api-server/src/routes/ai.ts` — English maxTokens 1400
+**Result:** TypeScript compile ✅ no errors
+**Next:** GitHub push → Render/Vercel auto-deploy → production မှာ Listen button stable ဖြစ်မယ်

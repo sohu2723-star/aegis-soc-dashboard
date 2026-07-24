@@ -74,8 +74,8 @@ export function Layout({ children }: { children: ReactNode }) {
           </SidebarHeader>
           <SidebarContent>
             <SidebarGroup>
-              <SidebarGroupLabel className="text-[10px] uppercase tracking-widest text-muted-foreground/50 px-3 pt-3 pb-1">
-                Operations
+              <SidebarGroupLabel className="text-[10px] tracking-widest text-muted-foreground/50 px-3 pt-3 pb-1">
+                OPERATIONS
               </SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
@@ -94,8 +94,8 @@ export function Layout({ children }: { children: ReactNode }) {
             </SidebarGroup>
 
             <SidebarGroup>
-              <SidebarGroupLabel className="text-[10px] uppercase tracking-widest text-muted-foreground/50 px-3 pt-3 pb-1">
-                Network &amp; Defense
+              <SidebarGroupLabel className="text-[10px] tracking-widest text-muted-foreground/50 px-3 pt-3 pb-1">
+                NETWORK &amp; DEFENSE
               </SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
@@ -114,8 +114,8 @@ export function Layout({ children }: { children: ReactNode }) {
             </SidebarGroup>
 
             <SidebarGroup>
-              <SidebarGroupLabel className="text-[10px] uppercase tracking-widest text-muted-foreground/50 px-3 pt-3 pb-1">
-                Intelligence
+              <SidebarGroupLabel className="text-[10px] tracking-widest text-muted-foreground/50 px-3 pt-3 pb-1">
+                INTELLIGENCE
               </SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>

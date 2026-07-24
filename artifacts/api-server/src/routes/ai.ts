@@ -238,7 +238,7 @@ STRICT RULES:
       analysis = await askGroq({
         system: sysPrompt,
         user: enUserPrompt,
-        maxTokens: 900,
+        maxTokens: 1400,
         temperature: 0.2,
         topP: 0.9,
       });
