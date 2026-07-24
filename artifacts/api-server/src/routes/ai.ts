@@ -39,9 +39,20 @@ OUTPUT RULES (မပျက်ကွက်ရ):
 - CRITICAL — မဖြတ်ရ: sentence တိုင်း ပြည့်ပြည့်စုံစုံ ပြောပြီးမှ ဆုံး
 - တိုတိုရှင်းရှင်း: section တစ်ခုကို 3-4 ကြောင်းသာ — အကြည့်ကူ ကြည့်ကြည့်ပြောပြ
 
+WORDING RULES (ဤ စကားလုံးများကို တိတိကျကျ လိုက်နာပါ):
+- ကာကွယ်ရေးစနစ် active ဖြစ်နေသည့်အခါ → "active ဖြစ်နေပါတယ်" သို့မဟုတ် "လုပ်ဆောင်နေပါတယ်" — "အားကောင်းနေတယ်" မသုံးရ
+- ကာကွယ်ရေးစနစ် ရပ်တန့်/offline ဖြစ်နေသည့်အခါ → "offline ဖြစ်နေပါတယ်" — "ထောင့်နေတယ်" မသုံးရ
+- data/action မရှိသည့်အခါ → "မရှိပါ" — "မရှိတယ်" မသုံးရ
+- events count = 0 → "ယနေ့ 24 နာရီအတွင်း တိုက်ခိုက်မှု အရိပ်ယောင် ဘာမှမတွေ့ရပါ"
+- events count > 0 → "24 နာရီအတွင်း [N] ကြိမ်တွေ့ရပါတယ်"
+- defense actions မရှိ → "ဒီအချိန်ထိ ကာကွယ်ရေး action မလိုအပ်သေးပါ"
+
 ဥပမာ ကောင်းသော output (ဤ style ကို လိုက်နာပါ):
 THREAT SUMMARY:
-ဒီနေ့ ညပိုင်းမှာ 192.168.10.99 က အဓိက attack လုပ်နေတယ် — port scan နဲ့ brute force ပေါင်း 47 ကြိမ် ရှိနေပြီ။ company-web-server ကို အဓိကပစ်မှတ်ထားပြီး SQL injection ကြိုးစားမှုတွေ ပါနေတယ်။ Suricata က alert 12 ခု ထုတ်ပြီး Fail2ban က ထို IP ကို block လုပ်ပြီးသား။`;
+ဒီနေ့ ညပိုင်းမှာ 192.168.10.99 က အဓိက attack လုပ်နေတယ် — port scan နဲ့ brute force ပေါင်း 47 ကြိမ် ရှိနေပြီ။ company-web-server ကို အဓိကပစ်မှတ်ထားပြီး SQL injection ကြိုးစားမှုတွေ ပါနေတယ်။ Suricata က alert 12 ခု ထုတ်ပြီး Fail2ban က ထို IP ကို block လုပ်ပြီးသား။
+
+DEFENSE STATUS:
+Fail2ban နဲ့ Suricata တို့ active ဖြစ်နေပါတယ်။ pfSense firewall က WAN boundary မှာ လုပ်ဆောင်နေပါတယ်။ ဒီအချိန်ထိ ကာကွယ်ရေး action မလိုအပ်သေးပါ။`;
 
 /** English output — direct and concise */
 const SOC_SYSTEM_EN = `You are AEGIS-AI, the built-in security analyst for the AEGIS SOC Dashboard.
@@ -164,9 +175,20 @@ RECOMMENDATIONS:
 (4-5 concrete actions with specific commands or steps)`
       : `${dataBlock}
 
-အောက်ပါ 4 sections ကို မြန်မာ security news anchor style နဲ့ ရေးပေးပါ။
-Section heading — ENGLISH UPPERCASE ပဲ သုံး။ Content — မြန်မာဘာသာ သဘာဝကျကျ ပြောကြားသလိုရေး။
-Section တစ်ခုကို 2-3 ကြောင်းသာ — တိုတိုရှင်းရှင်း — ထပ်ကာ မရေးနဲ့:
+မြန်မာ security news anchor style နဲ့ — RFA/DVB anchor တစ်ဦး live briefing ပေးနေသလို — အောက်ပါ 4 sections ရေးပေးပါ။
+Section heading — ENGLISH UPPERCASE ပဲ သုံး။ Content — မြန်မာဘာသာ သဘာဝကျကျ ပြောကြားသလိုရေး — section တစ်ခုကို 2-3 ကြောင်းသာ — ထပ်ကာ မရေးနဲ့။
+
+THREAT SUMMARY section rules:
+- events = 0 ဆိုရင် → "ယနေ့ 24 နာရီအတွင်း တိုက်ခိုက်မှု အရိပ်ယောင် ဘာမှမတွေ့ရပါ — ယာယီ ငြိမ်ဝပ်နေပါတယ်။"
+- events > 0 ဆိုရင် → "24 နာရီအတွင်း [N] ကြိမ်တွေ့ရပါတယ်" ဟုပါဝင်ရမည်
+
+DEFENSE STATUS section rules:
+- Fail2ban / Suricata / pfSense active ဆိုရင် → "active ဖြစ်နေပါတယ်" — "အားကောင်းနေတယ်" မသုံးရ
+- system offline ဆိုရင် → "offline ဖြစ်နေပါတယ်"
+- defense actions မရှိ ဆိုရင် → "ဒီအချိန်ထိ ကာကွယ်ရေး action မလိုအပ်သေးပါ" — "မရှိတယ်" မသုံးရ
+
+RECOMMENDATIONS section rules:
+- အနည်းဆုံး 3 ချက် — "ဒါကြောင့် ဒါ လုပ်သင့်တယ်" သလို ဆော်ဆော်ပြောပြပါ — မရှိပါ/ဘာမှမရှိ ဟူ၍ မရေးရ
 
 THREAT SUMMARY:
 TOP THREATS:

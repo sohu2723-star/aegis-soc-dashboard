@@ -60,21 +60,27 @@ function AiAnalysisText({ text }: { text: string }) {
 }
 
 /**
- * Voice reader — speaks AI analysis in the selected language.
- * language="my" → Burmese voice (fallback: English); language="en" → English voice only.
+ * Voice reader — speaks AI analysis.
+ * language="my" → Google Translate TTS (free, no API key) for natural Burmese voice
+ * language="en" → Web Speech API (English voice)
  *
- * Stop race fix: stopRef is set to true on stop/unmount/text-change so stale
- * speakNext callbacks cannot advance after the speech queue is cancelled.
+ * Google TTS mode: backend /api/tts/speak returns an array of audio URLs
+ * that the browser plays sequentially via HTML Audio (bypasses CORS).
  */
 function VoiceReader({ text, language }: { text: string; language: "en" | "my" }) {
   const [speaking, setSpeaking] = useState(false);
   const [paused, setPaused] = useState(false);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const keepAliveRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const stopRef = useRef(false); // prevents stale speakNext callbacks from firing after stop
+  const stopRef = useRef(false);
+  // Google TTS state
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioQueueRef = useRef<string[]>([]);
+  const modeRef = useRef<"web" | "google">("web");
+
   const supported = typeof window !== "undefined" && "speechSynthesis" in window;
 
-  // Load voices — Chrome loads them async
+  // Load voices for Web Speech API (English mode)
   useEffect(() => {
     if (!supported) return;
     const load = () => {
@@ -85,66 +91,100 @@ function VoiceReader({ text, language }: { text: string; language: "en" | "my" }
     window.speechSynthesis.addEventListener("voiceschanged", load);
     return () => {
       window.speechSynthesis.removeEventListener("voiceschanged", load);
-      stopRef.current = true;
-      window.speechSynthesis.cancel();
-      if (keepAliveRef.current) clearInterval(keepAliveRef.current);
+      hardStop();
     };
   }, [supported]);
 
-  // When text changes (Refresh) or language changes — stop any ongoing speech
+  // When text or language changes — stop any ongoing speech
   useEffect(() => {
+    hardStop();
+  }, [text, language]);
+
+  function hardStop() {
     stopRef.current = true;
-    window.speechSynthesis.cancel();
+    // Stop Google TTS audio
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = "";
+      audioRef.current = null;
+    }
+    audioQueueRef.current = [];
+    // Stop Web Speech API
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
     if (keepAliveRef.current) { clearInterval(keepAliveRef.current); keepAliveRef.current = null; }
     setSpeaking(false);
     setPaused(false);
-  }, [text, language]);
-
-  /** Pick best available voice, falling back gracefully */
-  function pickVoice(lang: string): SpeechSynthesisVoice | undefined {
-    if (voices.length === 0) return undefined;
-    const prefix = lang.split("-")[0]; // "my" or "en"
-
-    // 1. Exact lang match (e.g. "my-MM" or "en-US")
-    const exact = voices.find((v) => v.lang === lang);
-    if (exact) return exact;
-
-    // 2. Prefix match (e.g. "my" matches "my-MM", "my", etc.)
-    const prefixed = voices.find((v) => v.lang.startsWith(prefix));
-    if (prefixed) return prefixed;
-
-    // 3. For Burmese — try name-based detection (Samsung/Android TTS may use "Myanmar" in name)
-    if (prefix === "my") {
-      const named = voices.find(
-        (v) =>
-          v.name.toLowerCase().includes("myanmar") ||
-          v.name.toLowerCase().includes("burmese") ||
-          v.name.toLowerCase().includes("my-")
-      );
-      if (named) return named;
-      // No Burmese voice available → fall back to English
-      return voices.find((v) => v.lang.startsWith("en")) ?? voices.find((v) => v.default) ?? voices[0];
-    }
-
-    return voices.find((v) => v.default) ?? voices[0];
   }
 
-  /** Convert UPPERCASE section heading to Title Case so TTS reads it naturally */
+  // ── Google TTS (Burmese) ─────────────────────────────────────────────────────
+
+  async function speakGoogle() {
+    stopRef.current = false;
+    modeRef.current = "google";
+    setSpeaking(true);
+    setPaused(false);
+
+    try {
+      const r = await fetch(`${BASE}/api/tts/speak?text=${encodeURIComponent(text)}&lang=my`);
+      if (!r.ok) throw new Error("TTS backend error");
+      const data = await r.json();
+      const urls: string[] = data.urls ?? [];
+      if (!urls.length || stopRef.current) { setSpeaking(false); return; }
+      audioQueueRef.current = [...urls];
+      playNextGoogle();
+    } catch {
+      // Backend failed → fall back to Web Speech API
+      modeRef.current = "web";
+      speakWeb();
+    }
+  }
+
+  function playNextGoogle() {
+    if (stopRef.current) return;
+    const url = audioQueueRef.current.shift();
+    if (!url) { setSpeaking(false); return; }
+
+    const audio = new Audio(url);
+    audioRef.current = audio;
+    audio.onended = () => { if (!stopRef.current) playNextGoogle(); };
+    audio.onerror = () => { if (!stopRef.current) playNextGoogle(); }; // skip failed chunk
+    audio.play().catch(() => { if (!stopRef.current) playNextGoogle(); });
+  }
+
+  function togglePauseGoogle() {
+    if (!audioRef.current) return;
+    if (paused) { audioRef.current.play(); setPaused(false); }
+    else        { audioRef.current.pause(); setPaused(true); }
+  }
+
+  // ── Web Speech API (English / fallback) ─────────────────────────────────────
+
+  function pickVoice(lang: string): SpeechSynthesisVoice | undefined {
+    if (voices.length === 0) return undefined;
+    const prefix = lang.split("-")[0];
+    return (
+      voices.find((v) => v.lang === lang) ??
+      voices.find((v) => v.lang.startsWith(prefix)) ??
+      voices.find((v) => v.default) ??
+      voices[0]
+    );
+  }
+
   function toTitleCase(str: string): string {
     return str.replace(/\b[A-Z]{2,}\b/g, (w) => w.charAt(0) + w.slice(1).toLowerCase());
   }
 
-  function speak() {
+  function speakWeb() {
     if (!supported) return;
     window.speechSynthesis.cancel();
-    window.speechSynthesis.resume(); // wake suspended Chrome engine
-
-    stopRef.current = false; // arm — allow speakNext to run
+    window.speechSynthesis.resume();
+    stopRef.current = false;
 
     const lines = text.split("\n").filter((l) => l.trim());
     let idx = 0;
 
-    // Chrome bug: speech stops after ~15 s without keep-alive
     keepAliveRef.current = setInterval(() => {
       if (window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
         window.speechSynthesis.pause();
@@ -153,49 +193,28 @@ function VoiceReader({ text, language }: { text: string; language: "en" | "my" }
     }, 10_000);
 
     const speakNext = () => {
-      // Guard: stop/unmount/refresh happened — do not advance
       if (stopRef.current) return;
-
       if (idx >= lines.length) {
         setSpeaking(false);
         if (keepAliveRef.current) { clearInterval(keepAliveRef.current); keepAliveRef.current = null; }
         return;
       }
-
       const line = lines[idx++];
-      // Use the selected language — section headings are always English so read them in English
       const isSectionHeading = /^[A-Z][A-Z\s]{2,}:/.test(line.trim()) && line.trim().length < 80;
-      // If Myanmar selected but no Burmese voice installed → fall back silently to English
-      const hasBurmese = voices.some(
-        (v) => v.lang.startsWith("my") || v.name.toLowerCase().includes("myanmar") || v.name.toLowerCase().includes("burmese")
+      const utter = new SpeechSynthesisUtterance(
+        isSectionHeading ? toTitleCase(line.replace(/:$/, "")) : line
       );
-      const lineLang = (language === "my" && !isSectionHeading && hasBurmese) ? "my-MM" : "en-US";
-
-      // UPPERCASE headings → Title Case so TTS reads naturally (not letter-by-letter)
-      const rawText = line.replace(/:$/, "");
-      const spokenText = isSectionHeading ? toTitleCase(rawText) : rawText;
-
-      const utter = new SpeechSynthesisUtterance(spokenText);
-      utter.lang = lineLang;
-      const voice = pickVoice(lineLang);
+      utter.lang = "en-US";
+      const voice = pickVoice("en-US");
       if (voice) utter.voice = voice;
-      utter.rate = lineLang === "my-MM" ? 0.88 : 0.92;
-      utter.pitch = lineLang === "my-MM" ? 1.05 : 1.0;
-
-      // Guard against onend/onerror firing multiple times
+      utter.rate = 0.92;
       let fired = false;
-      const advance = () => {
-        if (!fired) { fired = true; speakNext(); }
-      };
+      const advance = () => { if (!fired) { fired = true; speakNext(); } };
       utter.onend = advance;
       utter.onerror = (e) => {
-        // "interrupted" = speech was cancelled (stop/language-switch) — do NOT advance;
-        // let stopRef guard prevent speakNext from running
         if (e.error === "interrupted" || e.error === "canceled") return;
-        console.warn("[VoiceReader] TTS error:", e.error, "| line:", line.slice(0, 40));
         advance();
       };
-
       window.speechSynthesis.speak(utter);
     };
 
@@ -204,38 +223,30 @@ function VoiceReader({ text, language }: { text: string; language: "en" | "my" }
     speakNext();
   }
 
-  function stop() {
-    stopRef.current = true; // disarm all pending speakNext callbacks first
-    window.speechSynthesis.cancel();
-    setSpeaking(false);
-    setPaused(false);
-    if (keepAliveRef.current) { clearInterval(keepAliveRef.current); keepAliveRef.current = null; }
+  // ── Unified controls ─────────────────────────────────────────────────────────
+
+  function handleSpeak() {
+    if (language === "my") speakGoogle();
+    else { modeRef.current = "web"; speakWeb(); }
   }
 
-  function togglePause() {
-    if (paused) { window.speechSynthesis.resume(); setPaused(false); }
-    else        { window.speechSynthesis.pause();  setPaused(true);  }
+  function handleStop() { hardStop(); }
+
+  function handleTogglePause() {
+    if (modeRef.current === "google") { togglePauseGoogle(); }
+    else {
+      if (paused) { window.speechSynthesis.resume(); setPaused(false); }
+      else        { window.speechSynthesis.pause();  setPaused(true);  }
+    }
   }
-
-  if (!supported) return null;
-
-  const hasBurmeseVoice = voices.some(
-    (v) =>
-      v.lang.startsWith("my") ||
-      v.name.toLowerCase().includes("myanmar") ||
-      v.name.toLowerCase().includes("burmese")
-  );
-
-  // When Myanmar mode selected but no Burmese voice — read in English silently (no warning)
-  const effectiveLang = (language === "my" && !hasBurmeseVoice && voices.length > 0) ? "en" : language;
 
   return (
     <div className="flex items-center gap-2">
       {!speaking ? (
         <button
-          onClick={speak}
+          onClick={handleSpeak}
           className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors border border-border hover:border-primary/50 rounded px-2.5 py-1.5"
-          title={effectiveLang !== language ? "မြန်မာ voice မတွေ့ — English voice ဖြင့် ဖတ်မည်" : undefined}
+          title={language === "my" ? "Google Translate TTS — မြန်မာ voice" : "Web Speech API — English"}
         >
           <Volume2 className="w-3.5 h-3.5" />
           {language === "en" ? "Listen" : "နားထောင်"}
@@ -251,11 +262,11 @@ function VoiceReader({ text, language }: { text: string; language: "en" | "my" }
               />
             ))}
           </div>
-          <button onClick={togglePause} title={paused ? "Resume" : "Pause"}
+          <button onClick={handleTogglePause} title={paused ? "Resume" : "Pause"}
             className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary border border-border hover:border-primary/40 rounded px-2 py-1.5">
             {paused ? <Play className="w-3 h-3" /> : <Pause className="w-3 h-3" />}
           </button>
-          <button onClick={stop} title="Stop"
+          <button onClick={handleStop} title="Stop"
             className="flex items-center gap-1 text-xs text-red-400 border border-red-500/30 hover:border-red-500/60 rounded px-2 py-1.5">
             <Square className="w-3 h-3" />
           </button>
@@ -283,6 +294,13 @@ export default function Reports() {
 
   const queryClient = useQueryClient();
   const { toast } = useToast();
+
+  // Auto-load AI briefing on mount + auto-refresh every 5 minutes (real-time)
+  useEffect(() => {
+    loadAiBriefing();
+    const timer = setInterval(() => loadAiBriefing(), 5 * 60 * 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   const { data: reports, isLoading } = useListReports({ query: { queryKey: getListReportsQueryKey() } });
   const generateReport = useGenerateReport();
