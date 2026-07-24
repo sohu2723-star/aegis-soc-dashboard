@@ -4,7 +4,7 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 // ── Canvas dimensions ─────────────────────────────────────────────────────────
 const VW = 960;
-const VH = 520;
+const VH = 580;
 
 // ── Node definitions — real lab topology (v4 simplified) ─────────────────────
 // Path: Attacker → R1 → pfSense (OVS switches) → company-web-server / company-dns-server / company-customer-db / company-ldap-server
@@ -60,7 +60,7 @@ const NODES = {
     icon: "🗄",
   },
   ldapserver: {
-    x: 570, y: 490,
+    x: 570, y: 485,
     label: "ldap-server", sub: "OpenLDAP · slapd",
     ip: "10.20.20.20 (Internal)",
     color: "#22c55e", glow: "rgba(34,197,94,0.3)",
@@ -153,7 +153,10 @@ interface LogEntry {
   target: string;
   desc: string;
   defense: boolean;
-  telegram: boolean;   // true = Telegram alert was sent for this event
+  telegram: boolean;     // true = Telegram alert was sent for this event
+  toolUsed?: string;     // fail2ban | suricata | ssh_watcher | modsecurity | …
+  signatureText?: string;// detection rule / signature snippet
+  ruleName?: string;     // defense rule name (defense_action events)
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -252,6 +255,8 @@ export default function AttackFlowPage() {
             desc: ev.description ?? "",
             defense: false,
             telegram: sev === "critical" || sev === "high",
+            toolUsed: ev.toolUsed ?? undefined,
+            signatureText: ev.signatureText ?? undefined,
           }, ...prev].slice(0, 60));
         } catch { /* skip malformed */ }
       });
@@ -288,6 +293,7 @@ export default function AttackFlowPage() {
             desc: ev.reason ?? "Defense executed",
             defense: true,
             telegram: false,
+            ruleName: ev.ruleName ?? undefined,
           }, ...prev].slice(0, 60));
         } catch { /* skip */ }
       });
@@ -364,6 +370,18 @@ export default function AttackFlowPage() {
   const liveCount    = packets.filter(p => !p.blocked).length;
   const blockedCount = packets.filter(p => p.blocked).length;
 
+  // Compute which nodes have in-flight packets approaching (t > 0.6 in current segment)
+  // Used to render ghost attacker IP indicators at the destination node.
+  const nodeVisitors = new Map<NodeKey, { ip: string; severity: string }>();
+  for (const p of packets) {
+    if (!p.blocked && !p.isTg && p.t > 0.60) {
+      const destKey = p.path[p.seg + 1] as NodeKey | undefined;
+      if (destKey && !nodeVisitors.has(destKey)) {
+        nodeVisitors.set(destKey, { ip: p.sourceIp || "?", severity: p.severity });
+      }
+    }
+  }
+
   return (
     <div className="flex h-full bg-background text-foreground overflow-hidden">
 
@@ -437,8 +455,8 @@ export default function AttackFlowPage() {
             </text>
 
             {/* Zone divider lines */}
-            <line x1={330} y1={30} x2={330} y2={VH - 20} stroke="rgba(255,255,255,0.04)" strokeWidth="1" strokeDasharray="4 6" />
-            <line x1={590} y1={30} x2={590} y2={VH - 20} stroke="rgba(255,255,255,0.04)" strokeWidth="1" strokeDasharray="4 6" />
+            <line x1={330} y1={30} x2={330} y2={VH - 10} stroke="rgba(255,255,255,0.04)" strokeWidth="1" strokeDasharray="4 6" />
+            <line x1={590} y1={30} x2={590} y2={VH - 10} stroke="rgba(255,255,255,0.04)" strokeWidth="1" strokeDasharray="4 6" />
 
             {/* ── Edges ─────────────────────────────────────────────────── */}
             {EDGES.map(([a, b]) => {
@@ -498,7 +516,7 @@ export default function AttackFlowPage() {
                     fontFamily="monospace"
                     opacity={0.85}
                   >
-                    {p.blocked ? "✕" : p.evType.slice(0, 10)}
+                    {p.blocked ? "✕" : p.isTg ? "ALERT" : (p.sourceIp ? p.sourceIp.slice(-13) : p.evType.slice(0, 10))}
                   </text>
                 </g>
               );
@@ -586,12 +604,39 @@ export default function AttackFlowPage() {
                       {n.ip}
                     </text>
                   )}
+
+                  {/* ── Ghost attacker indicator — shown when a packet is approaching this node ── */}
+                  {nodeVisitors.has(key) && (() => {
+                    const v = nodeVisitors.get(key)!;
+                    const vc = SEV_COLOR[v.severity] ?? "#f59e0b";
+                    return (
+                      <g>
+                        {/* Red pill behind node card (top-left corner) */}
+                        <rect x={n.x - 34} y={n.y - 52} width={68} height={13} rx={3}
+                          fill="rgba(239,68,68,0.12)" stroke="rgba(239,68,68,0.45)" strokeWidth="0.8" />
+                        {/* Mini person silhouette */}
+                        <circle cx={n.x - 22} cy={n.y - 47} r={3} fill="none" stroke="#ef4444" strokeWidth="1.2" />
+                        <path
+                          d={`M${n.x - 27},${n.y - 42} Q${n.x - 27},${n.y - 45} ${n.x - 22},${n.y - 45} Q${n.x - 17},${n.y - 45} ${n.x - 17},${n.y - 42}`}
+                          fill="none" stroke="#ef4444" strokeWidth="1.2" strokeLinecap="round"
+                        />
+                        {/* Attacker IP */}
+                        <text
+                          x={n.x - 12} y={n.y - 43}
+                          fontSize="6.5" fill={vc}
+                          fontFamily="monospace" fontWeight="bold"
+                        >
+                          {v.ip.length > 14 ? v.ip.slice(-14) : v.ip}
+                        </text>
+                      </g>
+                    );
+                  })()}
                 </g>
               );
             })}
 
             {/* Legend */}
-            <g transform={`translate(16,${VH - 30})`}>
+            <g transform={`translate(16,${VH - 18})`}>
               {[
                 { col: "#ef4444", label: "Critical" },
                 { col: "#f97316", label: "High" },
@@ -683,11 +728,29 @@ export default function AttackFlowPage() {
                       <span className="text-muted-foreground/60 text-[9px]">{e.ts}</span>
                     </div>
                   </div>
-                  <div className="text-white/75 truncate">{e.evType}</div>
+                  <div className="flex items-center gap-1 flex-wrap min-w-0">
+                    {e.toolUsed && (
+                      <span
+                        className="text-[8px] px-1 rounded font-bold shrink-0"
+                        style={{ background: "rgba(99,102,241,0.15)", color: "#818cf8", border: "1px solid rgba(99,102,241,0.3)" }}
+                      >
+                        {e.toolUsed}
+                      </span>
+                    )}
+                    <span className="text-white/75 truncate">{e.evType}</span>
+                  </div>
                   <div className="text-white/40 truncate">
                     {e.srcIp} <span className="opacity-50">→</span> {e.target}
                   </div>
-                  {e.desc && (
+                  {e.ruleName && (
+                    <div className="text-[9px] font-bold truncate" style={{ color: "#4ade80" }}>
+                      🛡 {e.ruleName}
+                    </div>
+                  )}
+                  {e.signatureText && (
+                    <div className="text-white/20 truncate text-[8.5px] font-mono">{e.signatureText}</div>
+                  )}
+                  {e.desc && !e.signatureText && (
                     <div className="text-white/25 truncate">{e.desc}</div>
                   )}
                 </div>
@@ -817,6 +880,42 @@ function NodeIcon({ nodeKey, x, y, color }: { nodeKey: NodeKey; x: number; y: nu
           <circle cx={10}  cy={-11} r={1.5} fill={c} opacity={0.7} />
           <circle cx={13}  cy={-11} r={1.5} fill={c} opacity={0.5} />
           <circle cx={16}  cy={-11} r={1.5} fill={c} opacity={0.3} />
+        </g>
+      );
+
+    // 🌐 Globe with meridians — dns-server (BIND9)
+    case "dnsserver":
+      return (
+        <g transform={`translate(${x},${y - 2})`} fill="none" stroke={c} strokeWidth="1.8" strokeLinecap="round">
+          {/* Globe outline */}
+          <circle cx={0} cy={0} r={11} />
+          {/* Central meridian ellipse */}
+          <ellipse cx={0} cy={0} rx={5} ry={11} />
+          {/* Latitude bands */}
+          <path d={`M-${Math.round(11 * Math.sin(Math.acos(4/11)))},${-4} Q0,${-4 * 1.15} ${Math.round(11 * Math.sin(Math.acos(4/11)))},${-4}`} />
+          <path d={`M-${Math.round(11 * Math.sin(Math.acos(4/11)))},${4}  Q0,${4  * 1.15} ${Math.round(11 * Math.sin(Math.acos(4/11)))},${4}`}  />
+          {/* Top/bottom poles */}
+          <line x1={-9} y1={-5} x2={9} y2={-5} strokeWidth="1" opacity="0.5" />
+          <line x1={-9} y1={5}  x2={9} y2={5}  strokeWidth="1" opacity="0.5" />
+        </g>
+      );
+
+    // 📖 Directory book with person — ldap-server (OpenLDAP)
+    case "ldapserver":
+      return (
+        <g transform={`translate(${x},${y - 2})`} fill="none" stroke={c} strokeWidth="1.8" strokeLinecap="round">
+          {/* Book body */}
+          <rect x={-11} y={-4} width={18} height={14} rx={2} />
+          {/* Book spine */}
+          <line x1={-11} y1={-4} x2={-11} y2={10} strokeWidth="3.5" strokeLinecap="butt" />
+          {/* Page lines */}
+          <line x1={-7} y1={0}  x2={5} y2={0}  strokeWidth="1.2" />
+          <line x1={-7} y1={3}  x2={5} y2={3}  strokeWidth="1.2" />
+          <line x1={-7} y1={6}  x2={2} y2={6}  strokeWidth="1.2" />
+          {/* Person head (directory entry) */}
+          <circle cx={10} cy={-9} r={4} />
+          {/* Person shoulders */}
+          <path d="M4,-5 Q4,-2 10,-2 Q16,-2 16,-5" strokeLinecap="round" />
         </g>
       );
 
