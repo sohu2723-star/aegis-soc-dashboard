@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useListReports, useGenerateReport, getListReportsQueryKey } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -63,23 +63,84 @@ function AiAnalysisText({ text }: { text: string }) {
 function VoiceReader({ text }: { text: string }) {
   const [speaking, setSpeaking] = useState(false);
   const [paused, setPaused] = useState(false);
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const keepAliveRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const supported = typeof window !== "undefined" && "speechSynthesis" in window;
+
+  // Load voices — Chrome loads them async so we listen for voiceschanged
+  useEffect(() => {
+    if (!supported) return;
+    const load = () => {
+      const v = window.speechSynthesis.getVoices();
+      if (v.length > 0) setVoices(v);
+    };
+    load();
+    window.speechSynthesis.addEventListener("voiceschanged", load);
+    return () => {
+      window.speechSynthesis.removeEventListener("voiceschanged", load);
+      window.speechSynthesis.cancel();
+      if (keepAliveRef.current) clearInterval(keepAliveRef.current);
+    };
+  }, [supported]);
+
+  /** Pick best available voice for a lang, falling back gracefully */
+  function pickVoice(lang: string): SpeechSynthesisVoice | undefined {
+    if (voices.length === 0) return undefined;
+    // 1. exact match
+    const exact = voices.find((v) => v.lang === lang);
+    if (exact) return exact;
+    // 2. language prefix (e.g. "my" for "my-MM")
+    const prefix = lang.split("-")[0];
+    const prefixed = voices.find((v) => v.lang.startsWith(prefix));
+    if (prefixed) return prefixed;
+    // 3. for Burmese with no Burmese voice: use default English voice
+    //    (audio still plays — English reading is better than silence)
+    return voices.find((v) => v.default) ?? voices[0];
+  }
 
   function speak() {
     if (!supported) return;
     window.speechSynthesis.cancel();
+
+    // Wake suspended engine (Chrome suspends it when tab/iframe loses focus)
+    window.speechSynthesis.resume();
+
     const lines = text.split("\n").filter((l) => l.trim());
     let idx = 0;
 
+    // Chrome bug: stops speaking after ~15 s without this keep-alive
+    keepAliveRef.current = setInterval(() => {
+      if (window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
+        window.speechSynthesis.pause();
+        window.speechSynthesis.resume();
+      }
+    }, 10_000);
+
     const speakNext = () => {
-      if (idx >= lines.length) { setSpeaking(false); return; }
+      if (idx >= lines.length) {
+        setSpeaking(false);
+        if (keepAliveRef.current) { clearInterval(keepAliveRef.current); keepAliveRef.current = null; }
+        return;
+      }
       const line = lines[idx++];
+      const burmese = isBurmeseText(line);
       const utter = new SpeechSynthesisUtterance(line.replace(/:$/, ""));
-      utter.lang = isBurmeseText(line) ? "my-MM" : "en-US";
-      utter.rate = 0.88;
-      utter.pitch = 1.05;
-      utter.onend = speakNext;
-      utter.onerror = speakNext;
+
+      utter.lang = burmese ? "my-MM" : "en-US";
+      const voice = pickVoice(burmese ? "my-MM" : "en-US");
+      if (voice) utter.voice = voice;
+      utter.rate = burmese ? 0.82 : 0.88;
+      utter.pitch = 1.0;
+
+      // Guard against onend firing multiple times
+      let fired = false;
+      const advance = () => { if (!fired) { fired = true; speakNext(); } };
+      utter.onend = advance;
+      utter.onerror = (e) => {
+        console.warn("[VoiceReader] TTS error:", e.error, "| line:", line.slice(0, 40));
+        advance();
+      };
+
       window.speechSynthesis.speak(utter);
     };
 
@@ -92,61 +153,56 @@ function VoiceReader({ text }: { text: string }) {
     window.speechSynthesis.cancel();
     setSpeaking(false);
     setPaused(false);
+    if (keepAliveRef.current) { clearInterval(keepAliveRef.current); keepAliveRef.current = null; }
   }
 
   function togglePause() {
-    if (paused) {
-      window.speechSynthesis.resume();
-      setPaused(false);
-    } else {
-      window.speechSynthesis.pause();
-      setPaused(true);
-    }
+    if (paused) { window.speechSynthesis.resume(); setPaused(false); }
+    else        { window.speechSynthesis.pause();  setPaused(true);  }
   }
 
   if (!supported) return null;
 
+  const hasBurmeseVoice = voices.some((v) => v.lang.startsWith("my"));
+
   return (
-    <div className="flex items-center gap-2">
-      {!speaking ? (
-        <button
-          onClick={speak}
-          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors border border-border hover:border-primary/50 rounded px-2.5 py-1.5"
-        >
-          <Volume2 className="w-3.5 h-3.5" />
-          Listen
-        </button>
-      ) : (
-        <>
-          {/* Speaking waveform */}
-          <div className="flex gap-0.5 items-center h-5">
-            {[3, 6, 10, 7, 4, 8, 5].map((h, i) => (
-              <span
-                key={i}
-                className={`w-0.5 rounded-full bg-primary transition-all ${paused ? "" : "animate-pulse"}`}
-                style={{
-                  height: paused ? "3px" : `${h}px`,
-                  animationDelay: `${i * 80}ms`,
-                  animationDuration: "600ms",
-                }}
-              />
-            ))}
-          </div>
+    <div className="flex flex-col items-end gap-1">
+      <div className="flex items-center gap-2">
+        {!speaking ? (
           <button
-            onClick={togglePause}
-            title={paused ? "Resume" : "Pause"}
-            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary border border-border hover:border-primary/40 rounded px-2 py-1.5"
+            onClick={speak}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors border border-border hover:border-primary/50 rounded px-2.5 py-1.5"
           >
-            {paused ? <Play className="w-3 h-3" /> : <Pause className="w-3 h-3" />}
+            <Volume2 className="w-3.5 h-3.5" />
+            Listen
           </button>
-          <button
-            onClick={stop}
-            title="Stop"
-            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-red-400 border border-border hover:border-red-500/40 rounded px-2 py-1.5"
-          >
-            <Square className="w-3 h-3" />
-          </button>
-        </>
+        ) : (
+          <>
+            <div className="flex gap-0.5 items-center h-5">
+              {[3, 6, 10, 7, 4, 8, 5].map((h, i) => (
+                <span
+                  key={i}
+                  className={`w-0.5 rounded-full bg-primary transition-all ${paused ? "" : "animate-pulse"}`}
+                  style={{ height: paused ? "3px" : `${h}px`, animationDelay: `${i * 80}ms`, animationDuration: "600ms" }}
+                />
+              ))}
+            </div>
+            <button onClick={togglePause} title={paused ? "Resume" : "Pause"}
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary border border-border hover:border-primary/40 rounded px-2 py-1.5">
+              {paused ? <Play className="w-3 h-3" /> : <Pause className="w-3 h-3" />}
+            </button>
+            <button onClick={stop} title="Stop"
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-red-400 border border-border hover:border-red-500/40 rounded px-2 py-1.5">
+              <Square className="w-3 h-3" />
+            </button>
+          </>
+        )}
+      </div>
+      {/* Warn if no Burmese TTS voice installed */}
+      {!hasBurmeseVoice && voices.length > 0 && (
+        <p className="text-[10px] text-yellow-500/60 text-right leading-tight">
+          မြန်မာ voice မတွေ့ — English voice ဖြင့် ဖတ်မည်
+        </p>
       )}
     </div>
   );
