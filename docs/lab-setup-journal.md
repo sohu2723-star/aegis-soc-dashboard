@@ -2,6 +2,21 @@
 
 ---
 
+## [2026-07-24] — Replit Re-import & Workspace Setup
+
+**Status:** ✅ Done
+**What:** GitHub repo ကို Replit မှာ re-import လုပ်ပြီး code-editing workspace ကို ready ဖြစ်အောင် ပြင်ဆင်ခဲ့သည်။ replit.md, PROJECT_BOOK.md, lab-setup-journal.md, SESSION_LOG.md, ARCHITECTURE.md နှင့် memory files အားလုံး ဖတ်ပြီး concept ရ + context မှတ်ထားသည်။
+**How:**
+- `pnpm install` — all workspace packages resolved (pnpm v10.26.1, ~39s)
+- `pnpm run typecheck` — zero errors across libs + api-server + aegis-dashboard ✅
+- "Start application" workflow restart → Vite port 5000 running ✅
+- "API Server" workflow → `SUPABASE_DB_URL must be set` crash (expected — secret မထည့်ရသေးဘူး)
+- Required secrets still needed: `SUPABASE_DB_URL`, `AEGIS_INGEST_KEY`, `AEGIS_ADMIN_KEY` (SESSION_SECRET already set)
+**Result:** Frontend (port 5000) live ✅. Code + docs fully read. Networking/security/developer context မှတ်ထားသည်။ Specific code changes ဆက်လုပ်ဖို့ အသင့်ဖြစ်နေသည်။
+**Next:** User-requested specific changes awaiting — API server သုံးရန် Replit Secrets panel တွင် `SUPABASE_DB_URL`, `AEGIS_INGEST_KEY`, `AEGIS_ADMIN_KEY` ထည့်ပါ
+
+---
+
 ## [2026-07-24] — Bug Fix: Fail2ban Toggle Auth + Cold Start Banner
 
 **Status:** ✅ Done
