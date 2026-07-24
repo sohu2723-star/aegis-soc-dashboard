@@ -233,11 +233,14 @@ function RulesTab() {
                     <SelectContent>
                       {[
                         { v: "any",            label: "any (all types)" },
-                        { v: "network_attack", label: "network_attack" },
-                        { v: "web_attack",     label: "web_attack (SQLi/XSS/LFI/RFI)" },
-                        { v: "ssh_brute",      label: "ssh_brute" },
-                        { v: "ddos",           label: "ddos / SYN flood" },
-                        { v: "port_scan",      label: "port_scan (nmap)" },
+                        { v: "network_attack", label: "network_attack  (Suricata / general)" },
+                        { v: "web_attack",     label: "web_attack  (SQLi/XSS/LFI/RFI)" },
+                        { v: "ssh_brute",      label: "ssh_brute  (fail2ban / SSH watcher)" },
+                        { v: "ddos",           label: "ddos  (SYN flood / hping3)" },
+                        { v: "port_scan",      label: "port_scan  (nmap)" },
+                        { v: "dns_attack",     label: "dns_attack  (BIND9 / dnsspoof)" },
+                        { v: "auth_event",     label: "auth_event  (unauthorized login success)" },
+                        { v: "honeypot",       label: "honeypot  (Cowrie SSH trap)" },
                       ].map(({ v, label }) => (
                         <SelectItem key={v} value={v}>{label}</SelectItem>
                       ))}
