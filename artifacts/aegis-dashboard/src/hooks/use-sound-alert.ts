@@ -20,53 +20,66 @@ function unlockAudio() {
 function beep(freq: number, duration: number, vol = 0.35, delay = 0) {
   try {
     const ctx = getAudioContext();
-    if (!ctx || ctx.state === "suspended") return;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.frequency.value = freq;
-    osc.type = "sine";
-    const start = ctx.currentTime + delay;
-    gain.gain.setValueAtTime(vol, start);
-    gain.gain.exponentialRampToValueAtTime(0.001, start + duration);
-    osc.start(start);
-    osc.stop(start + duration);
+    if (!ctx) return;
+
+    const schedule = () => {
+      if (ctx.state === "suspended") return; // still suspended — give up
+      const osc  = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = freq;
+      osc.type = "sine";
+      const start = ctx.currentTime + delay;
+      gain.gain.setValueAtTime(vol, start);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + duration);
+      osc.start(start);
+      osc.stop(start + duration);
+    };
+
+    if (ctx.state === "suspended") {
+      // Resume first, then schedule the beep
+      ctx.resume().then(schedule).catch(() => {});
+    } else {
+      schedule();
+    }
   } catch { /* AudioContext not available */ }
 }
 
 // Critical: triple urgent ascending beeps
 function playCritical() {
-  beep(523, 0.12, 0.45);
+  beep(523, 0.12, 0.45, 0);
   beep(659, 0.12, 0.45, 0.16);
   beep(880, 0.25, 0.45, 0.32);
 }
 
 // High: double beep
 function playHigh() {
-  beep(660, 0.15, 0.30);
+  beep(660, 0.15, 0.30, 0);
   beep(660, 0.15, 0.30, 0.22);
 }
 
 export function useSoundAlert() {
   const [enabled, setEnabled] = useState<boolean>(() => {
-    return localStorage.getItem(STORAGE_KEY) !== "false";
+    try { return localStorage.getItem(STORAGE_KEY) !== "false"; } catch { return true; }
   });
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, String(enabled));
+    try { localStorage.setItem(STORAGE_KEY, String(enabled)); } catch { /* ignore */ }
   }, [enabled]);
 
-  // Browsers only allow sound after a user gesture. Unlock one shared
-  // AudioContext on the first interaction, so later SSE alerts are audible
-  // even when the user is on a different page.
+  // Unlock AudioContext on first user gesture (required by browsers).
+  // We also eagerly create the context here so resume() can be called later.
   useEffect(() => {
-    const unlock = () => unlockAudio();
+    const unlock = () => {
+      unlockAudio();
+      // Once unlocked, remove the listeners — the context stays "running"
+    };
     window.addEventListener("pointerdown", unlock, { passive: true });
-    window.addEventListener("keydown", unlock);
+    window.addEventListener("keydown",    unlock, { passive: true });
     return () => {
       window.removeEventListener("pointerdown", unlock);
-      window.removeEventListener("keydown", unlock);
+      window.removeEventListener("keydown",    unlock);
     };
   }, []);
 
@@ -75,7 +88,7 @@ export function useSoundAlert() {
       if (!enabled) return;
       const severity = (e as CustomEvent<{ severity: string }>).detail?.severity;
       if (severity === "critical") playCritical();
-      else if (severity === "high") playHigh();
+      else if (severity === "high")     playHigh();
     };
     window.addEventListener("aegis:alert", handler);
     return () => window.removeEventListener("aegis:alert", handler);

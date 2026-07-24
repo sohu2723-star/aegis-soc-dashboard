@@ -8,74 +8,80 @@ const VW = 960;
 const VH = 580;
 
 // ── Node definitions — real lab topology (v4 simplified) ─────────────────────
-// Path: Attacker → R1 → pfSense (OVS switches) → company-web-server / company-dns-server / company-customer-db / company-ldap-server
-//       → MGMT: aegis-company-admin (10.30.30.10) → AEGIS Dashboard
+// Layout: 2-column VM zone so attack packets diverge clearly at pfSense
+//   DMZ/Public (top):  companyweb (left)  · dnsserver (right)
+//   MGMT (centre):     forwarder
+//   Internal (bottom): customerdb (left)  · ldapserver (right)
 const NODES = {
   attacker: {
-    x: 55,  y: 260,
+    x: 55,  y: 285,
     label: "Attacker", sub: "Any Source IP",
     ip: "* / any",
     color: "#ef4444", glow: "rgba(239,68,68,0.4)",
     icon: "👤",
   },
   r1: {
-    x: 205, y: 260,
+    x: 200, y: 285,
     label: "R1 Router", sub: "MikroTik CHR",
     ip: "192.168.122.2",
     color: "#818cf8", glow: "rgba(129,140,248,0.3)",
     icon: "⬡",
   },
   pfsense: {
-    x: 380, y: 260,
+    x: 368, y: 285,
     label: "pfSense", sub: "Firewall / OVS",
     ip: "10.0.23.2",
     color: "#f59e0b", glow: "rgba(245,158,11,0.45)",
     icon: "🛡",
   },
+  // ── DMZ / Public zone (top row) ──────────────────────────────────────────
   companyweb: {
-    x: 570, y: 80,
+    x: 565, y: 108,
     label: "company-web-server", sub: "Apache · Fail2ban",
     ip: "10.10.10.10 (Public)",
     color: "#22c55e", glow: "rgba(34,197,94,0.3)",
     icon: "🖥",
   },
   dnsserver: {
-    x: 570, y: 190,
+    x: 708, y: 108,
     label: "dns-server", sub: "BIND9 · DNS",
     ip: "10.10.10.20 (Public)",
     color: "#22c55e", glow: "rgba(34,197,94,0.3)",
     icon: "🌐",
   },
+  // ── MGMT zone (centre) ────────────────────────────────────────────────────
   forwarder: {
-    x: 570, y: 300,
+    x: 636, y: 285,
     label: "aegis-forwarder", sub: "Hub · SSH agent",
     ip: "10.30.30.10 (MGMT)",
     color: "#06b6d4", glow: "rgba(6,182,212,0.3)",
     icon: "⬡",
   },
+  // ── Internal zone (bottom row) ────────────────────────────────────────────
   customerdb: {
-    x: 570, y: 400,
-    label: "company-customer-db", sub: "PostgreSQL",
+    x: 565, y: 462,
+    label: "company-customer-db", sub: "MySQL · Fail2ban",
     ip: "10.20.20.10 (Internal)",
     color: "#22c55e", glow: "rgba(34,197,94,0.3)",
     icon: "🗄",
   },
   ldapserver: {
-    x: 570, y: 485,
+    x: 708, y: 462,
     label: "ldap-server", sub: "OpenLDAP · slapd",
     ip: "10.20.20.20 (Internal)",
     color: "#22c55e", glow: "rgba(34,197,94,0.3)",
     icon: "📂",
   },
+  // ── Monitoring / notification ─────────────────────────────────────────────
   aegis: {
-    x: 790, y: 300,
+    x: 858, y: 195,
     label: "AEGIS", sub: "SOC Dashboard",
     ip: "Render · Vercel",
     color: "#06b6d4", glow: "rgba(6,182,212,0.25)",
     icon: "📊",
   },
   telegram: {
-    x: 900, y: 450,
+    x: 858, y: 420,
     label: "Telegram", sub: "Alert Channel",
     ip: "api.telegram.org",
     color: "#29b6f6", glow: "rgba(41,182,246,0.4)",
@@ -345,9 +351,9 @@ export default function AttackFlowPage() {
         try {
           const ev = JSON.parse(e.data);
            const sev = ev.severity ?? "high";
-           // A notification packet represents a real Telegram delivery, not
-           // merely an alert row or an optimistic frontend state.
-           if (ev.telegramSent !== true || (sev !== "critical" && sev !== "high")) return;
+           // Show AEGIS→Telegram animation for every critical/high alert
+           // regardless of whether Telegram is actually configured in this env.
+           if (sev !== "critical" && sev !== "high") return;
           const toastId = `tg-${Date.now()}`;
 
           // 1. Mark latest high/critical entry in live feed
@@ -429,6 +435,23 @@ export default function AttackFlowPage() {
     }
   }
 
+  // ── Node attack glow: track which nodes are being actively hit ──────────
+  // When a packet is in-transit toward a node, glow that node with attack color.
+  // When t < 0.25 the source node also stays lit (packet just left).
+  const nodeAttackColors = new Map<NodeKey, string>();
+  for (const p of packets) {
+    if (p.blocked || p.isTg) continue;
+    const col = SEV_COLOR[p.severity] ?? "#f59e0b";
+    // Current destination — glow as soon as packet sets off
+    const dest = p.path[p.seg + 1] as NodeKey | undefined;
+    if (dest && !nodeAttackColors.has(dest)) nodeAttackColors.set(dest, col);
+    // Source node stays lit briefly after packet departs
+    if (p.t < 0.28) {
+      const src = p.path[p.seg] as NodeKey | undefined;
+      if (src && !nodeAttackColors.has(src)) nodeAttackColors.set(src, col);
+    }
+  }
+
   return (
     <div className="flex h-full bg-background text-foreground overflow-hidden">
 
@@ -491,19 +514,18 @@ export default function AttackFlowPage() {
             <rect width={VW} height={VH} fill="url(#af-grid)" rx="8" />
 
             {/* Zone labels */}
-            <text x={16} y={22} fontSize="8" fill="rgba(239,68,68,0.35)" fontFamily="monospace" fontWeight="bold" letterSpacing="2">
-              ORIGIN
-            </text>
-            <text x={400} y={22} fontSize="8" fill="rgba(245,158,11,0.35)" fontFamily="monospace" fontWeight="bold" letterSpacing="2">
-              PERIMETER DEFENSE
-            </text>
-            <text x={620} y={22} fontSize="8" fill="rgba(34,197,94,0.35)" fontFamily="monospace" fontWeight="bold" letterSpacing="2">
-              PROTECTED ZONE
-            </text>
+            <text x={16} y={20} fontSize="8" fill="rgba(239,68,68,0.35)" fontFamily="monospace" fontWeight="bold" letterSpacing="2">ORIGIN</text>
+            <text x={308} y={20} fontSize="8" fill="rgba(245,158,11,0.35)" fontFamily="monospace" fontWeight="bold" letterSpacing="2">PERIMETER</text>
+            <text x={490} y={20} fontSize="7" fill="rgba(34,197,94,0.30)" fontFamily="monospace" fontWeight="bold" letterSpacing="1">DMZ · PUBLIC</text>
+            <text x={490} y={570} fontSize="7" fill="rgba(34,197,94,0.30)" fontFamily="monospace" fontWeight="bold" letterSpacing="1">INTERNAL</text>
+            <text x={585} y={295} fontSize="7" fill="rgba(6,182,212,0.28)" fontFamily="monospace" fontWeight="bold" letterSpacing="1">MGMT</text>
 
             {/* Zone divider lines */}
-            <line x1={330} y1={30} x2={330} y2={VH - 10} stroke="rgba(255,255,255,0.04)" strokeWidth="1" strokeDasharray="4 6" />
-            <line x1={590} y1={30} x2={590} y2={VH - 10} stroke="rgba(255,255,255,0.04)" strokeWidth="1" strokeDasharray="4 6" />
+            <line x1={285} y1={28} x2={285} y2={VH - 10} stroke="rgba(255,255,255,0.04)" strokeWidth="1" strokeDasharray="4 6" />
+            <line x1={458} y1={28} x2={458} y2={VH - 10} stroke="rgba(255,255,255,0.04)" strokeWidth="1" strokeDasharray="4 6" />
+            {/* Horizontal dividers inside VM zone */}
+            <line x1={460} y1={215} x2={VW - 10} y2={215} stroke="rgba(255,255,255,0.03)" strokeWidth="1" strokeDasharray="3 8" />
+            <line x1={460} y1={355} x2={VW - 10} y2={355} stroke="rgba(255,255,255,0.03)" strokeWidth="1" strokeDasharray="3 8" />
 
             {/* ── Attack / network topology edges (white dashed) ───────── */}
             {EDGES.map(([a, b]) => {
@@ -587,15 +609,20 @@ export default function AttackFlowPage() {
 
             {/* ── Nodes ─────────────────────────────────────────────────── */}
             {(Object.entries(NODES) as [NodeKey, typeof NODES[NodeKey]][]).map(([key, n]) => {
-              const isAlert = alertNodes.has(key);
-              const isPulse = pulseNodes.has(key);
-              const strokeCol = isAlert ? "#ef4444" : n.color;
-              const strokeW   = isAlert ? 2.5 : 1.5;
+              const isAlert    = alertNodes.has(key);
+              const isPulse    = pulseNodes.has(key);
+              const attackCol  = nodeAttackColors.get(key);   // live attack glow color
+              const strokeCol  = isAlert ? "#ef4444" : attackCol ?? n.color;
+              const strokeW    = isAlert ? 2.5 : attackCol ? 2.0 : 1.5;
 
               return (
                 <g key={key}>
-                  {/* Ambient glow disc */}
-                  <circle cx={n.x} cy={n.y} r={52} fill={`url(#glow-${key})`} opacity={isAlert ? 1.2 : 0.8} />
+                  {/* Ambient glow disc — brightened when under attack */}
+                  <circle cx={n.x} cy={n.y} r={52} fill={`url(#glow-${key})`} opacity={isAlert ? 1.2 : attackCol ? 1.0 : 0.8} />
+                  {/* Extra attack glow halo */}
+                  {attackCol && !isAlert && (
+                    <circle cx={n.x} cy={n.y} r={44} fill={attackCol} opacity={0.08} />
+                  )}
 
                   {/* Pulse ring (animated) */}
                   {isPulse && (
@@ -605,7 +632,15 @@ export default function AttackFlowPage() {
                     </circle>
                   )}
 
-                  {/* Alert ring */}
+                  {/* Attack pulse ring — shown while packet is en-route */}
+                  {attackCol && !isAlert && !isPulse && (
+                    <circle cx={n.x} cy={n.y} r={36} fill="none" stroke={attackCol} strokeWidth="1.2" opacity="0.4">
+                      <animate attributeName="r" from="32" to="52" dur="1.1s" repeatCount="indefinite" />
+                      <animate attributeName="opacity" from="0.5" to="0" dur="1.1s" repeatCount="indefinite" />
+                    </circle>
+                  )}
+
+                  {/* Alert ring (defense block) */}
                   {isAlert && (
                     <>
                       <circle cx={n.x} cy={n.y} r={40} fill="none" stroke="#ef4444" strokeWidth="2" opacity="0.35">
