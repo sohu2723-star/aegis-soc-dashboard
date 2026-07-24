@@ -55,6 +55,13 @@ const PER_HOST_SENSORS = [
     description: "Apache access.log watcher — login brute force, 401/403 patterns, web breach detection",
     hostIp: "10.10.10.10",
   },
+  {
+    component: "Cowrie Honeypot",
+    layer: "sensor",
+    status: "unknown",
+    description: "Cowrie SSH honeypot — any connection triggers instant IP block (priority 5)",
+    hostIp: "10.10.10.10",
+  },
   // ── aegis-company-admin (10.30.30.10): Hub script VM ───────────────────────
   // MGMT zone ဖြစ်ပေမယ့် SSH ဖွင့်ထားတာကြောင့် Kali မှ attack လာနိုင်
   {
@@ -99,6 +106,13 @@ const PER_HOST_SENSORS = [
     layer: "sensor",
     status: "unknown",
     description: "MySQL log watcher — auth failures, suspicious queries, connection anomalies",
+    hostIp: "10.20.20.10",
+  },
+  {
+    component: "Cowrie Honeypot",
+    layer: "sensor",
+    status: "unknown",
+    description: "Cowrie SSH honeypot — any connection triggers instant IP block (priority 5)",
     hostIp: "10.20.20.10",
   },
   // ── company-dns-server (10.10.10.20): BIND9/Fail2ban ───────────────────────
@@ -151,7 +165,7 @@ const PER_HOST_SENSORS = [
 // Only deletes rows WHERE hostIp IS NULL to avoid killing valid per-host sensor entries.
 const GLOBAL_OBSOLETE_COMPONENTS = [
   "Snort IDS",
-  "Cowrie Honeypot",  // removed from topology — Suricata + Fail2ban only
+  // "Cowrie Honeypot" is now a real per-host sensor — not obsolete
   "ModSecurity WAF",
   "AEGIS Dashboard",
   "Kali Linux (Red)",

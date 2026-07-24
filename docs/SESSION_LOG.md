@@ -629,3 +629,63 @@ dpkg -l iptables-persistent
 ---
 
 *Last updated: 2026-07-19 (Session 7)*
+
+---
+
+## Session 8 — 2026-07-24
+
+### What was fixed
+
+Session 7 documented 4 code changes but only 1 made it into the commit before push. This session completed the remaining 3:
+
+#### 1. Cowrie Honeypot sensors — `routes/system.ts`
+`PER_HOST_SENSORS` ထဲ Cowrie entries ၂ ခု ထည့်ခဲ့:
+
+| hostIp | component | layer |
+|---|---|---|
+| 10.10.10.10 | Cowrie Honeypot | sensor |
+| 10.20.20.10 | Cowrie Honeypot | sensor |
+
+`GLOBAL_OBSOLETE_COMPONENTS` မှ `"Cowrie Honeypot"` ဖြုတ်ခဲ့ (real sensor ဖြစ်သွားလို့)
+
+Total system component count: 14 → **16**
+
+#### 2. Cowrie health check — `scripts/src/aegis_forwarder.py`
+`company-web-server` + `company-customer-db` ရဲ့ `health_services` list ထဲ ထည့်ခဲ့:
+
+```python
+("cowrie", "Cowrie Honeypot", "sensor")
+```
+
+Forwarder က SSH ကနေ `systemctl is-active cowrie` စစ်ပြီး `/api/system/status` ကို report မယ်
+
+#### 3. Dashboard stale check fix — already done in Session 7 ✅
+
+### VM မှာ လုပ်ရမည် (unchanged from Session 7)
+
+**Script update (Aegis VM):**
+```bash
+wget -O /opt/aegis/scripts/src/aegis_forwarder.py \
+  https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/scripts/src/aegis_forwarder.py
+sudo systemctl restart aegis-forwarder
+```
+
+**Cowrie install (company-web-server + company-customer-db):**
+```bash
+sudo apt install cowrie -y
+sudo systemctl enable cowrie --now
+ss -tlnp | grep 2222
+```
+
+**Auto-defense rules** (via Dashboard → Defense Center → Rules):
+```
+Cowrie Honeypot Touch → Instant Block (company-web-server)
+  triggerAttackType: honeypot  threshold: 1/60s
+  actionType: auto  defenseType: block_ip  targetVm: company-web-server  priority: 5
+
+Cowrie Honeypot Touch → Instant Block (company-customer-db)
+  triggerAttackType: honeypot  threshold: 1/60s
+  actionType: auto  defenseType: block_ip  targetVm: company-customer-db  priority: 5
+```
+
+*Last updated: 2026-07-24 (Session 8)*
