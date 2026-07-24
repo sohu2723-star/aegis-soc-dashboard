@@ -3195,3 +3195,17 @@ sudo systemctl restart aegis-forwarder
 **Note (Render cold-start):** Keep-alive hook (`useKeepAlive`) က tab open ထားတဲ့ အချိန် 4 min တိုင်း `/api/healthz` ping ထားတယ်။ Tab ပိတ်ထားရင်တော့ Render free tier 15 min နောက် spin down ဖြစ်မယ် — ဒါက Render limitation, code issue မဟုတ်ဘူး။ Render paid plan upgrade ရင် cold start ပျောက်မယ်။
 
 **Next:** GitHub push → Render/Vercel auto-deploy → production မှာ ပြင်ပြီးတဲ့ changes တွေ ထင်မယ်
+
+
+---
+
+### [2026-07-24] — AI Voice Reader Bug Fixes (TTS + System Prompt)
+**Status:** ✅ Done
+**What:** VoiceReader (reports.tsx) ရှိ TTS bugs ၄ ခု + AI system prompt ကို ပြင်ခဲ့
+**How:**
+1. **Attack/attacker မပြန်** — `SOC_SYSTEM_MY` (ai.ts) ထဲ Rule 8 ထည့်ခဲ့ — attack, attacker, brute force, port scan, SQL injection, DDoS, payload, exploit, honeypot အစရှိသော cybersecurity terms တွေကို မြန်မာဘာသာသို့ လုံးဝ မပြန်ရ ဟု explicit instruction ထည့်ခဲ့
+2. **Title letter-by-letter** — `toTitleCase()` helper function ထည့်ပြီး UPPERCASE section heading ("THREAT SUMMARY:") ကို TTS ကို pass မလုပ်ခင် "Threat Summary" ဟု Title Case ပြောင်းကာ speak — TTS engine က letter-by-letter မဖတ်တော့
+3. **English ပျောက်** — `onerror` handler မှာ `e.error === "interrupted" || "canceled"` ဖြစ်ရင် `advance()` မခေါ်ဘဲ return — Chrome keepalive pause/resume cycle မှာ fire တဲ့ interrupted error ကြောင့် line skip မဖြစ်တော့
+4. **Myanmar voice** — `pickVoice()` မှာ name-based detection ထည့် (Samsung/Android TTS က "Myanmar" name ဖြင့် ပြသတတ်), hasBurmeseVoice မှာလည်း name check ထည့်; Myanmar rate 0.88 / pitch 1.05 ပြောင်းပြီး သဘာဝ ပိုကျ
+**Result:** Build ✅ API Server + Frontend workflows running clean
+**Next:** Render/Vercel deploy လုပ်ရင် production မှာ ထင်မယ်

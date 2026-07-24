@@ -103,13 +103,35 @@ function VoiceReader({ text, language }: { text: string; language: "en" | "my" }
   /** Pick best available voice, falling back gracefully */
   function pickVoice(lang: string): SpeechSynthesisVoice | undefined {
     if (voices.length === 0) return undefined;
+    const prefix = lang.split("-")[0]; // "my" or "en"
+
+    // 1. Exact lang match (e.g. "my-MM" or "en-US")
     const exact = voices.find((v) => v.lang === lang);
     if (exact) return exact;
-    const prefix = lang.split("-")[0];
+
+    // 2. Prefix match (e.g. "my" matches "my-MM", "my", etc.)
     const prefixed = voices.find((v) => v.lang.startsWith(prefix));
     if (prefixed) return prefixed;
-    // Burmese with no Burmese voice → fall back to English
+
+    // 3. For Burmese — try name-based detection (Samsung/Android TTS may use "Myanmar" in name)
+    if (prefix === "my") {
+      const named = voices.find(
+        (v) =>
+          v.name.toLowerCase().includes("myanmar") ||
+          v.name.toLowerCase().includes("burmese") ||
+          v.name.toLowerCase().includes("my-")
+      );
+      if (named) return named;
+      // No Burmese voice available → fall back to English
+      return voices.find((v) => v.lang.startsWith("en")) ?? voices.find((v) => v.default) ?? voices[0];
+    }
+
     return voices.find((v) => v.default) ?? voices[0];
+  }
+
+  /** Convert UPPERCASE section heading to Title Case so TTS reads it naturally */
+  function toTitleCase(str: string): string {
+    return str.replace(/\b[A-Z]{2,}\b/g, (w) => w.charAt(0) + w.slice(1).toLowerCase());
   }
 
   function speak() {
@@ -145,12 +167,16 @@ function VoiceReader({ text, language }: { text: string; language: "en" | "my" }
       const isSectionHeading = /^[A-Z][A-Z\s]{2,}:/.test(line.trim()) && line.trim().length < 80;
       const lineLang = (language === "my" && !isSectionHeading) ? "my-MM" : "en-US";
 
-      const utter = new SpeechSynthesisUtterance(line.replace(/:$/, ""));
+      // UPPERCASE headings → Title Case so TTS reads naturally (not letter-by-letter)
+      const rawText = line.replace(/:$/, "");
+      const spokenText = isSectionHeading ? toTitleCase(rawText) : rawText;
+
+      const utter = new SpeechSynthesisUtterance(spokenText);
       utter.lang = lineLang;
       const voice = pickVoice(lineLang);
       if (voice) utter.voice = voice;
-      utter.rate = lineLang === "my-MM" ? 0.82 : 0.88;
-      utter.pitch = 1.0;
+      utter.rate = lineLang === "my-MM" ? 0.88 : 0.92;
+      utter.pitch = lineLang === "my-MM" ? 1.05 : 1.0;
 
       // Guard against onend/onerror firing multiple times
       let fired = false;
@@ -159,6 +185,9 @@ function VoiceReader({ text, language }: { text: string; language: "en" | "my" }
       };
       utter.onend = advance;
       utter.onerror = (e) => {
+        // "interrupted" = speech was cancelled (stop/language-switch) — do NOT advance;
+        // let stopRef guard prevent speakNext from running
+        if (e.error === "interrupted" || e.error === "canceled") return;
         console.warn("[VoiceReader] TTS error:", e.error, "| line:", line.slice(0, 40));
         advance();
       };
@@ -186,7 +215,12 @@ function VoiceReader({ text, language }: { text: string; language: "en" | "my" }
 
   if (!supported) return null;
 
-  const hasBurmeseVoice = voices.some((v) => v.lang.startsWith("my"));
+  const hasBurmeseVoice = voices.some(
+    (v) =>
+      v.lang.startsWith("my") ||
+      v.name.toLowerCase().includes("myanmar") ||
+      v.name.toLowerCase().includes("burmese")
+  );
 
   return (
     <div className="flex flex-col items-end gap-1">

@@ -33,7 +33,8 @@ Response rules (STRICT — မပျက်ကွက်ရ):
 4. Markdown headers (#, ##) မသုံးပါ — plain text paragraph သာ
 5. ချက်ချင်း actionable ဖြစ်ပါစေ — concrete command/step ပါဝင်ပါစေ
 6. CRITICAL: response ကို sentence အလယ်မှာ မဖြတ်ရ — စကားစုတိုင်း၊ section တိုင်း ပြည့်ပြည့်စုံစုံ ပြောပြီးမှ ဆုံးရမည်
-7. ပေးထားသော sections အားလုံး ဖြည့်ပြပါ — section တစ်ခုမျှ ကျော်မသွားရ`;
+7. ပေးထားသော sections အားလုံး ဖြည့်ပြပါ — section တစ်ခုမျှ ကျော်မသွားရ
+8. CRITICAL: Cybersecurity technical terms တွေကို မြန်မာဘာသာသို့ လုံးဝ မပြန်ရ — အောက်ပါ terms အားလုံး English ကိုသာ သုံးရမည်: attack, attacker, brute force, port scan, SQL injection, DDoS, SYN flood, payload, exploit, honeypot, malware, phishing, spoofing, sniffing, packet, firewall, IDS, IPS, Suricata, Fail2ban, Cowrie, pfSense, iptables, nmap, hydra, metasploit, vulnerability, CVE, threat, alert, incident, defense, block, bypass — ဤ terms တွေကို မည်သည့် context မဆို English ဖြင့်သာ ရေးပါ`;
 
 /** English output — everything in English */
 const SOC_SYSTEM_EN = `You are AEGIS-AI, the built-in security analyst for the AEGIS SOC Dashboard.
