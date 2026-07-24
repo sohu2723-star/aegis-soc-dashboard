@@ -157,8 +157,8 @@ Unacknowledged alerts: ${unackedAlerts[0]?.count ?? 0}
 Recent defense actions: ${defenseActSummary || "none"}
 `.trim();
 
-    const userPrompt = lang === "en"
-      ? `${dataBlock}
+    // ── English mode: single-step, direct ────────────────────────────────────
+    const enUserPrompt = `${dataBlock}
 
 Write a live security briefing. Fill each section — heading UPPERCASE, content direct English:
 
@@ -172,30 +172,70 @@ DEFENSE STATUS:
 (2-3 sentences: what Fail2ban/Suricata/pfSense blocked, what is still active)
 
 RECOMMENDATIONS:
-(4-5 concrete actions with specific commands or steps)`
-      : `${dataBlock}
+(4-5 concrete actions with specific commands or steps)`;
 
-မြန်မာ security news anchor style နဲ့ — RFA/DVB anchor တစ်ဦး live briefing ပေးနေသလို — အောက်ပါ 4 sections ရေးပေးပါ။
-Section heading — ENGLISH UPPERCASE ပဲ သုံး။ Content — မြန်မာဘာသာ သဘာဝကျကျ ပြောကြားသလိုရေး — section တစ်ခုကို 2-3 ကြောင်းသာ — ထပ်ကာ မရေးနဲ့။
+    // ── Burmese mode: two-step (Claude's correct advice) ─────────────────────
+    // Step 1: English analysis (accuracy-focused, low temperature)
+    const myStep1Prompt = `${dataBlock}
 
-THREAT SUMMARY section rules:
-- events = 0 ဆိုရင် → "ယနေ့ 24 နာရီအတွင်း တိုက်ခိုက်မှု အရိပ်ယောင် ဘာမှမတွေ့ရပါ — ယာယီ ငြိမ်ဝပ်နေပါတယ်။"
-- events > 0 ဆိုရင် → "24 နာရီအတွင်း [N] ကြိမ်တွေ့ရပါတယ်" ဟုပါဝင်ရမည်
-
-DEFENSE STATUS section rules:
-- Fail2ban / Suricata / pfSense active ဆိုရင် → "active ဖြစ်နေပါတယ်" — "အားကောင်းနေတယ်" မသုံးရ
-- system offline ဆိုရင် → "offline ဖြစ်နေပါတယ်"
-- defense actions မရှိ ဆိုရင် → "ဒီအချိန်ထိ ကာကွယ်ရေး action မလိုအပ်သေးပါ" — "မရှိတယ်" မသုံးရ
-
-RECOMMENDATIONS section rules:
-- အနည်းဆုံး 3 ချက် — "ဒါကြောင့် ဒါ လုပ်သင့်တယ်" သလို ဆော်ဆော်ပြောပြပါ — မရှိပါ/ဘာမှမရှိ ဟူ၍ မရေးရ
+Analyze this security data precisely. Use exact numbers from the data — never invent figures.
+Output exactly these four sections in English:
 
 THREAT SUMMARY:
-TOP THREATS:
-DEFENSE STATUS:
-RECOMMENDATIONS:`;
+(2-3 sentences covering total event count, key attacker IPs, main attack types)
 
-    const analysis = await askGroq({ system: sysPrompt, user: userPrompt, maxTokens: 1500 });
+TOP THREATS:
+(One line per top attacker IP: IP → attack type → target host → event count → severity)
+
+DEFENSE STATUS:
+(2-3 sentences: what Fail2ban/Suricata/pfSense blocked or is actively running; if no defense actions say "No defense actions required yet")
+
+RECOMMENDATIONS:
+(3-5 specific actionable steps: iptables/pfSense/fail2ban commands where relevant)`;
+
+    // Step 2 system: translation only — do not alter facts or numbers
+    const myStep2System = `You are a professional Myanmar (Burmese) translator specializing in cybersecurity.
+Your ONLY job is to translate the English security briefing into natural Burmese.
+
+STRICT RULES:
+- Translate to natural, conversational Burmese — like a Myanmar news anchor reading a live brief
+- Keep ALL numbers, IP addresses, hostnames, and technical terms (Fail2ban, Suricata, pfSense, brute force, port scan, etc.) in English — do NOT translate them
+- Keep section headings ENGLISH UPPERCASE exactly as they appear (THREAT SUMMARY:, TOP THREATS:, DEFENSE STATUS:, RECOMMENDATIONS:)
+- If source says "No defense actions required yet" → translate as "ဒီအချိန်ထိ ကာကွယ်ရေး action မလိုအပ်သေးပါ"
+- If a system is "active" → "active ဖြစ်နေပါတယ်" — never use "အားကောင်းနေတယ်"
+- If events = 0 → "ယနေ့ 24 နာရီအတွင်း တိုက်ခိုက်မှု အရိပ်ယောင် ဘာမှမတွေ့ရပါ"
+- Do NOT add, remove, or change any numbers or facts
+- No Markdown (#, **, *) — plain text only`;
+
+    let analysis: string;
+
+    if (lang === "en") {
+      analysis = await askGroq({
+        system: sysPrompt,
+        user: enUserPrompt,
+        maxTokens: 900,
+        temperature: 0.2,
+        topP: 0.9,
+      });
+    } else {
+      // Step 1: English analysis (accurate facts, very low temperature)
+      const englishBrief = await askGroq({
+        system: SOC_SYSTEM_EN,
+        user: myStep1Prompt,
+        maxTokens: 900,
+        temperature: 0.2,
+        topP: 0.9,
+      });
+
+      // Step 2: Translate English → Natural Burmese (slightly higher temp for fluency)
+      analysis = await askGroq({
+        system: myStep2System,
+        user: `Translate the following cybersecurity briefing into natural Burmese following all the rules above:\n\n${englishBrief}`,
+        maxTokens: 1200,
+        temperature: 0.3,
+        topP: 0.9,
+      });
+    }
 
     res.json({
       analysis,

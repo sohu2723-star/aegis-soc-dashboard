@@ -46,6 +46,8 @@ export async function askGroq(opts: {
   system: string;
   user: string;
   maxTokens?: number;
+  temperature?: number; // default 0.4; use 0.2 for factual/accuracy tasks
+  topP?: number;        // default 0.95; use 0.9 for tighter sampling
 }): Promise<string> {
   if (!GROQ_API_KEY) throw new Error("GROQ_API_KEY is not configured");
 
@@ -61,8 +63,9 @@ export async function askGroq(opts: {
         { role: "system", content: opts.system },
         { role: "user",   content: opts.user },
       ],
-      max_tokens:       opts.maxTokens ?? 2000,
-      temperature:      0.4,
+      max_tokens:        opts.maxTokens ?? 2000,
+      temperature:       opts.temperature ?? 0.4,
+      top_p:             opts.topP ?? 0.95,
       frequency_penalty: 1.2,   // strongly penalise repeated tokens → prevents loop
       presence_penalty:  0.6,   // encourage covering new topics
     }),
