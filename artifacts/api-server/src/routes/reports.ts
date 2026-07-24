@@ -21,14 +21,12 @@ const generateReportSchema = z.object({
 router.post("/reports/generate", async (req, res) => {
   const body = generateReportSchema.parse(req.body);
 
-  const [eventsResult]    = await db.select({ count: count() }).from(securityEventsTable);
-  const [incidentsResult] = await db.select({ count: count() }).from(incidentsTable);
-  const eventsCount    = Number(eventsResult?.count    ?? 0);
-  const incidentsCount = Number(incidentsResult?.count ?? 0);
+  const [eventsResult] = await db.select({ count: count() }).from(securityEventsTable);
+  const eventsCount    = Number(eventsResult?.count ?? 0);
 
   // Fallback template summary (used if Groq is unavailable or fails)
   const templateSummary = `${body.type.charAt(0).toUpperCase() + body.type.slice(1)} security report. ` +
-    `Total events: ${eventsCount}. Total incidents: ${incidentsCount}. ` +
+    `Total events: ${eventsCount}. ` +
     `Covers Suricata IDS (pfSense), Fail2ban, SSH monitoring, Web attack detection, and Firewall rules.`;
 
   let summary = templateSummary;
@@ -63,35 +61,35 @@ router.post("/reports/generate", async (req, res) => {
 AEGIS SOC SECURITY BRIEFING DATA
 REPORT TYPE: ${body.type.toUpperCase()} — "${body.title}"
 TIME WINDOW: last ${windowHours} hours
-Total events: ${recentEvents.length} | Incidents: ${incidentsCount}
+Total events: ${recentEvents.length}
 Severity: ${sevBreakdown || "no data"}
 Attack types: ${attackTypes || "no data"}
 Top attackers: ${topAttackers || "no data"}
 
-ဤ data ကို မြန်မာ security news anchor style ဖြင့် briefing ရေးပါ — section တိုင်း ပြည့်ပြည့်စုံစုံ —
+Write a professional English security briefing. Fill every section fully:
 
-## ဖြစ်ပွားမှု အကျဉ်းချုပ်
-(ဒီ ${windowHours} နာရီ အတွင်း ဘာ attack တွေ ဖြစ်ခဲ့သလဲ — news anchor narrative)
+## Incident Summary
+(What attacks occurred in the last ${windowHours} hours — direct narrative)
 
-## အဓိက ခြိမ်းခြောက်မှုများ
-(IP တစ်ခုချင်းစီ — တိုက်ခိုက်မှုပြုလုပ်ခဲ့သည်/ဖောက်ထွင်းရန် ကြိုးပမ်းခဲ့သည် — active voice)
+## Key Threats
+(One line per top attacker IP — attack type, target host, event count — active voice)
 
-## ကာကွယ်ရေး ဆောင်ရွက်ချက်များ
-(block လုပ်ပြီးသည်များ၊ pending ကျန်သည်များ — active style)
+## Defense Actions
+(What was blocked, what is pending — specific and actionable)
 
-## သတိပြုရမည့် အကြံပြုချက်များ
-(အနည်းဆုံး ၅ ချက် — တိကျသော command ပါဝင်)
+## Recommendations
+(At least 5 specific steps with commands where applicable)
 `.trim();
 
       summary = await askGroq({
-        system: `သင်သည် AEGIS-AI — မြန်မာ cybersecurity news anchor တစ်ဦးဖြစ်သည်။
+        system: `You are AEGIS-AI, a professional cybersecurity SOC analyst.
 Lab: company-web-server 10.10.10.10, company-dns-server 10.10.10.20, company-customer-db 10.20.20.10, company-ldap-server 10.20.20.20, pfSense 10.30.30.1.
 RULES:
-- မြန်မာဘာသာ သဘာဝကျကျ — news anchor ပြောသလို — translate ဖြစ်မနေရ
-- Active voice: "တိုက်ခိုက်မှုပြုလုပ်ခဲ့သည်" — passive "တာဝန်ရှိသည်" မသုံးရ
-- Section headings: ## ဖြင့် မြန်မာဘာသာ ခေါင်းစဉ် (## ဖြစ်ပွားမှု အကျဉ်းချုပ်, ## အဓိက ခြိမ်းခြောက်မှုများ, ## ကာကွယ်ရေး ဆောင်ရွက်ချက်များ, ## သတိပြုရမည့် အကြံပြုချက်များ)
-- IP + numbers: English digits သာ — မြန်မာဂဏန်း မသုံးရ
-- Sentence မဖြတ်ရ — sections အားလုံး ပြည့်ပြည့်စုံစုံ ဆုံးမှ ရပ်ရမည်`,
+- Write in clear, professional English — live SOC briefing style
+- Active voice: "attacked", "attempted to breach" — never passive
+- Section headings: ## format (## Incident Summary, ## Key Threats, ## Defense Actions, ## Recommendations)
+- Use English digits only for IPs, ports, counts
+- Never cut mid-sentence — complete every section fully`,
         user: aiPrompt,
         maxTokens: 2500,
       });
@@ -103,12 +101,12 @@ RULES:
   }
 
   const [row] = await db.insert(reportsTable).values({
-    title:          body.title,
-    type:           body.type,
-    format:         body.format,
+    title:   body.title,
+    type:    body.type,
+    format:  body.format,
     summary,
     eventsCount,
-    incidentsCount,
+    incidentsCount: 0,
   }).returning();
 
   const [report] = await db.select().from(reportsTable).where(eq(reportsTable.id, row.id));
@@ -124,8 +122,6 @@ router.get("/reports/:id/download", async (req, res) => {
 
   const recentEvents = await db.select().from(securityEventsTable)
     .orderBy(desc(securityEventsTable.createdAt)).limit(50);
-  const recentIncidents = await db.select().from(incidentsTable)
-    .orderBy(desc(incidentsTable.createdAt)).limit(20);
 
   // ── Severity counts across recent events ───────────────────────────────────
   const sevCounts = { critical: 0, high: 0, medium: 0, low: 0 };
@@ -389,15 +385,11 @@ router.get("/reports/:id/download", async (req, res) => {
       <div class="stat-num c-green">${sevCounts.low}</div>
       <div class="stat-label">Low</div>
     </div>
-    <div class="stat-card">
-      <div class="stat-num c-muted">${report.incidentsCount}</div>
-      <div class="stat-label">Incidents</div>
-    </div>
   </div>
 
   <!-- AI Summary — parsed into styled sections by ## headings -->
   <div class="section">
-    <div class="section-title">AI Security Briefing — မြန်မာ SOC Analysis</div>
+    <div class="section-title">AI Security Briefing</div>
     <div class="summary-box">
       ${(() => {
         const raw = report.summary ?? "";
@@ -428,41 +420,22 @@ router.get("/reports/:id/download", async (req, res) => {
     </div>
   </div>
 
-  <!-- Two-col: top attackers + incident breakdown -->
-  <div class="two-col section">
-    <!-- Top Attackers -->
-    <div>
-      <div class="section-title">Top Attacker IPs</div>
-      ${topAttackers.length > 0 ? `
-      <ul class="attacker-list">
-        ${topAttackers.map(([ip, count], idx) => {
-          const pct = topAttackers[0][1] > 0 ? Math.round((count / topAttackers[0][1]) * 100) : 0;
-          const rank = ["🥇","🥈","🥉","4️⃣","5️⃣"][idx] ?? "";
-          return `
-        <li>
-          <span class="attacker-ip">${rank} ${ip}</span>
-          <span class="attacker-bar-wrap"><span class="attacker-bar" style="width:${pct}%"></span></span>
-          <span class="attacker-count">${count} events</span>
-        </li>`;
-        }).join("")}
-      </ul>` : `<p class="empty-state">No attack data</p>`}
-    </div>
-
-    <!-- Recent Incidents -->
-    <div>
-      <div class="section-title">Incidents (${recentIncidents.length})</div>
-      ${recentIncidents.length > 0 ? `
-      <ul class="attacker-list">
-        ${recentIncidents.slice(0,5).map(i => `
-        <li>
-          <span style="display:flex;flex-direction:column;gap:2px;min-width:0">
-            <span style="font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${i.title}</span>
-            <span class="inc-id">INC-${String(i.id).padStart(4,"0")} · ${new Date(i.createdAt).toISOString().slice(0,10)}</span>
-          </span>
-          <span class="sev-badge sev-${i.severity}">${i.severity}</span>
-        </li>`).join("")}
-      </ul>` : `<p class="empty-state">No incidents</p>`}
-    </div>
+  <!-- Top Attackers -->
+  <div class="section">
+    <div class="section-title">Top Attacker IPs</div>
+    ${topAttackers.length > 0 ? `
+    <ul class="attacker-list">
+      ${topAttackers.map(([ip, count], idx) => {
+        const pct = topAttackers[0][1] > 0 ? Math.round((count / topAttackers[0][1]) * 100) : 0;
+        const rank = ["🥇","🥈","🥉","4️⃣","5️⃣"][idx] ?? "";
+        return `
+      <li>
+        <span class="attacker-ip">${rank} ${ip}</span>
+        <span class="attacker-bar-wrap"><span class="attacker-bar" style="width:${pct}%"></span></span>
+        <span class="attacker-count">${count} events</span>
+      </li>`;
+      }).join("")}
+    </ul>` : `<p class="empty-state">No attack data</p>`}
   </div>
 
   <!-- Events table -->
@@ -503,44 +476,6 @@ router.get("/reports/:id/download", async (req, res) => {
     </table>
     </div>` : `<div class="empty-state">No events recorded in this period.</div>`}
   </div>
-
-  <!-- Incidents table -->
-  ${recentIncidents.length > 0 ? `
-  <div class="section">
-    <div class="section-title">Incident Register</div>
-    <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>ID</th>
-          <th>Title</th>
-          <th>Severity</th>
-          <th>Status</th>
-          <th>Responder</th>
-          <th style="text-align:right">Events</th>
-          <th>Created</th>
-          <th>Updated</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${recentIncidents.map(i => {
-          const statusCls = i.status === "closed" ? "inc-closed" : "inc-open";
-          return `
-        <tr>
-          <td class="inc-id">INC-${String(i.id).padStart(4,"0")}</td>
-          <td style="font-weight:600;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${i.title}</td>
-          <td><span class="sev-badge sev-${i.severity}">${i.severity}</span></td>
-          <td class="${statusCls}" style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px">${i.status}</td>
-          <td style="color:var(--muted)">${i.responder ?? "—"}</td>
-          <td style="text-align:right;font-variant-numeric:tabular-nums;color:var(--muted)">${i.eventCount}</td>
-          <td style="color:var(--muted);font-size:11px">${new Date(i.createdAt).toISOString().slice(0,16).replace("T"," ")}</td>
-          <td style="color:var(--muted);font-size:11px">${new Date(i.updatedAt).toISOString().slice(0,16).replace("T"," ")}</td>
-        </tr>`;
-        }).join("")}
-      </tbody>
-    </table>
-    </div>
-  </div>` : ""}
 
   <!-- Footer -->
   <div class="footer">

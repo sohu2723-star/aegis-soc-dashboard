@@ -486,13 +486,13 @@ export default function Reports() {
   const [aiData, setAiData] = useState<ThreatAnalysis | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
-  // Language selector: "en" = English only, "my" = Myanmar (Burmese)
-  const [briefingLang, setBriefingLang] = useState<"en" | "my">("en");
+  const briefingLang = "en" as const;
 
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
   // Auto-load AI briefing on mount + auto-refresh every 5 minutes (real-time)
+  // Language is always English
   useEffect(() => {
     loadAiBriefing();
     const timer = setInterval(() => loadAiBriefing(), 5 * 60 * 1000);
@@ -519,8 +519,8 @@ export default function Reports() {
           toast({
             title: data?.aiGenerated ? "✨ AI Report Generated" : "Report Generated",
             description: data?.aiGenerated
-              ? "GROQ AI မှ security analysis ပါ report compile ပြီးပြီ။"
-              : "Security report compile ပြီးပြီ။",
+              ? "Report compiled with Groq AI security analysis."
+              : "Security report compiled.",
           });
         }
       }
@@ -545,14 +545,6 @@ export default function Reports() {
     }
   }
 
-  /** Switch language — clear previous result and auto-fetch in the new language */
-  function handleLangChange(lang: "en" | "my") {
-    setBriefingLang(lang);
-    setAiData(null);
-    setAiError(null);
-    loadAiBriefing(lang);  // pass lang explicitly — briefingLang state is still the old value here
-  }
-
   function handleDownload(id: number, reportTitle: string, reportType: string) {
     const url = `${BASE}/api/reports/${id}/download`;
     const a = document.createElement("a");
@@ -561,7 +553,7 @@ export default function Reports() {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    toast({ title: "Downloading", description: `"${reportTitle}" download ကို စတင်နေပြီ။` });
+    toast({ title: "Downloading", description: `Starting download for "${reportTitle}".` });
   }
 
   async function confirmDelete() {
@@ -682,31 +674,8 @@ export default function Reports() {
               </div>
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
-              {/* Language selector */}
-              <div className="flex items-center rounded border border-border overflow-hidden text-xs">
-                <button
-                  onClick={() => handleLangChange("en")}
-                  className={`px-2.5 py-1.5 font-medium transition-colors ${
-                    briefingLang === "en"
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                  }`}
-                >
-                  EN
-                </button>
-                <button
-                  onClick={() => handleLangChange("my")}
-                  className={`px-2.5 py-1.5 font-medium transition-colors border-l border-border ${
-                    briefingLang === "my"
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                  }`}
-                >
-                  မြန်မာ
-                </button>
-              </div>
               {/* Voice reader */}
-              {aiData && <VoiceReader text={aiData.analysis} language={briefingLang} />}
+              {aiData && <VoiceReader text={aiData.analysis} language="en" />}
               {/* Analyze / Refresh button */}
               <Button
                 size="sm"
@@ -716,11 +685,11 @@ export default function Reports() {
                 className={aiData ? "border-border" : ""}
               >
                 {aiLoading ? (
-                  <><RefreshCcw className="w-3.5 h-3.5 mr-1.5 animate-spin" />{briefingLang === "en" ? "Analyzing..." : "ခွဲခြမ်းနေသည်..."}</>
+                  <><RefreshCcw className="w-3.5 h-3.5 mr-1.5 animate-spin" />Analyzing...</>
                 ) : aiData ? (
-                  <><RefreshCcw className="w-3.5 h-3.5 mr-1.5" />{briefingLang === "en" ? "Refresh" : "ပြန်ခေါ်"}</>
+                  <><RefreshCcw className="w-3.5 h-3.5 mr-1.5" />Refresh</>
                 ) : (
-                  <><Sparkles className="w-3.5 h-3.5 mr-1.5" />{briefingLang === "en" ? "Analyze Now" : "ခွဲခြမ်းကြည့်"}</>
+                  <><Sparkles className="w-3.5 h-3.5 mr-1.5" />Analyze Now</>
                 )}
               </Button>
             </div>
@@ -736,20 +705,14 @@ export default function Reports() {
           {aiLoading && !aiData && (
             <div className="flex items-center justify-center py-8 gap-3 text-muted-foreground">
               <RefreshCcw className="w-4 h-4 animate-spin text-primary" />
-              <span className="text-sm">
-                {briefingLang === "en"
-                  ? "AI is analyzing current security data..."
-                  : "AI မှ security data ကို analyze လုပ်နေသည်..."}
-              </span>
+              <span className="text-sm">AI is analyzing current security data...</span>
             </div>
           )}
           {!aiData && !aiLoading && !aiError && (
             <div className="flex flex-col items-center justify-center py-8 gap-2 text-center">
               <Sparkles className="w-8 h-8 text-primary/30" />
               <p className="text-sm text-muted-foreground">
-                {briefingLang === "en"
-                  ? "Click \"Analyze Now\" — AI will analyze the current security posture in real-time"
-                  : "\"ခွဲခြမ်းကြည့်\" ကို နှိပ်ပါ — AI မှ လက်ရှိ security posture ကို real-time analyze လုပ်မည်"}
+                Click "Analyze Now" — AI will analyze the current security posture in real-time
               </p>
             </div>
           )}
