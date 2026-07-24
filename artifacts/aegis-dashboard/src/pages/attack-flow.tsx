@@ -85,15 +85,24 @@ const NODES = {
 type NodeKey = keyof typeof NODES;
 
 // ── Edges — exact lab connections only ────────────────────────────────────────
+// Attack / network topology edges (white dashed)
 const EDGES: [NodeKey, NodeKey][] = [
   ["attacker",  "r1"],         // Attacker → R1 ether1 (192.168.122.x)
   ["r1",        "pfsense"],    // R1 ether3 (10.0.23.1) → pfSense WAN (10.0.23.2)
-  ["pfsense",   "companyweb"],    // pfSense → Public-Switch → company-web-server (10.10.10.10)
+  ["pfsense",   "companyweb"], // pfSense → Public-Switch → company-web-server (10.10.10.10)
   ["pfsense",   "dnsserver"],  // pfSense → Public-Switch → dns-server (10.10.10.20)
   ["pfsense",   "forwarder"],  // pfSense MGMT → aegis-forwarder (10.30.30.10)
   ["pfsense",   "customerdb"], // pfSense → Internal-Switch → company-customer-db (10.20.20.10)
-  ["pfsense",   "ldapserver"],  // pfSense → Internal-Switch → ldap-server (10.20.20.20)
-  ["forwarder", "aegis"],      // aegis-forwarder → AEGIS Dashboard (via Render API)
+  ["pfsense",   "ldapserver"], // pfSense → Internal-Switch → ldap-server (10.20.20.20)
+];
+
+// SSH management / reporting bus (cyan dotted) — forwarder SSH-tails each VM's logs
+const MGMT_EDGES: [NodeKey, NodeKey][] = [
+  ["companyweb", "forwarder"], // company-web-server SSH → aegis-forwarder
+  ["dnsserver",  "forwarder"], // dns-server SSH → aegis-forwarder
+  ["customerdb", "forwarder"], // company-customer-db SSH → aegis-forwarder
+  ["ldapserver", "forwarder"], // ldap-server SSH → aegis-forwarder
+  ["forwarder",  "aegis"],     // aegis-forwarder → AEGIS Dashboard (Render API POST)
 ];
 
 // ── Notification edges — AEGIS → Telegram (alert channel, styled differently) ─
@@ -102,21 +111,25 @@ const NOTIFY_EDGES: [NodeKey, NodeKey][] = [
 ];
 
 // ── Attack path routing ────────────────────────────────────────────────────────
+// Full attack path: Attacker → R1 → pfSense → Target VM → Forwarder → AEGIS
+// Mirrors real lab data flow: attack hits VM → fail2ban/SSH watcher logs it →
+// forwarder SSH-tails the log → POSTs to Render API → AEGIS dashboard shows it.
 function getAttackPath(targetHost: string | null | undefined): NodeKey[] {
   const t = (targetHost ?? "").toLowerCase();
   if (t.includes("company") || t.includes("web") || t === "10.10.10.10" || t.includes("apache") || t.includes("dvwa")) {
-    return ["attacker", "r1", "pfsense", "companyweb"];
+    return ["attacker", "r1", "pfsense", "companyweb", "forwarder", "aegis"];
   }
   if (t.includes("dns") || t === "10.10.10.20" || t.includes("bind")) {
-    return ["attacker", "r1", "pfsense", "dnsserver"];
+    return ["attacker", "r1", "pfsense", "dnsserver", "forwarder", "aegis"];
   }
   if (t.includes("ldap") || t === "10.20.20.20" || t.includes("slapd") || t.includes("openldap")) {
-    return ["attacker", "r1", "pfsense", "ldapserver"];
+    return ["attacker", "r1", "pfsense", "ldapserver", "forwarder", "aegis"];
   }
   if (t.includes("db") || t.includes("customer") || t === "10.20.20.10" || t.includes("postgres") || t.includes("sql")) {
-    return ["attacker", "r1", "pfsense", "customerdb"];
+    return ["attacker", "r1", "pfsense", "customerdb", "forwarder", "aegis"];
   }
-  return ["attacker", "r1", "pfsense"];
+  // Generic / pfsense-only event (Suricata IDS — no specific VM target)
+  return ["attacker", "r1", "pfsense", "forwarder", "aegis"];
 }
 
 // ── Severity → colour ─────────────────────────────────────────────────────────
@@ -458,7 +471,7 @@ export default function AttackFlowPage() {
             <line x1={330} y1={30} x2={330} y2={VH - 10} stroke="rgba(255,255,255,0.04)" strokeWidth="1" strokeDasharray="4 6" />
             <line x1={590} y1={30} x2={590} y2={VH - 10} stroke="rgba(255,255,255,0.04)" strokeWidth="1" strokeDasharray="4 6" />
 
-            {/* ── Edges ─────────────────────────────────────────────────── */}
+            {/* ── Attack / network topology edges (white dashed) ───────── */}
             {EDGES.map(([a, b]) => {
               const na = NODES[a], nb = NODES[b];
               return (
@@ -469,6 +482,22 @@ export default function AttackFlowPage() {
                   strokeWidth="1.5"
                   strokeDasharray="6 5"
                 />
+              );
+            })}
+
+            {/* ── SSH management / reporting bus (cyan dotted) ─────────── */}
+            {/* Forwarder SSH-tails logs from each VM; events flow VM → Forwarder → AEGIS */}
+            {MGMT_EDGES.map(([a, b]) => {
+              const na = NODES[a], nb = NODES[b];
+              return (
+                <g key={`me-${a}-${b}`}>
+                  <line
+                    x1={na.x} y1={na.y} x2={nb.x} y2={nb.y}
+                    stroke="rgba(6,182,212,0.22)"
+                    strokeWidth="1.2"
+                    strokeDasharray="2 5"
+                  />
+                </g>
               );
             })}
 
