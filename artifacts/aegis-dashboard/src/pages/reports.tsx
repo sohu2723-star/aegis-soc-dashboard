@@ -62,25 +62,27 @@ function preprocessTts(raw: string): string {
 }
 
 /**
- * English-only voice reader using Web Speech API.
+ * English voice reader.
  *
- * Chrome bug fixes applied:
- * 1. 200ms delay between cancel() and first speak() — Chrome fires onerror
- *    "canceled" on every utterance if speak() is called immediately after
- *    cancel(), causing setSpeaking(false) almost instantly.
- * 2. Keep-alive resume() every 10s — Chrome silently halts synthesis after
- *    ~14s of continuous speech without this.
- * 3. Safety timeout per utterance — forces advance if browser drops onend.
+ * The browser Speech Synthesis API is unreliable in Chrome (it can cancel
+ * itself after the first utterance and can produce no audible output). The
+ * API already exposes a server-side TTS proxy, so preload its MP3 chunks and
+ * play them through a real audio element. Speech Synthesis remains a fallback
+ * for when the proxy or the network is unavailable.
  */
 function VoiceReader({ text }: { text: string }) {
   const [speaking, setSpeaking] = useState(false);
   const [paused, setPaused]     = useState(false);
   const [voices, setVoices]     = useState<SpeechSynthesisVoice[]>([]);
+  const [audioReady, setAudioReady] = useState(false);
+  const [audioLoading, setAudioLoading] = useState(true);
+  const [audioError, setAudioError] = useState<string | null>(null);
 
-  const stopRef     = useRef(false);
-  const pausedRef   = useRef(false);
-  const keepAliveRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioUrlsRef = useRef<string[]>([]);
+  const audioIndexRef = useRef(0);
+  const requestRef = useRef<AbortController | null>(null);
+  const playbackIdRef = useRef(0);
   const supported = typeof window !== "undefined" && "speechSynthesis" in window;
 
   useEffect(() => {
@@ -93,30 +95,89 @@ function VoiceReader({ text }: { text: string }) {
     window.speechSynthesis.addEventListener("voiceschanged", load);
     return () => {
       window.speechSynthesis.removeEventListener("voiceschanged", load);
-      hardStop();
     };
   }, [supported]);
 
-  // Stop when the analysis text changes (new AI result loaded)
-  useEffect(() => { hardStop(); }, [text]);
-
-  function clearKeepAlive() {
-    if (keepAliveRef.current !== null) {
-      clearInterval(keepAliveRef.current);
-      keepAliveRef.current = null;
-    }
+  function releaseAudioUrls() {
+    audioUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    audioUrlsRef.current = [];
   }
 
-  function hardStop() {
-    stopRef.current   = true;
-    pausedRef.current = false;
-    clearKeepAlive();
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+  function stopPlayback() {
+    playbackIdRef.current += 1;
+    requestRef.current?.abort();
+    requestRef.current = null;
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.removeAttribute("src");
+      audioRef.current.load();
+    }
+    if (supported) {
       window.speechSynthesis.cancel();
     }
     setSpeaking(false);
     setPaused(false);
   }
+
+  // Preload the complete briefing so the click starts a local audio file
+  // immediately, avoiding autoplay restrictions after an async fetch.
+  useEffect(() => {
+    let cancelled = false;
+    stopPlayback();
+    releaseAudioUrls();
+    setAudioReady(false);
+    setAudioLoading(true);
+    setAudioError(null);
+
+    const controller = new AbortController();
+    requestRef.current = controller;
+
+    (async () => {
+      try {
+        const response = await fetch(`${BASE}/api/tts/speak`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: preprocessTts(text), lang: "en" }),
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          throw new Error(body.error ?? `TTS request failed (${response.status})`);
+        }
+        const data = await response.json() as { chunks?: string[] };
+        if (!data.chunks?.length) throw new Error("TTS returned no audio");
+
+        const urls = data.chunks.map((chunk) => {
+          const binary = atob(chunk);
+          const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+          return URL.createObjectURL(new Blob([bytes], { type: "audio/mpeg" }));
+        });
+        if (cancelled) {
+          urls.forEach((url) => URL.revokeObjectURL(url));
+          return;
+        }
+        audioUrlsRef.current = urls;
+        setAudioReady(true);
+      } catch (error: any) {
+        if (!cancelled && error?.name !== "AbortError") {
+          setAudioError(error?.message ?? "English audio is unavailable");
+          // Keep the control usable even when the API is offline or its TTS
+          // provider is unavailable. The browser fallback is still better
+          // than disabling the only Listen action.
+          setAudioReady(false);
+        }
+      } finally {
+        if (!cancelled) setAudioLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+      stopPlayback();
+      releaseAudioUrls();
+    };
+  }, [text]);
 
   function pickVoice(lang: string): SpeechSynthesisVoice | undefined {
     if (!voices.length) return undefined;
@@ -129,96 +190,85 @@ function VoiceReader({ text }: { text: string }) {
     );
   }
 
-  function speakWeb() {
-    if (!supported) return;
-
-    // Cancel any previous speech first
-    window.speechSynthesis.cancel();
-    stopRef.current   = false;
-    pausedRef.current = false;
+  function speakFallback() {
+    if (!supported) {
+      setAudioError("Audio playback is not supported in this browser");
+      return;
+    }
+    stopPlayback();
+    playbackIdRef.current += 1;
     setSpeaking(true);
-    setPaused(false);
-
-    const lines = preprocessTts(text).split("\n").filter((l) => l.trim());
-    lines.unshift("Security briefing. Stand by.");
-    let idx = 0;
-
-    // Chrome keep-alive: call resume() every 10s to prevent silent halt
-    clearKeepAlive();
-    keepAliveRef.current = setInterval(() => {
-      if (stopRef.current) { clearKeepAlive(); return; }
-      if (!pausedRef.current && window.speechSynthesis.speaking) {
-        window.speechSynthesis.resume();
-      }
-    }, 10_000);
-
-    const speakNext = () => {
-      if (stopRef.current) { clearKeepAlive(); setSpeaking(false); return; }
-      if (pausedRef.current) {
-        const poll = setInterval(() => {
-          if (stopRef.current) { clearInterval(poll); clearKeepAlive(); return; }
-          if (!pausedRef.current) { clearInterval(poll); speakNext(); }
-        }, 120);
-        return;
-      }
-      if (idx >= lines.length) { clearKeepAlive(); setSpeaking(false); return; }
-
-      const line          = lines[idx++];
-      const isSectionHead = /^[A-Z][A-Z ]{2,}:/.test(line.trim()) && line.trim().length < 80;
-      const spoken        = isSectionHead
-        ? line.replace(/:$/, "").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())
-        : line;
-
-      const utter  = new SpeechSynthesisUtterance(spoken);
-      utter.lang   = "en-US";
-      const voice  = pickVoice("en-US");
-      if (voice) utter.voice = voice;
-      utter.rate   = isSectionHead ? 0.80 : 0.88;
-
-      let fired = false;
-      const safety = setTimeout(
-        () => { if (!fired) { fired = true; speakNext(); } },
-        Math.max(spoken.length * 220, 5000),
-      );
-      const advance = () => {
-        if (fired) return;
-        fired = true;
-        clearTimeout(safety);
-        const delay = isSectionHead ? 350 : 50;
-        setTimeout(speakNext, delay);
-      };
-      utter.onend   = advance;
-      utter.onerror = () => { if (!stopRef.current) advance(); };
-      window.speechSynthesis.speak(utter);
+    const utterance = new SpeechSynthesisUtterance(preprocessTts(text));
+    utterance.lang = "en-US";
+    const voice = pickVoice("en-US");
+    if (voice) utterance.voice = voice;
+    utterance.rate = 0.88;
+    utterance.onend = () => setSpeaking(false);
+    utterance.onerror = () => {
+      setSpeaking(false);
+      setAudioError("The browser could not play the English briefing");
     };
+    window.speechSynthesis.speak(utterance);
+  }
 
-    // CRITICAL: delay first utterance after cancel() — Chrome fires onerror
-    // "canceled" on all utterances if speak() is called too soon after cancel()
-    setTimeout(speakNext, 200);
+  function playNextChunk(playbackId: number) {
+    const audio = audioRef.current;
+    const url = audioUrlsRef.current[audioIndexRef.current];
+    if (!audio || !url || playbackId !== playbackIdRef.current) {
+      if (playbackId === playbackIdRef.current) setSpeaking(false);
+      return;
+    }
+    audio.src = url;
+    audio.onended = () => {
+      if (playbackId !== playbackIdRef.current) return;
+      audioIndexRef.current += 1;
+      playNextChunk(playbackId);
+    };
+    audio.onerror = () => {
+      if (playbackId === playbackIdRef.current) speakFallback();
+    };
+    audio.play().catch(() => {
+      if (playbackId === playbackIdRef.current) speakFallback();
+    });
+  }
+
+  function speakAudio() {
+    if (!audioReady) {
+      if (!audioLoading) speakFallback();
+      return;
+    }
+    stopPlayback();
+    const playbackId = ++playbackIdRef.current;
+    audioIndexRef.current = 0;
+    setSpeaking(true);
+    setAudioError(null);
+    playNextChunk(playbackId);
   }
 
   function handleTogglePause() {
     if (paused) {
-      pausedRef.current = false;
-      window.speechSynthesis.resume();
+      audioRef.current?.play();
+      if (supported) window.speechSynthesis.resume();
       setPaused(false);
     } else {
-      pausedRef.current = true;
-      window.speechSynthesis.pause();
+      audioRef.current?.pause();
+      if (supported) window.speechSynthesis.pause();
       setPaused(true);
     }
   }
 
   return (
     <div className="flex items-center gap-2">
+      <audio ref={audioRef} preload="auto" className="hidden" />
       {!speaking ? (
         <button
-          onClick={speakWeb}
-          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors border border-border hover:border-primary/50 rounded px-2.5 py-1.5"
-          title="Web Speech API — English"
+          onClick={speakAudio}
+          disabled={audioLoading}
+          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary disabled:opacity-50 disabled:cursor-wait transition-colors border border-border hover:border-primary/50 rounded px-2.5 py-1.5"
+          title={audioLoading ? "Preparing English audio..." : "Listen in English"}
         >
           <Volume2 className="w-3.5 h-3.5" />
-          Listen
+          {audioLoading ? "Preparing..." : "Listen"}
         </button>
       ) : (
         <>
@@ -235,11 +285,16 @@ function VoiceReader({ text }: { text: string }) {
             className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary border border-border hover:border-primary/40 rounded px-2 py-1.5">
             {paused ? <Play className="w-3 h-3" /> : <Pause className="w-3 h-3" />}
           </button>
-          <button onClick={hardStop} title="Stop"
+          <button onClick={stopPlayback} title="Stop"
             className="flex items-center gap-1 text-xs text-red-400 border border-red-500/30 hover:border-red-500/60 rounded px-2 py-1.5">
             <Square className="w-3 h-3" />
           </button>
         </>
+      )}
+      {audioError && !speaking && (
+        <span className="text-[10px] text-red-400 max-w-[12rem]" title={audioError}>
+          Audio fallback
+        </span>
       )}
     </div>
   );
