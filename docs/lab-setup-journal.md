@@ -3209,3 +3209,17 @@ sudo systemctl restart aegis-forwarder
 4. **Myanmar voice** — `pickVoice()` မှာ name-based detection ထည့် (Samsung/Android TTS က "Myanmar" name ဖြင့် ပြသတတ်), hasBurmeseVoice မှာလည်း name check ထည့်; Myanmar rate 0.88 / pitch 1.05 ပြောင်းပြီး သဘာဝ ပိုကျ
 **Result:** Build ✅ API Server + Frontend workflows running clean
 **Next:** Render/Vercel deploy လုပ်ရင် production မှာ ထင်မယ်
+
+
+---
+
+### [2026-07-24] — Replit Re-import: pnpm install
+**Status:** ✅ Done
+**What:** Project ကို GitHub မှ Replit ထဲ re-import လုပ်ပြီး workspace dependencies အားလုံး install ပြန်လုပ်ခဲ့
+**How:**
+```bash
+pnpm install   # workspace root မှာ
+```
+476 packages resolved + downloaded, lockfile up to date. Both workflows (Start application + API Server) ready to start after secrets are configured.
+**Result:** `node_modules` ပြည့်စုံပြီ — code editing အဆင်သင့်ဖြစ်ပြီ
+**Next:** Secrets (SUPABASE_DB_URL, AEGIS_INGEST_KEY, AEGIS_ADMIN_KEY) ထည့်ရင် workflows run လို့ရမယ်
