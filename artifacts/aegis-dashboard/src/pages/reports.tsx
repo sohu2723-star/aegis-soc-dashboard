@@ -26,12 +26,6 @@ interface ThreatAnalysis {
   };
 }
 
-/** Detect if a string is predominantly Burmese (used for display styling only) */
-function isBurmeseText(text: string): boolean {
-  const burmese = (text.match(/[\u1000-\u109F\uAA60-\uAA7F]/g) ?? []).length;
-  return burmese > text.length * 0.15;
-}
-
 /** Renders AI analysis text with English section headings styled distinctly */
 function AiAnalysisText({ text }: { text: string }) {
   const lines = text.split("\n");
@@ -59,116 +53,36 @@ function AiAnalysisText({ text }: { text: string }) {
   );
 }
 
-// ── TTS text preprocessing & language segmentation ──────────────────────────
-
-const MY_CHAR_RE = /[\u1000-\u109F\uAA60-\uAA7F]/;
-const MY_DIGITS = ["၀","၁","၂","၃","၄","၅","၆","၇","၈","၉"];
-const IP_PATTERN = /^\s*\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?::\d+)?\s*$/;
-
-function toMyanmarDigits(s: string): string {
-  return s.replace(/\d/g, (d) => MY_DIGITS[+d]);
-}
-
 /** Clean the raw text before sending to TTS */
 function preprocessTts(raw: string): string {
   return raw
-    .replace(/_+/g, " ")       // remove underscores
-    .replace(/ {2,}/g, " ")    // collapse spaces
+    .replace(/_+/g, " ")
+    .replace(/ {2,}/g, " ")
     .trim();
 }
 
-type LangChunk = { text: string; lang: "en" | "my" };
-
-/** Split one line into contiguous Myanmar / English character runs */
-function segmentLine(line: string): LangChunk[] {
-  const raw: LangChunk[] = [];
-  let buf = "";
-  let curLang: "en" | "my" = "en";
-
-  for (const ch of line) {
-    const chLang: "en" | "my" = MY_CHAR_RE.test(ch) ? "my" : "en";
-    if (chLang !== curLang && buf) {
-      raw.push({ text: buf, lang: curLang });
-      buf = "";
-    }
-    curLang = chLang;
-    buf += ch;
-  }
-  if (buf) raw.push({ text: buf, lang: curLang });
-
-  // Convert standalone numbers surrounded by Myanmar text → Myanmar digits
-  // Keep IPs, port numbers, and English-context numbers as English
-  return raw.map((chunk, i) => {
-    if (chunk.lang === "en") {
-      const prevLang = i > 0 ? raw[i - 1].lang : null;
-      const nextLang = i < raw.length - 1 ? raw[i + 1].lang : null;
-      const surroundedByMyanmar = prevLang === "my" || nextLang === "my";
-      const isOnlyDigits = /^\s*[\d\s,]+\s*$/.test(chunk.text);
-      const isIp = IP_PATTERN.test(chunk.text);
-      if (surroundedByMyanmar && isOnlyDigits && !isIp) {
-        return { text: toMyanmarDigits(chunk.text), lang: "my" as const };
-      }
-    }
-    return chunk;
-  });
-}
-
-/** Segment full text into ordered Myanmar / English chunks for mixed TTS playback */
-function segmentForTts(text: string): LangChunk[] {
-  const result: LangChunk[] = [];
-
-  for (const line of text.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-
-    // ALL-CAPS section header → speak in English (title-cased for natural TTS)
-    if (/^[A-Z][A-Z ]{2,}:/.test(trimmed) && trimmed.length < 80) {
-      const title = trimmed
-        .replace(/:$/, "")
-        .toLowerCase()
-        .replace(/\b\w/g, (c) => c.toUpperCase());
-      result.push({ text: title + ". ", lang: "en" });
-      continue;
-    }
-
-    const lineChunks = segmentLine(trimmed);
-    result.push(...lineChunks);
-  }
-
-  return result.filter((c) => c.text.trim().length > 0);
-}
-
 /**
- * Voice reader — speaks AI analysis with mixed Myanmar / English TTS.
+ * English-only voice reader using Web Speech API.
  *
- * language="en":
- *   • Web Speech API only (English voice). Reads all 4 sections completely.
- *   • Section headers spoken slower + 350 ms pause after for broadcast feel.
- *   • Safety timeout per utterance prevents silent hang if browser drops onend.
- *
- * language="my":
- *   • Segments text: Myanmar chunks → Google TTS backend, English chunks
- *     (IPs, technical terms, section headers) → Web Speech API English voice.
- *   • Pause/resume works for both audio types.
- *   • Standalone numbers in Myanmar context → Myanmar digits; IPs kept English.
- *
- * ROOT FIX: onerror always resolves (never skips) unless user pressed Stop.
- * Removed the keepAlive pause/resume loop — it was firing "interrupted" errors
- * that caused the old handler to silently hang and drop the rest of the text.
+ * Chrome bug fixes applied:
+ * 1. 200ms delay between cancel() and first speak() — Chrome fires onerror
+ *    "canceled" on every utterance if speak() is called immediately after
+ *    cancel(), causing setSpeaking(false) almost instantly.
+ * 2. Keep-alive resume() every 10s — Chrome silently halts synthesis after
+ *    ~14s of continuous speech without this.
+ * 3. Safety timeout per utterance — forces advance if browser drops onend.
  */
-function VoiceReader({ text, language }: { text: string; language: "en" | "my" }) {
+function VoiceReader({ text }: { text: string }) {
   const [speaking, setSpeaking] = useState(false);
   const [paused, setPaused]     = useState(false);
   const [voices, setVoices]     = useState<SpeechSynthesisVoice[]>([]);
 
-  const stopRef        = useRef(false);
-  const pausedRef      = useRef(false);
-  const audioRef       = useRef<HTMLAudioElement | null>(null);
-  const currentLangRef = useRef<"en" | "my">("en"); // which engine is active
+  const stopRef     = useRef(false);
+  const pausedRef   = useRef(false);
+  const keepAliveRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const supported = typeof window !== "undefined" && "speechSynthesis" in window;
 
-  // Load Web Speech voices
   useEffect(() => {
     if (!supported) return;
     const load = () => {
@@ -183,30 +97,25 @@ function VoiceReader({ text, language }: { text: string; language: "en" | "my" }
     };
   }, [supported]);
 
-  useEffect(() => { hardStop(); }, [text, language]);
+  // Stop when the analysis text changes (new AI result loaded)
+  useEffect(() => { hardStop(); }, [text]);
 
-  // ── Helpers ────────────────────────────────────────────────────────────────
+  function clearKeepAlive() {
+    if (keepAliveRef.current !== null) {
+      clearInterval(keepAliveRef.current);
+      keepAliveRef.current = null;
+    }
+  }
 
   function hardStop() {
     stopRef.current   = true;
     pausedRef.current = false;
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.src = "";
-      audioRef.current = null;
-    }
+    clearKeepAlive();
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       window.speechSynthesis.cancel();
     }
     setSpeaking(false);
     setPaused(false);
-  }
-
-  function base64ToBlobUrl(b64: string): string {
-    const binary = atob(b64);
-    const bytes  = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-    return URL.createObjectURL(new Blob([bytes], { type: "audio/mpeg" }));
   }
 
   function pickVoice(lang: string): SpeechSynthesisVoice | undefined {
@@ -220,170 +129,54 @@ function VoiceReader({ text, language }: { text: string; language: "en" | "my" }
     );
   }
 
-  const waitMs = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-
-  // ── Myanmar chunk via Google TTS backend ───────────────────────────────────
-
-  async function playMyChunkAsync(chunkText: string): Promise<void> {
-    return new Promise<void>(async (resolve) => {
-      if (stopRef.current) { resolve(); return; }
-      currentLangRef.current = "my";
-      try {
-        const r = await fetch(`${BASE}/api/tts/speak`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: chunkText, lang: "my" }),
-        });
-        if (!r.ok || stopRef.current) { resolve(); return; }
-        const data = await r.json();
-
-        let blobUrls: string[] = [];
-        if (data.chunks?.length)    blobUrls = (data.chunks as string[]).map(base64ToBlobUrl);
-        else if (data.urls?.length) blobUrls = data.urls as string[];
-
-        if (!blobUrls.length || stopRef.current) {
-          blobUrls.forEach((u) => { try { URL.revokeObjectURL(u); } catch {} });
-          resolve(); return;
-        }
-
-        const playNext = () => {
-          if (stopRef.current) {
-            blobUrls.forEach((u) => { try { URL.revokeObjectURL(u); } catch {} });
-            resolve(); return;
-          }
-          if (pausedRef.current) {
-            // Poll until unpaused or stopped
-            const poll = setInterval(() => {
-              if (stopRef.current) { clearInterval(poll); resolve(); return; }
-              if (!pausedRef.current) { clearInterval(poll); playNext(); }
-            }, 120);
-            return;
-          }
-          const url = blobUrls.shift();
-          if (!url) { resolve(); return; }
-          const audio = new Audio(url);
-          audioRef.current = audio;
-          const onDone = () => { try { URL.revokeObjectURL(url); } catch {} playNext(); };
-          audio.onended = onDone;
-          audio.onerror = onDone;
-          audio.play().catch(onDone);
-        };
-        playNext();
-      } catch { resolve(); }
-    });
-  }
-
-  // ── English chunk via Web Speech API ──────────────────────────────────────
-  // KEY FIX: onerror always resolves (unless user stopped) so the chain never
-  // hangs. Previously "interrupted"/"canceled" returned without resolving →
-  // the entire playback chain froze silently after any browser hiccup.
-
-  async function playEnChunkAsync(chunkText: string): Promise<void> {
-    const t = chunkText.trim();
-    if (!supported || !t) return;
-    return new Promise<void>((resolve) => {
-      if (stopRef.current) { resolve(); return; }
-      currentLangRef.current = "en";
-
-      const utter  = new SpeechSynthesisUtterance(t);
-      utter.lang   = "en-US";
-      const voice  = pickVoice("en-US");
-      if (voice) utter.voice = voice;
-      utter.rate   = 0.90;
-
-      let done = false;
-      // Safety timeout: if browser silently drops onend, force-resolve
-      const safety = setTimeout(
-        () => { if (!done) { done = true; resolve(); } },
-        Math.max(t.length * 200, 3500),
-      );
-      const finish = () => {
-        if (done) return;
-        done = true;
-        clearTimeout(safety);
-        resolve();
-      };
-      utter.onend   = finish;
-      // Always finish on ANY error type — this is the root fix.
-      // Old code returned early on "interrupted"/"canceled" which caused hangs.
-      utter.onerror = () => { if (!stopRef.current) finish(); };
-      window.speechSynthesis.speak(utter);
-    });
-  }
-
-  // ── Mixed-language playback (Myanmar mode) ─────────────────────────────────
-
-  async function speakMixed() {
-    stopRef.current   = false;
-    pausedRef.current = false;
-    setSpeaking(true);
-    setPaused(false);
-
-    const chunks = segmentForTts(preprocessTts(text));
-
-    for (const chunk of chunks) {
-      if (stopRef.current) break;
-      // Wait while paused (Myanmar audio pause is handled inside playMyChunkAsync)
-      while (pausedRef.current && !stopRef.current) {
-        await waitMs(120);
-      }
-      if (stopRef.current) break;
-      try {
-        if (chunk.lang === "my") await playMyChunkAsync(chunk.text);
-        else                      await playEnChunkAsync(chunk.text);
-      } catch { /* continue on error */ }
-    }
-
-    if (!stopRef.current) { setSpeaking(false); setPaused(false); }
-  }
-
-  // ── English-only playback (broadcast news presenter style) ─────────────────
-  // No keepAlive interval — that was causing "interrupted" errors → hangs.
-  // Each utterance has its own safety timeout as a fallback.
-
   function speakWeb() {
     if (!supported) return;
+
+    // Cancel any previous speech first
     window.speechSynthesis.cancel();
     stopRef.current   = false;
     pausedRef.current = false;
-    currentLangRef.current = "en";
     setSpeaking(true);
     setPaused(false);
 
     const lines = preprocessTts(text).split("\n").filter((l) => l.trim());
-    // Brief broadcast-style intro
     lines.unshift("Security briefing. Stand by.");
     let idx = 0;
 
+    // Chrome keep-alive: call resume() every 10s to prevent silent halt
+    clearKeepAlive();
+    keepAliveRef.current = setInterval(() => {
+      if (stopRef.current) { clearKeepAlive(); return; }
+      if (!pausedRef.current && window.speechSynthesis.speaking) {
+        window.speechSynthesis.resume();
+      }
+    }, 10_000);
+
     const speakNext = () => {
-      if (stopRef.current) return;
+      if (stopRef.current) { clearKeepAlive(); setSpeaking(false); return; }
       if (pausedRef.current) {
-        // Poll until unpaused
         const poll = setInterval(() => {
-          if (stopRef.current) { clearInterval(poll); return; }
+          if (stopRef.current) { clearInterval(poll); clearKeepAlive(); return; }
           if (!pausedRef.current) { clearInterval(poll); speakNext(); }
         }, 120);
         return;
       }
-      if (idx >= lines.length) { setSpeaking(false); return; }
+      if (idx >= lines.length) { clearKeepAlive(); setSpeaking(false); return; }
 
       const line          = lines[idx++];
       const isSectionHead = /^[A-Z][A-Z ]{2,}:/.test(line.trim()) && line.trim().length < 80;
-      // Section headers → title-cased for natural TTS ("Threat Summary")
       const spoken        = isSectionHead
         ? line.replace(/:$/, "").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())
         : line;
 
-      const utter   = new SpeechSynthesisUtterance(spoken);
-      utter.lang    = "en-US";
-      const voice   = pickVoice("en-US");
+      const utter  = new SpeechSynthesisUtterance(spoken);
+      utter.lang   = "en-US";
+      const voice  = pickVoice("en-US");
       if (voice) utter.voice = voice;
-      // Headers slower + slight gravitas; body slightly deliberate
-      utter.rate    = isSectionHead ? 0.80 : 0.88;
+      utter.rate   = isSectionHead ? 0.80 : 0.88;
 
       let fired = false;
-      // Safety timeout — forces advance if browser drops onend silently
-      const safety  = setTimeout(
+      const safety = setTimeout(
         () => { if (!fired) { fired = true; speakNext(); } },
         Math.max(spoken.length * 220, 5000),
       );
@@ -391,48 +184,27 @@ function VoiceReader({ text, language }: { text: string; language: "en" | "my" }
         if (fired) return;
         fired = true;
         clearTimeout(safety);
-        // Always yield to event loop before next utterance.
-        // Chrome bug: calling speechSynthesis.speak() synchronously inside
-        // onend/onerror causes the next utterance to immediately error →
-        // cascade-fail all remaining lines → setSpeaking(false) instantly.
-        // 350 ms pause after section headers; 50 ms minimum gap otherwise.
         const delay = isSectionHead ? 350 : 50;
         setTimeout(speakNext, delay);
       };
       utter.onend   = advance;
-      // Always advance on ANY error — root fix, never skip remaining text
       utter.onerror = () => { if (!stopRef.current) advance(); };
       window.speechSynthesis.speak(utter);
     };
 
-    speakNext();
+    // CRITICAL: delay first utterance after cancel() — Chrome fires onerror
+    // "canceled" on all utterances if speak() is called too soon after cancel()
+    setTimeout(speakNext, 200);
   }
-
-  // ── Controls ───────────────────────────────────────────────────────────────
-
-  function handleSpeak() {
-    if (language === "my") speakMixed();
-    else speakWeb();
-  }
-
-  function handleStop() { hardStop(); }
 
   function handleTogglePause() {
     if (paused) {
       pausedRef.current = false;
-      if (currentLangRef.current === "my" && audioRef.current) {
-        audioRef.current.play().catch(() => {});
-      } else {
-        window.speechSynthesis.resume();
-      }
+      window.speechSynthesis.resume();
       setPaused(false);
     } else {
       pausedRef.current = true;
-      if (currentLangRef.current === "my" && audioRef.current) {
-        audioRef.current.pause();
-      } else {
-        window.speechSynthesis.pause();
-      }
+      window.speechSynthesis.pause();
       setPaused(true);
     }
   }
@@ -441,12 +213,12 @@ function VoiceReader({ text, language }: { text: string; language: "en" | "my" }
     <div className="flex items-center gap-2">
       {!speaking ? (
         <button
-          onClick={handleSpeak}
+          onClick={speakWeb}
           className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors border border-border hover:border-primary/50 rounded px-2.5 py-1.5"
-          title={language === "my" ? "Mixed TTS — မြန်မာ + English segments" : "Web Speech API — English"}
+          title="Web Speech API — English"
         >
           <Volume2 className="w-3.5 h-3.5" />
-          {language === "en" ? "Listen" : "နားထောင်"}
+          Listen
         </button>
       ) : (
         <>
@@ -463,7 +235,7 @@ function VoiceReader({ text, language }: { text: string; language: "en" | "my" }
             className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary border border-border hover:border-primary/40 rounded px-2 py-1.5">
             {paused ? <Play className="w-3 h-3" /> : <Pause className="w-3 h-3" />}
           </button>
-          <button onClick={handleStop} title="Stop"
+          <button onClick={hardStop} title="Stop"
             className="flex items-center gap-1 text-xs text-red-400 border border-red-500/30 hover:border-red-500/60 rounded px-2 py-1.5">
             <Square className="w-3 h-3" />
           </button>
@@ -675,7 +447,7 @@ export default function Reports() {
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
               {/* Voice reader */}
-              {aiData && <VoiceReader text={aiData.analysis} language="en" />}
+              {aiData && <VoiceReader text={aiData.analysis} />}
               {/* Analyze / Refresh button */}
               <Button
                 size="sm"
