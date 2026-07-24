@@ -26,7 +26,7 @@ interface ThreatAnalysis {
   };
 }
 
-/** Detect if a string is predominantly Burmese */
+/** Detect if a string is predominantly Burmese (used for display styling only) */
 function isBurmeseText(text: string): boolean {
   const burmese = (text.match(/[\u1000-\u109F\uAA60-\uAA7F]/g) ?? []).length;
   return burmese > text.length * 0.15;
@@ -59,15 +59,22 @@ function AiAnalysisText({ text }: { text: string }) {
   );
 }
 
-/** Voice reader — speaks AI analysis with Burmese/English auto-detect per line */
-function VoiceReader({ text }: { text: string }) {
+/**
+ * Voice reader — speaks AI analysis in the selected language.
+ * language="my" → Burmese voice (fallback: English); language="en" → English voice only.
+ *
+ * Stop race fix: stopRef is set to true on stop/unmount/text-change so stale
+ * speakNext callbacks cannot advance after the speech queue is cancelled.
+ */
+function VoiceReader({ text, language }: { text: string; language: "en" | "my" }) {
   const [speaking, setSpeaking] = useState(false);
   const [paused, setPaused] = useState(false);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const keepAliveRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stopRef = useRef(false); // prevents stale speakNext callbacks from firing after stop
   const supported = typeof window !== "undefined" && "speechSynthesis" in window;
 
-  // Load voices — Chrome loads them async so we listen for voiceschanged
+  // Load voices — Chrome loads them async
   useEffect(() => {
     if (!supported) return;
     const load = () => {
@@ -78,37 +85,44 @@ function VoiceReader({ text }: { text: string }) {
     window.speechSynthesis.addEventListener("voiceschanged", load);
     return () => {
       window.speechSynthesis.removeEventListener("voiceschanged", load);
+      stopRef.current = true;
       window.speechSynthesis.cancel();
       if (keepAliveRef.current) clearInterval(keepAliveRef.current);
     };
   }, [supported]);
 
-  /** Pick best available voice for a lang, falling back gracefully */
+  // When text changes (Refresh) or language changes — stop any ongoing speech
+  useEffect(() => {
+    stopRef.current = true;
+    window.speechSynthesis.cancel();
+    if (keepAliveRef.current) { clearInterval(keepAliveRef.current); keepAliveRef.current = null; }
+    setSpeaking(false);
+    setPaused(false);
+  }, [text, language]);
+
+  /** Pick best available voice, falling back gracefully */
   function pickVoice(lang: string): SpeechSynthesisVoice | undefined {
     if (voices.length === 0) return undefined;
-    // 1. exact match
     const exact = voices.find((v) => v.lang === lang);
     if (exact) return exact;
-    // 2. language prefix (e.g. "my" for "my-MM")
     const prefix = lang.split("-")[0];
     const prefixed = voices.find((v) => v.lang.startsWith(prefix));
     if (prefixed) return prefixed;
-    // 3. for Burmese with no Burmese voice: use default English voice
-    //    (audio still plays — English reading is better than silence)
+    // Burmese with no Burmese voice → fall back to English
     return voices.find((v) => v.default) ?? voices[0];
   }
 
   function speak() {
     if (!supported) return;
     window.speechSynthesis.cancel();
+    window.speechSynthesis.resume(); // wake suspended Chrome engine
 
-    // Wake suspended engine (Chrome suspends it when tab/iframe loses focus)
-    window.speechSynthesis.resume();
+    stopRef.current = false; // arm — allow speakNext to run
 
     const lines = text.split("\n").filter((l) => l.trim());
     let idx = 0;
 
-    // Chrome bug: stops speaking after ~15 s without this keep-alive
+    // Chrome bug: speech stops after ~15 s without keep-alive
     keepAliveRef.current = setInterval(() => {
       if (window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
         window.speechSynthesis.pause();
@@ -117,24 +131,32 @@ function VoiceReader({ text }: { text: string }) {
     }, 10_000);
 
     const speakNext = () => {
+      // Guard: stop/unmount/refresh happened — do not advance
+      if (stopRef.current) return;
+
       if (idx >= lines.length) {
         setSpeaking(false);
         if (keepAliveRef.current) { clearInterval(keepAliveRef.current); keepAliveRef.current = null; }
         return;
       }
-      const line = lines[idx++];
-      const burmese = isBurmeseText(line);
-      const utter = new SpeechSynthesisUtterance(line.replace(/:$/, ""));
 
-      utter.lang = burmese ? "my-MM" : "en-US";
-      const voice = pickVoice(burmese ? "my-MM" : "en-US");
+      const line = lines[idx++];
+      // Use the selected language — section headings are always English so read them in English
+      const isSectionHeading = /^[A-Z][A-Z\s]{2,}:/.test(line.trim()) && line.trim().length < 80;
+      const lineLang = (language === "my" && !isSectionHeading) ? "my-MM" : "en-US";
+
+      const utter = new SpeechSynthesisUtterance(line.replace(/:$/, ""));
+      utter.lang = lineLang;
+      const voice = pickVoice(lineLang);
       if (voice) utter.voice = voice;
-      utter.rate = burmese ? 0.82 : 0.88;
+      utter.rate = lineLang === "my-MM" ? 0.82 : 0.88;
       utter.pitch = 1.0;
 
-      // Guard against onend firing multiple times
+      // Guard against onend/onerror firing multiple times
       let fired = false;
-      const advance = () => { if (!fired) { fired = true; speakNext(); } };
+      const advance = () => {
+        if (!fired) { fired = true; speakNext(); }
+      };
       utter.onend = advance;
       utter.onerror = (e) => {
         console.warn("[VoiceReader] TTS error:", e.error, "| line:", line.slice(0, 40));
@@ -150,6 +172,7 @@ function VoiceReader({ text }: { text: string }) {
   }
 
   function stop() {
+    stopRef.current = true; // disarm all pending speakNext callbacks first
     window.speechSynthesis.cancel();
     setSpeaking(false);
     setPaused(false);
@@ -174,7 +197,7 @@ function VoiceReader({ text }: { text: string }) {
             className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors border border-border hover:border-primary/50 rounded px-2.5 py-1.5"
           >
             <Volume2 className="w-3.5 h-3.5" />
-            Listen
+            {language === "en" ? "Listen" : "နားထောင်"}
           </button>
         ) : (
           <>
@@ -192,14 +215,14 @@ function VoiceReader({ text }: { text: string }) {
               {paused ? <Play className="w-3 h-3" /> : <Pause className="w-3 h-3" />}
             </button>
             <button onClick={stop} title="Stop"
-              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-red-400 border border-border hover:border-red-500/40 rounded px-2 py-1.5">
+              className="flex items-center gap-1 text-xs text-red-400 border border-red-500/30 hover:border-red-500/60 rounded px-2 py-1.5">
               <Square className="w-3 h-3" />
             </button>
           </>
         )}
       </div>
-      {/* Warn if no Burmese TTS voice installed */}
-      {!hasBurmeseVoice && voices.length > 0 && (
+      {/* Warn if Myanmar language selected but no Burmese TTS voice installed */}
+      {language === "my" && !hasBurmeseVoice && voices.length > 0 && (
         <p className="text-[10px] text-yellow-500/60 text-right leading-tight">
           မြန်မာ voice မတွေ့ — English voice ဖြင့် ဖတ်မည်
         </p>
@@ -221,6 +244,8 @@ export default function Reports() {
   const [aiData, setAiData] = useState<ThreatAnalysis | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+  // Language selector: "en" = English only, "my" = Myanmar (Burmese)
+  const [briefingLang, setBriefingLang] = useState<"en" | "my">("my");
 
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -253,11 +278,12 @@ export default function Reports() {
     );
   };
 
-  async function loadAiBriefing() {
+  async function loadAiBriefing(lang?: "en" | "my") {
+    const useLang = lang ?? briefingLang;
     setAiLoading(true);
     setAiError(null);
     try {
-      const r = await fetch(`${BASE}/api/ai/threat-analysis`);
+      const r = await fetch(`${BASE}/api/ai/threat-analysis?lang=${useLang}`);
       if (!r.ok) {
         const e = await r.json();
         throw new Error(e.error ?? `HTTP ${r.status}`);
@@ -268,6 +294,13 @@ export default function Reports() {
     } finally {
       setAiLoading(false);
     }
+  }
+
+  /** Switch language — clear previous result so user sees it's a different briefing */
+  function handleLangChange(lang: "en" | "my") {
+    setBriefingLang(lang);
+    setAiData(null);
+    setAiError(null);
   }
 
   function handleDownload(id: number, reportTitle: string, reportType: string) {
@@ -384,12 +417,12 @@ export default function Reports() {
       {/* ── AI THREAT BRIEFING ─────────────────────────────────── */}
       <Card className="bg-card border-primary/30 shadow-[0_0_20px_rgba(var(--primary-rgb),0.08)]">
         <CardHeader className="pb-3 border-b border-border/50">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded bg-primary/10 flex items-center justify-center">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-7 h-7 rounded bg-primary/10 flex items-center justify-center flex-shrink-0">
                 <Bot className="w-4 h-4 text-primary" />
               </div>
-              <div>
+              <div className="min-w-0">
                 <CardTitle className="text-sm font-bold uppercase tracking-widest text-primary">AI Threat Briefing</CardTitle>
                 <CardDescription className="text-[11px]">
                   {aiData
@@ -398,21 +431,46 @@ export default function Reports() {
                 </CardDescription>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              {aiData && <VoiceReader text={aiData.analysis} />}
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {/* Language selector */}
+              <div className="flex items-center rounded border border-border overflow-hidden text-xs">
+                <button
+                  onClick={() => handleLangChange("en")}
+                  className={`px-2.5 py-1.5 font-medium transition-colors ${
+                    briefingLang === "en"
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                  }`}
+                >
+                  EN
+                </button>
+                <button
+                  onClick={() => handleLangChange("my")}
+                  className={`px-2.5 py-1.5 font-medium transition-colors border-l border-border ${
+                    briefingLang === "my"
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                  }`}
+                >
+                  မြန်မာ
+                </button>
+              </div>
+              {/* Voice reader */}
+              {aiData && <VoiceReader text={aiData.analysis} language={briefingLang} />}
+              {/* Analyze / Refresh button */}
               <Button
                 size="sm"
                 variant={aiData ? "outline" : "default"}
-                onClick={loadAiBriefing}
+                onClick={() => loadAiBriefing()}
                 disabled={aiLoading}
                 className={aiData ? "border-border" : ""}
               >
                 {aiLoading ? (
-                  <><RefreshCcw className="w-3.5 h-3.5 mr-1.5 animate-spin" />Analyzing...</>
+                  <><RefreshCcw className="w-3.5 h-3.5 mr-1.5 animate-spin" />{briefingLang === "en" ? "Analyzing..." : "ခွဲခြမ်းနေသည်..."}</>
                 ) : aiData ? (
-                  <><RefreshCcw className="w-3.5 h-3.5 mr-1.5" />Refresh</>
+                  <><RefreshCcw className="w-3.5 h-3.5 mr-1.5" />{briefingLang === "en" ? "Refresh" : "ပြန်ခေါ်"}</>
                 ) : (
-                  <><Sparkles className="w-3.5 h-3.5 mr-1.5" />Analyze Now</>
+                  <><Sparkles className="w-3.5 h-3.5 mr-1.5" />{briefingLang === "en" ? "Analyze Now" : "ခွဲခြမ်းကြည့်"}</>
                 )}
               </Button>
             </div>
@@ -428,14 +486,20 @@ export default function Reports() {
           {aiLoading && !aiData && (
             <div className="flex items-center justify-center py-8 gap-3 text-muted-foreground">
               <RefreshCcw className="w-4 h-4 animate-spin text-primary" />
-              <span className="text-sm">AI မှ security data ကို analyze လုပ်နေသည်...</span>
+              <span className="text-sm">
+                {briefingLang === "en"
+                  ? "AI is analyzing current security data..."
+                  : "AI မှ security data ကို analyze လုပ်နေသည်..."}
+              </span>
             </div>
           )}
           {!aiData && !aiLoading && !aiError && (
             <div className="flex flex-col items-center justify-center py-8 gap-2 text-center">
               <Sparkles className="w-8 h-8 text-primary/30" />
               <p className="text-sm text-muted-foreground">
-                "Analyze Now" ကို နှိပ်ပါ — AI မှ လက်ရှိ security posture ကို real-time analyze လုပ်မည်
+                {briefingLang === "en"
+                  ? "Click \"Analyze Now\" — AI will analyze the current security posture in real-time"
+                  : "\"ခွဲခြမ်းကြည့်\" ကို နှိပ်ပါ — AI မှ လက်ရှိ security posture ကို real-time analyze လုပ်မည်"}
               </p>
             </div>
           )}

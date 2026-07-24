@@ -13,7 +13,8 @@ import { askGroq, groqAvailable } from "../lib/groq-client";
 
 const router = Router();
 
-const SOC_SYSTEM = `သင်သည် AEGIS-AI — AEGIS SOC Dashboard ၏ built-in security analyst ဖြစ်သည်။
+/** Burmese output — section headings English, content Burmese */
+const SOC_SYSTEM_MY = `သင်သည် AEGIS-AI — AEGIS SOC Dashboard ၏ built-in security analyst ဖြစ်သည်။
 
 Lab topology (AEGIS-SecureCompany):
 - company-web-server (10.10.10.10): Fail2ban, Apache2/ModSecurity
@@ -34,6 +35,31 @@ Response rules (STRICT — မပျက်ကွက်ရ):
 6. CRITICAL: response ကို sentence အလယ်မှာ မဖြတ်ရ — စကားစုတိုင်း၊ section တိုင်း ပြည့်ပြည့်စုံစုံ ပြောပြီးမှ ဆုံးရမည်
 7. ပေးထားသော sections အားလုံး ဖြည့်ပြပါ — section တစ်ခုမျှ ကျော်မသွားရ`;
 
+/** English output — everything in English */
+const SOC_SYSTEM_EN = `You are AEGIS-AI, the built-in security analyst for the AEGIS SOC Dashboard.
+
+Lab topology (AEGIS-SecureCompany):
+- company-web-server (10.10.10.10): Fail2ban, Apache2/ModSecurity
+- company-dns-server (10.10.10.20): Fail2ban, BIND9
+- company-customer-db (10.20.20.10): Fail2ban, MySQL
+- company-ldap-server (10.20.20.20): Fail2ban, OpenLDAP
+- pfSense: Suricata IDS (network-based, monitors all traffic)
+- aegis-company-admin VM (10.30.30.10): hub forwarder
+- pfSense (10.30.30.1): WAN firewall
+- Attacker: any IP except 192.168.122.x is a potential threat
+
+Response rules (STRICT):
+1. SECTION HEADINGS — English uppercase only (e.g. "THREAT SUMMARY:", "RECOMMENDATIONS:")
+2. CONTENT — Write entirely in English, clear and direct. Address the analyst as if briefing them in person.
+3. IP addresses and numbers — always English digits (192.168.1.1, 22, 443)
+4. No Markdown headers (#, ##) — plain text paragraphs only
+5. Be immediately actionable — include concrete commands or steps
+6. CRITICAL: Never cut off mid-sentence — every sentence and section must be complete
+7. Fill every provided section — skip none`;
+
+/** Backward-compatible alias (Burmese is default) */
+const SOC_SYSTEM = SOC_SYSTEM_MY;
+
 // ─── Status ───────────────────────────────────────────────────────────────────
 
 router.get("/ai/status", (_req, res) => {
@@ -42,11 +68,15 @@ router.get("/ai/status", (_req, res) => {
 
 // ─── Threat Analysis ──────────────────────────────────────────────────────────
 
-router.get("/ai/threat-analysis", async (_req, res) => {
+router.get("/ai/threat-analysis", async (req, res) => {
   if (!groqAvailable()) {
     res.status(503).json({ error: "Groq API key not configured" });
     return;
   }
+
+  // lang=en → English output; lang=my (default) → Burmese output
+  const lang = (req.query.lang as string) === "en" ? "en" : "my";
+  const sysPrompt = lang === "en" ? SOC_SYSTEM_EN : SOC_SYSTEM_MY;
 
   try {
     const since24h = new Date(Date.now() - 24 * 3_600_000);
@@ -98,7 +128,7 @@ router.get("/ai/threat-analysis", async (_req, res) => {
       .slice(0, 5)
       .map(a => `${a.action} on ${a.targetIp} (${a.status})`).join("; ");
 
-    const userPrompt = `
+    const dataBlock = `
 Security data — last 24 hours
 
 Total events: ${recentEvents.length}
@@ -109,6 +139,25 @@ Targeted hosts: ${topTargets || "none"}
 Open incidents: ${openIncidents.length}
 Unacknowledged alerts: ${unackedAlerts[0]?.count ?? 0}
 Recent defense actions: ${defenseActSummary || "none"}
+`.trim();
+
+    const userPrompt = lang === "en"
+      ? `${dataBlock}
+
+Fill every section below completely — section heading in English uppercase, content in clear English:
+
+THREAT SUMMARY:
+(What is happening right now, which IPs are attacking, what attack types — brief and direct)
+
+TOP THREATS:
+(Each top attacker IP — attack type, severity, targeted host, event count — rank by severity)
+
+DEFENSE STATUS:
+(What has been blocked, Fail2ban/Suricata/pfSense status, what is still pending)
+
+RECOMMENDATIONS:
+(At least 5 concrete actions — include specific commands or steps for each)`
+      : `${dataBlock}
 
 အောက်ပါ sections တိုင်းကို ပြည့်ပြည့်စုံစုံ ဖြည့်ပေးပါ — section heading English uppercase, content မြန်မာလို conversational ပြောပြ:
 
@@ -122,10 +171,9 @@ DEFENSE STATUS:
 (ဘာ block လုပ်ပြီးပြီ၊ Fail2ban/Suricata/pfSense status၊ ဘာ pending ကျန်နေသေးသလဲ — ဖြေရှင်းမှု အနေအထားကို ရှင်းရှင်းပြောပြ)
 
 RECOMMENDATIONS:
-(အနည်းဆုံး ၅ ချက် — တစ်ချက်ချင်းစီ တိကျသော command သို့မဟုတ် action ပါဝင်ပါစေ — "ဒါကြောင့် ဒီ command ကို run ပါ" သလို conversational ဖြစ်ပါစေ)
-`.trim();
+(အနည်းဆုံး ၅ ချက် — တစ်ချက်ချင်းစီ တိကျသော command သို့မဟုတ် action ပါဝင်ပါစေ — "ဒါကြောင့် ဒီ command ကို run ပါ" သလို conversational ဖြစ်ပါစေ)`;
 
-    const analysis = await askGroq({ system: SOC_SYSTEM, user: userPrompt, maxTokens: 4000 });
+    const analysis = await askGroq({ system: sysPrompt, user: userPrompt, maxTokens: 4000 });
 
     res.json({
       analysis,

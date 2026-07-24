@@ -2,6 +2,33 @@
 
 ---
 
+## [2026-07-24] — Report Page: Language Selector + VoiceReader Stop Fix
+
+**Status:** ✅ Done
+**What:** AI Threat Briefing မှာ English/Myanmar language selector ထည့်ခဲ့သည်။ VoiceReader stop race condition ပြင်ခဲ့သည်။
+
+**Changes:**
+
+**`artifacts/api-server/src/routes/ai.ts`**
+- `SOC_SYSTEM_MY` (Burmese, existing behavior) + `SOC_SYSTEM_EN` (all-English) system prompts ခွဲခဲ့သည်
+- `GET /ai/threat-analysis?lang=en|my` — `lang` query param ထည့်: `lang=en` → English prompt + English output; `lang=my` (default) → Burmese prompt + Burmese output
+- User prompt ကိုလည်း lang အပေါ် မူတည်ပြီး English/Burmese version ခွဲခဲ့သည်
+
+**`artifacts/aegis-dashboard/src/pages/reports.tsx`**
+- `briefingLang` state (`"en" | "my"`, default `"my"`) ထည့်ခဲ့သည်
+- AI Briefing header မှာ **EN / မြန်မာ** toggle buttons ထည့်ခဲ့သည် — language ပြောင်းတာနဲ့ aiData clear ဖြစ်ပြီး fresh generate လုပ်ဖို့ prompt လုပ်မည်
+- `loadAiBriefing()` → `?lang=${briefingLang}` param ထည့်ခဲ့သည်
+- **VoiceReader stop race fix** — `stopRef = useRef(false)` ထည့်ခဲ့သည်: stop/unmount/text-change ဖြစ်သည့်အခါ `stopRef.current = true` set ပြီး stale speakNext callbacks ကို guard ဖြုတ်မည်
+- `VoiceReader` prop: `language: "en" | "my"` ထည့်ခဲ့သည် — per-line auto-detect မဟုတ်တော့ဘဲ selected language ဖြင့် voice ရွေးမည် (section headings သည် always English)
+- `useEffect([text, language])` — text/language ပြောင်းတာနဲ့ speech cancel + reset (Refresh race fix)
+- Stop button — always visible (red) ဖြစ်အောင် ပြင်ခဲ့သည်
+- Loading/empty state text → language-aware (EN/Myanmar)
+
+**Result:** typecheck zero errors ✅, frontend port 5000 running ✅
+**Next:** Render deploy ပြောင်းမှ AI endpoint အတွက် GROQ_API_KEY လိုမည် — language toggle production မှာ test ပါ
+
+---
+
 ## [2026-07-24] — Replit Re-import & Workspace Setup
 
 **Status:** ✅ Done
