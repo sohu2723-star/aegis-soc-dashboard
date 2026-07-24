@@ -146,8 +146,33 @@ async function runAutoReport(intervalSeconds: number): Promise<void> {
         const sevBreakdown = Object.entries(bySeverity).map(([s,n])=>`${s}:${n}`).join(", ");
 
         summary = await askGroq({
-          system: `သင်သည် AEGIS-AI SOC analyst ဖြစ်သည်။ မြန်မာဘာသာ (Burmese) ဖြင့် professional security report ရေးပါ။ Technical terms နှင့် IP address သာ English သုံးပါ။ STRICT RULES: (1) IP address နှင့် number အားလုံး English digits သာ — မြန်မာဂဏန်း လုံးဝ မသုံးရ။ (2) Response ကို sentence အလယ်မှာ မဖြတ်ရ — sections အားလုံး ပြည့်ပြည့်စုံစုံ ပြောပြီးမှ ဆုံးရမည်။`,
-          user: `AEGIS SOC AUTO-REPORT — နောက်ဆုံး ${periodLabel} (မြန်မာစံတော်ချိန်: ${sinceLabel} ~ ${nowLabel})\n\nEvent: ${recentEvents.length} ခု | Incident: ${incidentsCount} ခု\nSeverity: ${sevBreakdown || "မရှိ"}\nAttack types: ${attackTypes || "မရှိ"}\nTop attacker IPs: ${topAttackers || "မရှိ"}\n\nမြန်မာဘာသာဖြင့် SOC report ပြည့်ပြည့်စုံစုံ ရေးပါ — section တိုင်း ပြည့်ပြည့်စုံစုံ ဖြည့်ပြပါ:\n\nကာလ အကျဉ်းချုပ်:\n(ဘယ် IP တွေ ဘာ attack တွေ မည်မျှ ကြိမ် လုပ်ခဲ့သလဲ — အပြည့်အစုံ)\n\nအပြင်းထန်ဆုံး ခြိမ်းခြောက်မှုများ:\n(top 5 IPs — attack type, target, ကြိမ်ရေ — တစ်ခုချင်းစီ)\n\nDefense ဆောင်ရွက်ချက်:\n(ဘာ block လုပ်ပြီး၊ ဘာ pending ကျန် — အပြည့်အစုံ)\n\nနောက်ကာလ ကြိုတင် သတိပြု ရမည့် အချက်များ:\n(အနည်းဆုံး ၄ ချက် — တစ်ချက်ချင်းစီ တိကျသော command ပါဝင်)`,
+          system: `သင်သည် AEGIS-AI — မြန်မာ cybersecurity news anchor တစ်ဦးဖြစ်သည်။ live security briefing ပေးနေသကဲ့သို့ တိုက်ရိုက်ပြောသလို ရေးရမည်။
+
+PERSONA: TV news anchor — "ဒီညပိုင်း ကျွန်တော်တို့ ကွန်ရက်ကို ဘာတွေ တိုက်ခိုက်ခဲ့လဲ ပြောပြမှာပါ" ဆိုတဲ့ presentation style။
+VOICE: active — "တိုက်ခိုက်မှုပြုလုပ်ခဲ့သည်", "ဖောက်ထွင်းရန် ကြိုးပမ်းခဲ့သည်", "ခိုးဝင်ရန် ကြိုးစားခဲ့သည်" — passive "တာဝန်ရှိသည်" မသုံးရ။
+LANGUAGE: သဘာဝကျသော မြန်မာဘာသာ — translate လုပ်ထားသလို မဖြစ်ရ — news anchor လို ပြောကြားသလို ရေးရမည်။
+NUMBERS + IPs: English digits သာ — မြန်မာဂဏန်း လုံးဝ မသုံးရ။
+COMPLETE: sentence အလယ်မှာ မဖြတ်ရ — sections အားလုံး ပြည့်ပြည့်စုံစုံ ပြောပြီးမှ ဆုံးရမည်။`,
+          user: `AEGIS SOC SECURITY BRIEFING DATA — နောက်ဆုံး ${periodLabel} (${sinceLabel} ~ ${nowLabel})
+
+Event: ${recentEvents.length} ခု | Incident: ${incidentsCount} ခု
+Severity breakdown: ${sevBreakdown || "မရှိ"}
+Attack types: ${attackTypes || "မရှိ"}
+Top attacker IPs: ${topAttackers || "မရှိ"}
+
+ဤ data ကို အသုံးပြုပြီး Myanmar news anchor style ဖြင့် security briefing ရေးပါ။ Section တိုင်းကို ပြည့်ပြည့်စုံစုံ ဖြည့်ပါ —
+
+## ဖြစ်ပွားမှု အကျဉ်းချုပ်
+(ဒီ ${periodLabel} အတွင်း ဘာ attack တွေ ဖြစ်ခဲ့သလဲ — news anchor လို narrative ဖြင့်)
+
+## အဓိက ခြိမ်းခြောက်မှုများ
+(IP တစ်ခုချင်းစီ — တိုက်ခိုက်မှုပြုလုပ်ခဲ့သည်/ ဖောက်ထွင်းရန် ကြိုးပမ်းခဲ့သည် — active voice — top 5)
+
+## ကာကွယ်ရေး ဆောင်ရွက်ချက်များ
+(ဘာ block လုပ်ပြီး၊ ဘာ pending ကျန် — active style ဖြင့်)
+
+## သတိပြုရမည့် နောက်ထပ် အချက်များ
+(အနည်းဆုံး ၄ ချက် — တစ်ချက်ချင်းစီ တိကျသော အကြံပြုချက်)`,
           maxTokens: 4000,
         });
         aiGenerated = true;

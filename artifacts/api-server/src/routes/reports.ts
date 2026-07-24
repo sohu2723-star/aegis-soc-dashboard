@@ -60,6 +60,7 @@ router.post("/reports/generate", async (req, res) => {
       const sevBreakdown = Object.entries(bySeverity).map(([s,n])=>`${s}:${n}`).join(", ");
 
       const aiPrompt = `
+AEGIS SOC SECURITY BRIEFING DATA
 REPORT TYPE: ${body.type.toUpperCase()} — "${body.title}"
 TIME WINDOW: last ${windowHours} hours
 Total events: ${recentEvents.length} | Incidents: ${incidentsCount}
@@ -67,31 +68,30 @@ Severity: ${sevBreakdown || "no data"}
 Attack types: ${attackTypes || "no data"}
 Top attackers: ${topAttackers || "no data"}
 
-အောက်ပါ sections တိုင်းကို ပြည့်ပြည့်စုံစုံ ဖြည့်ပေးပါ — section heading English uppercase, content မြန်မာလို conversational ပြောပြ — မိတ်ဆွေကို ပြောနေသလို တိုက်ရိုက်ရှင်းပြ:
+ဤ data ကို မြန်မာ security news anchor style ဖြင့် briefing ရေးပါ — section တိုင်း ပြည့်ပြည့်စုံစုံ —
 
-THREAT SUMMARY:
-(ဘယ် IP တွေ ဘာ attack တွေ မည်မျှ ကြိမ် လုပ်ခဲ့သလဲ — အပြည့်အစုံ conversational ဖြင့်)
+## ဖြစ်ပွားမှု အကျဉ်းချုပ်
+(ဒီ ${windowHours} နာရီ အတွင်း ဘာ attack တွေ ဖြစ်ခဲ့သလဲ — news anchor narrative)
 
-TOP THREATS:
-(top attacker IP တစ်ခုချင်းစီ — attack type, severity, target, ကြိမ်ရေ — ဘယ်ကောင်က အပြင်းဆုံးလဲ ပြောပြ)
+## အဓိက ခြိမ်းခြောက်မှုများ
+(IP တစ်ခုချင်းစီ — တိုက်ခိုက်မှုပြုလုပ်ခဲ့သည်/ဖောက်ထွင်းရန် ကြိုးပမ်းခဲ့သည် — active voice)
 
-DEFENSE STATUS:
-(ဘာ block လုပ်ပြီးပြီ၊ pending ကျန်နေသေးတာ — ဖြေရှင်းမှု အနေအထားကို ပြောပြ)
+## ကာကွယ်ရေး ဆောင်ရွက်ချက်များ
+(block လုပ်ပြီးသည်များ၊ pending ကျန်သည်များ — active style)
 
-RECOMMENDATIONS:
-(အနည်းဆုံး ၅ ချက် — တစ်ချက်ချင်းစီ တိကျသော command ပါဝင် — "ဒါကြောင့် ဒါ လုပ်သင့်တယ်" သလို conversational ဖြင့်)
+## သတိပြုရမည့် အကြံပြုချက်များ
+(အနည်းဆုံး ၅ ချက် — တိကျသော command ပါဝင်)
 `.trim();
 
       summary = await askGroq({
-        system: `သင်သည် AEGIS-AI SOC analyst ဖြစ်သည်။
-Lab: company-web-server 10.10.10.10 (DMZ), company-dns-server 10.10.10.20 (DMZ), company-customer-db 10.20.20.10 (Internal), company-ldap-server 10.20.20.20 (Internal), aegis-company-admin 10.30.30.10 (MGMT), pfSense 10.30.30.1 (Firewall).
-STRICT RULES:
-(1) SECTION HEADINGS — English uppercase သာ သုံးရမည် (THREAT SUMMARY:, TOP THREATS:, DEFENSE STATUS:, RECOMMENDATIONS:) — မြန်မာလို section ခေါင်းစဉ် မရေးရ
-(2) CONTENT — မြန်မာဘာသာ conversational style — မိတ်ဆွေကို face-to-face ပြောနေသလို — formal မဟုတ်ဘဲ တိုက်ရိုက်ပြောသလို
-(3) IP address နှင့် number အားလုံး English digits သာ — မြန်မာဂဏန်း လုံးဝ မသုံးရ
-(4) Response ကို sentence အလယ်မှာ မဖြတ်ရ — sections အားလုံး ပြည့်ပြည့်စုံစုံ ပြောပြီးမှ ဆုံးရမည်
-(5) Attacker သည် မည်သည့် IP မဆို ဖြစ်နိုင်သည် — IP range ကို မယူဆပါနှင့်
-(6) Markdown # headers မသုံးပါနှင့်`,
+        system: `သင်သည် AEGIS-AI — မြန်မာ cybersecurity news anchor တစ်ဦးဖြစ်သည်။
+Lab: company-web-server 10.10.10.10, company-dns-server 10.10.10.20, company-customer-db 10.20.20.10, company-ldap-server 10.20.20.20, pfSense 10.30.30.1.
+RULES:
+- မြန်မာဘာသာ သဘာဝကျကျ — news anchor ပြောသလို — translate ဖြစ်မနေရ
+- Active voice: "တိုက်ခိုက်မှုပြုလုပ်ခဲ့သည်" — passive "တာဝန်ရှိသည်" မသုံးရ
+- Section headings: ## ဖြင့် မြန်မာဘာသာ ခေါင်းစဉ် (## ဖြစ်ပွားမှု အကျဉ်းချုပ်, ## အဓိက ခြိမ်းခြောက်မှုများ, ## ကာကွယ်ရေး ဆောင်ရွက်ချက်များ, ## သတိပြုရမည့် အကြံပြုချက်များ)
+- IP + numbers: English digits သာ — မြန်မာဂဏန်း မသုံးရ
+- Sentence မဖြတ်ရ — sections အားလုံး ပြည့်ပြည့်စုံစုံ ဆုံးမှ ရပ်ရမည်`,
         user: aiPrompt,
         maxTokens: 2500,
       });
@@ -247,12 +247,21 @@ router.get("/reports/:id/download", async (req, res) => {
   .c-green    { color: var(--green); }
   .c-muted    { color: var(--muted); }
 
-  /* ── Summary box ── */
+  /* ── Summary box / AI briefing ── */
   .summary-box {
     background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
     padding: 20px 24px; line-height: 1.8; color: var(--text); font-size: 13px;
-    white-space: pre-wrap;
   }
+  .summary-section { margin-bottom: 20px; }
+  .summary-section:last-child { margin-bottom: 0; }
+  .summary-heading {
+    font-size: 9px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase;
+    color: var(--primary); border-bottom: 1px solid rgba(34,211,238,0.2);
+    padding-bottom: 6px; margin-bottom: 10px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .summary-heading::before { content: ""; display: block; width: 3px; height: 12px; background: var(--primary); border-radius: 2px; }
+  .summary-body { color: var(--text); line-height: 1.85; font-size: 13px; white-space: pre-wrap; }
 
   /* ── Two-column grid ── */
   .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
@@ -386,10 +395,37 @@ router.get("/reports/:id/download", async (req, res) => {
     </div>
   </div>
 
-  <!-- AI Summary -->
+  <!-- AI Summary — parsed into styled sections by ## headings -->
   <div class="section">
-    <div class="section-title">Executive Summary</div>
-    <div class="summary-box">${report.summary}</div>
+    <div class="section-title">AI Security Briefing — မြန်မာ SOC Analysis</div>
+    <div class="summary-box">
+      ${(() => {
+        const raw = report.summary ?? "";
+        // Split on ## headings; if no headings found, show as plain pre-wrap block
+        const parts = raw.split(/^##\s*/m);
+        if (parts.length <= 1) {
+          return `<div class="summary-body">${raw.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}</div>`;
+        }
+        // First part before any ## (if any)
+        const intro = parts[0].trim();
+        const sections = parts.slice(1);
+        const introHtml = intro
+          ? `<div class="summary-body" style="margin-bottom:16px">${intro.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}</div>`
+          : "";
+        const sectionsHtml = sections.map(sec => {
+          const nl = sec.indexOf("\n");
+          const heading = nl === -1 ? sec.trim() : sec.slice(0, nl).trim();
+          const body    = nl === -1 ? "" : sec.slice(nl + 1).trim();
+          const escapedHeading = heading.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+          const escapedBody    = body.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+          return `<div class="summary-section">
+            <div class="summary-heading">${escapedHeading}</div>
+            ${escapedBody ? `<div class="summary-body">${escapedBody}</div>` : ""}
+          </div>`;
+        }).join("\n");
+        return introHtml + sectionsHtml;
+      })()}
+    </div>
   </div>
 
   <!-- Two-col: top attackers + incident breakdown -->

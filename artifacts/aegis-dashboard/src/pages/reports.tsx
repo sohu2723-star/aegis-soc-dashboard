@@ -120,6 +120,15 @@ function VoiceReader({ text, language }: { text: string; language: "en" | "my" }
 
   // ── Google TTS (Burmese) ─────────────────────────────────────────────────────
 
+  /** Decode a base64 MP3 chunk → Blob URL so the browser can play it without CORS issues */
+  function base64ToBlobUrl(b64: string): string {
+    const binary = atob(b64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const blob = new Blob([bytes], { type: "audio/mpeg" });
+    return URL.createObjectURL(blob);
+  }
+
   async function speakGoogle() {
     stopRef.current = false;
     modeRef.current = "google";
@@ -127,7 +136,7 @@ function VoiceReader({ text, language }: { text: string; language: "en" | "my" }
     setPaused(false);
 
     try {
-      // Use POST to avoid URL-too-long errors with full AI analysis text
+      // Backend proxies Google TTS server-side → returns base64 MP3 chunks (no CORS)
       const r = await fetch(`${BASE}/api/tts/speak`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -135,9 +144,20 @@ function VoiceReader({ text, language }: { text: string; language: "en" | "my" }
       });
       if (!r.ok) throw new Error("TTS backend error");
       const data = await r.json();
-      const urls: string[] = data.urls ?? [];
-      if (!urls.length || stopRef.current) { setSpeaking(false); return; }
-      audioQueueRef.current = [...urls];
+
+      // New format: { chunks: string[], type: "base64/mp3" }
+      // Legacy format: { urls: string[] }  (kept for compat)
+      let blobUrls: string[];
+      if (data.chunks?.length) {
+        blobUrls = (data.chunks as string[]).map(base64ToBlobUrl);
+      } else if (data.urls?.length) {
+        blobUrls = data.urls as string[];
+      } else {
+        throw new Error("No audio data returned");
+      }
+
+      if (stopRef.current) { blobUrls.forEach(u => URL.revokeObjectURL(u)); setSpeaking(false); return; }
+      audioQueueRef.current = blobUrls;
       playNextGoogle();
     } catch {
       // Backend failed → fall back to Web Speech API
@@ -153,9 +173,18 @@ function VoiceReader({ text, language }: { text: string; language: "en" | "my" }
 
     const audio = new Audio(url);
     audioRef.current = audio;
-    audio.onended = () => { if (!stopRef.current) playNextGoogle(); };
-    audio.onerror = () => { if (!stopRef.current) playNextGoogle(); }; // skip failed chunk
-    audio.play().catch(() => { if (!stopRef.current) playNextGoogle(); });
+    audio.onended = () => {
+      URL.revokeObjectURL(url);
+      if (!stopRef.current) playNextGoogle();
+    };
+    audio.onerror = () => {
+      URL.revokeObjectURL(url);
+      if (!stopRef.current) playNextGoogle();
+    };
+    audio.play().catch(() => {
+      URL.revokeObjectURL(url);
+      if (!stopRef.current) playNextGoogle();
+    });
   }
 
   function togglePauseGoogle() {
