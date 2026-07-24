@@ -62,13 +62,19 @@ router.post("/firewall/rules", async (req, res) => {
   }
 
   // Build a shell-safe iptables command string.
+  // --sport / --dport are only valid for TCP / UDP, not ICMP or "all"
+  const portProto = protocol === "tcp" || protocol === "udp";
+  // -i (in-interface) is only valid for INPUT / FORWARD chains; OUTPUT uses -o
   const parts = ["iptables", "-A", chain];
-  if (protocol)   parts.push("-p", protocol);
-  if (sourceIp)   parts.push("-s", sourceIp);
-  if (destIp)     parts.push("-d", destIp);
-  if (sourcePort) parts.push("--sport", sourcePort);
-  if (destPort)   parts.push("--dport", destPort);
-  if (iface)      parts.push("-i", iface);
+  if (protocol)              parts.push("-p", protocol);
+  if (sourceIp)              parts.push("-s", sourceIp);
+  if (destIp)                parts.push("-d", destIp);
+  if (sourcePort && portProto) parts.push("--sport", sourcePort);
+  if (destPort   && portProto) parts.push("--dport", destPort);
+  if (iface) {
+    if (chain === "OUTPUT") parts.push("-o", iface);
+    else                    parts.push("-i", iface);
+  }
   parts.push("-j", action);
   const ruleText = parts.join(" ");
 

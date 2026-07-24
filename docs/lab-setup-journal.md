@@ -3267,6 +3267,30 @@ pnpm install   # workspace root မှာ
 
 ---
 
+### [2026-07-25] — iptables Command Bugs Fix + Defense Rules UI Cleanup
+**Status:** ✅ Done
+**What:** Command History မှာ failed 3 ခု ပြနေတာ root cause စစ်ပြီး fix လုပ်ခဲ့
+**Root Causes:**
+1. **`--sport`/`--dport` with ICMP** — `firewall.ts` မှာ protocol check မလုပ်ဘဲ `--sport`/`--dport` အမြဲ ထည့်နေတာ။ ICMP-တော့ ports မရှိဘူး။ Fix: `portProto = protocol === "tcp" || protocol === "udp"` check ထည့်ပြီး TCP/UDP မှသာ port flags ထည့်
+2. **`-i` with OUTPUT chain** — `-i` (in-interface) က INPUT/FORWARD chain မှသာ valid ဖြစ်တယ်၊ OUTPUT chain မှာ `-o` (out-interface) သုံးရမယ်။ Fix: `chain === "OUTPUT"` ဆိုရင် `-o` ပြောင်း
+3. **`sudo: terminal required` on company VMs** — `_exec_defense_ssh_remote()` က `sudo {command}` ဖြင့် SSH run တယ်၊ company VM SSH user (`REMOTE_SSH_USER`) မှာ NOPASSWD configure မလုပ်ထားလို့ fail တာ → VM-side fix လိုတယ် (အောက်ကြည့်)
+**UI Changes:**
+- Defense Rules "Create Rule" form: Trigger Attack Type dropdown မှာ `honeypot` ဖြုတ်ခဲ့
+- Action Mode dropdown မှာ `Suggest Only` ဖြုတ်ခဲ့
+**How:** `artifacts/api-server/src/routes/firewall.ts` (port+interface logic), `artifacts/aegis-dashboard/src/pages/defense-rules.tsx` (UI dropdowns)
+**Result:** iptables command generation ပြင်ပြီ
+**VM Fix Required (company-web-server + company-customer-db + company-dns-server + company-ldap-server မှာ):**
+```bash
+# REMOTE_SSH_USER က NOPASSWD sudo ရှိဖို့ (aegis hub က sudo systemctl run နိုင်ဖို့)
+echo "$(whoami) ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/aegis-defense
+sudo chmod 440 /etc/sudoers.d/aegis-defense
+# verify
+sudo -n systemctl status fail2ban
+```
+**Next:** GitHub push → Render/Vercel deploy → production မှာ iptables rules မှားတော့မယ်
+
+---
+
 ### [2026-07-24] — Sidebar Labels + AI Truncation + Mixed-Language TTS
 **Status:** ✅ Done
 **What:** 7 ချက် fix လုပ်ခဲ့

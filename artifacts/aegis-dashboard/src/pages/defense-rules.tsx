@@ -240,7 +240,6 @@ function RulesTab() {
                         { v: "port_scan",      label: "port_scan  (nmap)" },
                         { v: "dns_attack",     label: "dns_attack  (BIND9 / dnsspoof)" },
                         { v: "auth_event",     label: "auth_event  (unauthorized login success)" },
-                        { v: "honeypot",       label: "honeypot  (Cowrie SSH trap)" },
                       ].map(({ v, label }) => (
                         <SelectItem key={v} value={v}>{label}</SelectItem>
                       ))}
@@ -283,7 +282,6 @@ function RulesTab() {
                     <SelectTrigger className="bg-background border-border text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="auto">Auto Execute</SelectItem>
-                      <SelectItem value="suggest">Suggest Only</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
