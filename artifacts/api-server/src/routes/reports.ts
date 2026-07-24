@@ -67,25 +67,31 @@ Severity: ${sevBreakdown || "no data"}
 Attack types: ${attackTypes || "no data"}
 Top attackers: ${topAttackers || "no data"}
 
-မြန်မာဘာသာဖြင့် SOC report ပြည့်ပြည့်စုံစုံ ရေးပါ — section တိုင်း ပြည့်ပြည့်စုံစုံ ဖြည့်ပြပါ:
+အောက်ပါ sections တိုင်းကို ပြည့်ပြည့်စုံစုံ ဖြည့်ပေးပါ — section heading English uppercase, content မြန်မာလို conversational ပြောပြ — မိတ်ဆွေကို ပြောနေသလို တိုက်ရိုက်ရှင်းပြ:
 
-ခြိမ်းခြောက်မှု အကျဉ်းချုပ် (Threat Summary):
-(ဘယ် IP တွေ ဘာ attack တွေ မည်မျှ ကြိမ် လုပ်ခဲ့သလဲ — အပြည့်အစုံ)
+THREAT SUMMARY:
+(ဘယ် IP တွေ ဘာ attack တွေ မည်မျှ ကြိမ် လုပ်ခဲ့သလဲ — အပြည့်အစုံ conversational ဖြင့်)
 
-အပြင်းထန်ဆုံး ခြိမ်းခြောက်မှုများ (Top Threats):
-(top attacker IP တစ်ခုချင်းစီ — attack type, severity, target, ကြိမ်ရေ)
+TOP THREATS:
+(top attacker IP တစ်ခုချင်းစီ — attack type, severity, target, ကြိမ်ရေ — ဘယ်ကောင်က အပြင်းဆုံးလဲ ပြောပြ)
 
-Defense အခြေအနေ (Defense Status):
-(ဘာ block လုပ်ပြီးပြီ၊ pending ကျန်နေသေးတာ)
+DEFENSE STATUS:
+(ဘာ block လုပ်ပြီးပြီ၊ pending ကျန်နေသေးတာ — ဖြေရှင်းမှု အနေအထားကို ပြောပြ)
 
-ထောက်ပံ့ချက်များ (Recommendations):
-(အနည်းဆုံး ၅ ချက် — တစ်ချက်ချင်းစီ တိကျသော command ပါဝင်)
+RECOMMENDATIONS:
+(အနည်းဆုံး ၅ ချက် — တစ်ချက်ချင်းစီ တိကျသော command ပါဝင် — "ဒါကြောင့် ဒါ လုပ်သင့်တယ်" သလို conversational ဖြင့်)
 `.trim();
 
       summary = await askGroq({
-        system: `သင်သည် AEGIS-AI SOC analyst ဖြစ်သည်။ Professional security report ကို မြန်မာဘာသာ (Burmese) ဖြင့် ရေးပါ — technical terms နှင့် IP address သာ English သုံးပါ။ Markdown # headers မသုံးပါနှင့်။
+        system: `သင်သည် AEGIS-AI SOC analyst ဖြစ်သည်။
 Lab: company-web-server 10.10.10.10 (DMZ), company-dns-server 10.10.10.20 (DMZ), company-customer-db 10.20.20.10 (Internal), company-ldap-server 10.20.20.20 (Internal), aegis-company-admin 10.30.30.10 (MGMT), pfSense 10.30.30.1 (Firewall).
-STRICT RULES: (1) IP address နှင့် number အားလုံး English digits သာ — မြန်မာဂဏန်း လုံးဝ မသုံးရ။ (2) Response ကို sentence အလယ်မှာ မဖြတ်ရ — sections အားလုံး ပြည့်ပြည့်စုံစုံ ပြောပြီးမှ ဆုံးရမည်။ (3) Attacker သည် မည်သည့် IP မဆို ဖြစ်နိုင်သည် — IP range ကို မယူဆပါနှင့်။`,
+STRICT RULES:
+(1) SECTION HEADINGS — English uppercase သာ သုံးရမည် (THREAT SUMMARY:, TOP THREATS:, DEFENSE STATUS:, RECOMMENDATIONS:) — မြန်မာလို section ခေါင်းစဉ် မရေးရ
+(2) CONTENT — မြန်မာဘာသာ conversational style — မိတ်ဆွေကို face-to-face ပြောနေသလို — formal မဟုတ်ဘဲ တိုက်ရိုက်ပြောသလို
+(3) IP address နှင့် number အားလုံး English digits သာ — မြန်မာဂဏန်း လုံးဝ မသုံးရ
+(4) Response ကို sentence အလယ်မှာ မဖြတ်ရ — sections အားလုံး ပြည့်ပြည့်စုံစုံ ပြောပြီးမှ ဆုံးရမည်
+(5) Attacker သည် မည်သည့် IP မဆို ဖြစ်နိုင်သည် — IP range ကို မယူဆပါနှင့်
+(6) Markdown # headers မသုံးပါနှင့်`,
         user: aiPrompt,
         maxTokens: 2500,
       });

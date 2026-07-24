@@ -9,7 +9,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { format } from "date-fns";
-import { Download, Plus, Search, FileBarChart, Trash2, Sparkles, RefreshCcw, Bot, AlertTriangle, ShieldCheck, Zap } from "lucide-react";
+import { Download, Plus, Search, FileBarChart, Trash2, Sparkles, RefreshCcw, Bot, AlertTriangle, ShieldCheck, Zap, Volume2, Pause, Play, Square } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 
@@ -26,27 +26,128 @@ interface ThreatAnalysis {
   };
 }
 
-/** Renders AI analysis text with section labels highlighted */
+/** Detect if a string is predominantly Burmese */
+function isBurmeseText(text: string): boolean {
+  const burmese = (text.match(/[\u1000-\u109F\uAA60-\uAA7F]/g) ?? []).length;
+  return burmese > text.length * 0.15;
+}
+
+/** Renders AI analysis text with English section headings styled distinctly */
 function AiAnalysisText({ text }: { text: string }) {
   const lines = text.split("\n");
   return (
     <div className="space-y-1">
       {lines.map((line, i) => {
-        const isSectionHeader = /^[A-Z\s]+:/.test(line.trim()) && line.trim().length < 60;
+        // English uppercase section header: e.g. "THREAT SUMMARY:" or "RECOMMENDATIONS:"
+        const isSectionHeader =
+          /^[A-Z][A-Z\s]{2,}:/.test(line.trim()) && line.trim().length < 80;
         if (!line.trim()) return <div key={i} className="h-2" />;
-        return (
-          <p
-            key={i}
-            className={
-              isSectionHeader
-                ? "text-xs font-bold text-primary uppercase tracking-widest mt-3 mb-1"
-                : "text-sm text-muted-foreground leading-relaxed"
-            }
-          >
+        return isSectionHeader ? (
+          <div key={i} className="flex items-center gap-2 mt-4 mb-1">
+            <span className="w-1 h-3.5 bg-primary rounded-sm flex-shrink-0" />
+            <p className="text-[11px] font-bold text-primary uppercase tracking-widest">
+              {line.replace(/:$/, "")}
+            </p>
+          </div>
+        ) : (
+          <p key={i} className="text-sm text-muted-foreground leading-relaxed pl-3">
             {line}
           </p>
         );
       })}
+    </div>
+  );
+}
+
+/** Voice reader — speaks AI analysis with Burmese/English auto-detect per line */
+function VoiceReader({ text }: { text: string }) {
+  const [speaking, setSpeaking] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const supported = typeof window !== "undefined" && "speechSynthesis" in window;
+
+  function speak() {
+    if (!supported) return;
+    window.speechSynthesis.cancel();
+    const lines = text.split("\n").filter((l) => l.trim());
+    let idx = 0;
+
+    const speakNext = () => {
+      if (idx >= lines.length) { setSpeaking(false); return; }
+      const line = lines[idx++];
+      const utter = new SpeechSynthesisUtterance(line.replace(/:$/, ""));
+      utter.lang = isBurmeseText(line) ? "my-MM" : "en-US";
+      utter.rate = 0.88;
+      utter.pitch = 1.05;
+      utter.onend = speakNext;
+      utter.onerror = speakNext;
+      window.speechSynthesis.speak(utter);
+    };
+
+    setSpeaking(true);
+    setPaused(false);
+    speakNext();
+  }
+
+  function stop() {
+    window.speechSynthesis.cancel();
+    setSpeaking(false);
+    setPaused(false);
+  }
+
+  function togglePause() {
+    if (paused) {
+      window.speechSynthesis.resume();
+      setPaused(false);
+    } else {
+      window.speechSynthesis.pause();
+      setPaused(true);
+    }
+  }
+
+  if (!supported) return null;
+
+  return (
+    <div className="flex items-center gap-2">
+      {!speaking ? (
+        <button
+          onClick={speak}
+          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors border border-border hover:border-primary/50 rounded px-2.5 py-1.5"
+        >
+          <Volume2 className="w-3.5 h-3.5" />
+          Listen
+        </button>
+      ) : (
+        <>
+          {/* Speaking waveform */}
+          <div className="flex gap-0.5 items-center h-5">
+            {[3, 6, 10, 7, 4, 8, 5].map((h, i) => (
+              <span
+                key={i}
+                className={`w-0.5 rounded-full bg-primary transition-all ${paused ? "" : "animate-pulse"}`}
+                style={{
+                  height: paused ? "3px" : `${h}px`,
+                  animationDelay: `${i * 80}ms`,
+                  animationDuration: "600ms",
+                }}
+              />
+            ))}
+          </div>
+          <button
+            onClick={togglePause}
+            title={paused ? "Resume" : "Pause"}
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary border border-border hover:border-primary/40 rounded px-2 py-1.5"
+          >
+            {paused ? <Play className="w-3 h-3" /> : <Pause className="w-3 h-3" />}
+          </button>
+          <button
+            onClick={stop}
+            title="Stop"
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-red-400 border border-border hover:border-red-500/40 rounded px-2 py-1.5"
+          >
+            <Square className="w-3 h-3" />
+          </button>
+        </>
+      )}
     </div>
   );
 }
@@ -241,21 +342,24 @@ export default function Reports() {
                 </CardDescription>
               </div>
             </div>
-            <Button
-              size="sm"
-              variant={aiData ? "outline" : "default"}
-              onClick={loadAiBriefing}
-              disabled={aiLoading}
-              className={aiData ? "border-border" : ""}
-            >
-              {aiLoading ? (
-                <><RefreshCcw className="w-3.5 h-3.5 mr-1.5 animate-spin" />Analyzing...</>
-              ) : aiData ? (
-                <><RefreshCcw className="w-3.5 h-3.5 mr-1.5" />Refresh</>
-              ) : (
-                <><Sparkles className="w-3.5 h-3.5 mr-1.5" />Analyze Now</>
-              )}
-            </Button>
+            <div className="flex items-center gap-2">
+              {aiData && <VoiceReader text={aiData.analysis} />}
+              <Button
+                size="sm"
+                variant={aiData ? "outline" : "default"}
+                onClick={loadAiBriefing}
+                disabled={aiLoading}
+                className={aiData ? "border-border" : ""}
+              >
+                {aiLoading ? (
+                  <><RefreshCcw className="w-3.5 h-3.5 mr-1.5 animate-spin" />Analyzing...</>
+                ) : aiData ? (
+                  <><RefreshCcw className="w-3.5 h-3.5 mr-1.5" />Refresh</>
+                ) : (
+                  <><Sparkles className="w-3.5 h-3.5 mr-1.5" />Analyze Now</>
+                )}
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent className="pt-4">

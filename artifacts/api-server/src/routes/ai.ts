@@ -26,12 +26,13 @@ Lab topology (AEGIS-SecureCompany):
 - Attacker: မည်သည့် IP မဆို — 192.168.122.x မဟုတ်ဘဲ မည်သည့် IP မဆို threat ဖြစ်နိုင်သည်
 
 Response rules (STRICT — မပျက်ကွက်ရ):
-1. မြန်မာဘာသာ ဖြင့်ရေး — IP, port, command, tool names သာ English
-2. CRITICAL: IP address နှင့် number အားလုံး — English digits သာ သုံးရမည် (192.168.1.1, 22, 443) — မြန်မာဂဏန်း (၁၂၃) လုံးဝ မသုံးရ
-3. Markdown headers (#, ##) မသုံးပါ — plain text paragraph သာ
-4. ချက်ချင်း actionable ဖြစ်ပါစေ — concrete command/step ပါဝင်ပါစေ
-5. CRITICAL: response ကို sentence အလယ်မှာ မဖြတ်ရ — စကားစုတိုင်း၊ section တိုင်း ပြည့်ပြည့်စုံစုံ ပြောပြီးမှ ဆုံးရမည်
-6. ပေးထားသော sections အားလုံး ဖြည့်ပြပါ — section တစ်ခုမျှ ကျော်မသွားရ`;
+1. SECTION HEADINGS — English uppercase သာ သုံးရမည် (e.g. "THREAT SUMMARY:", "RECOMMENDATIONS:") — မြန်မာလို section ခေါင်းစဉ် မရေးရ
+2. CONTENT — မြန်မာဘာသာ conversational style ဖြင့်ရေး — မိတ်ဆွေကို face-to-face ပြောနေသလို ဆော်ဆော်ပြောပြ — စာအုပ်ဖတ်သလို formal မဟုတ်ဘဲ တိုက်ရိုက်ပြောသလို ဖြစ်ရမည်
+3. CRITICAL: IP address နှင့် number အားလုံး — English digits သာ သုံးရမည် (192.168.1.1, 22, 443) — မြန်မာဂဏန်း (၁၂၃) လုံးဝ မသုံးရ
+4. Markdown headers (#, ##) မသုံးပါ — plain text paragraph သာ
+5. ချက်ချင်း actionable ဖြစ်ပါစေ — concrete command/step ပါဝင်ပါစေ
+6. CRITICAL: response ကို sentence အလယ်မှာ မဖြတ်ရ — စကားစုတိုင်း၊ section တိုင်း ပြည့်ပြည့်စုံစုံ ပြောပြီးမှ ဆုံးရမည်
+7. ပေးထားသော sections အားလုံး ဖြည့်ပြပါ — section တစ်ခုမျှ ကျော်မသွားရ`;
 
 // ─── Status ───────────────────────────────────────────────────────────────────
 
@@ -98,30 +99,30 @@ router.get("/ai/threat-analysis", async (_req, res) => {
       .map(a => `${a.action} on ${a.targetIp} (${a.status})`).join("; ");
 
     const userPrompt = `
-လုံခြုံရေး ဒေတာ — နောက်ဆုံး ၂၄ နာရီ
+Security data — last 24 hours
 
-စုစုပေါင်း event: ${recentEvents.length}
-Severity ခွဲခြမ်း: ${severityBreakdown || "none"}
-Attack အမျိုးအစား: ${attackTypes || "none"}
+Total events: ${recentEvents.length}
+Severity breakdown: ${severityBreakdown || "none"}
+Attack types: ${attackTypes || "none"}
 Top attacker IPs: ${topAttackers || "none"}
-တိုက်ခိုက်ခံ host များ: ${topTargets || "none"}
-ဖွင့်ထားသော incident: ${openIncidents.length}
-Acknowledge မလုပ်ရသေးသော alert: ${unackedAlerts[0]?.count ?? 0}
-ကျုံ့ defense actions: ${defenseActSummary || "none"}
+Targeted hosts: ${topTargets || "none"}
+Open incidents: ${openIncidents.length}
+Unacknowledged alerts: ${unackedAlerts[0]?.count ?? 0}
+Recent defense actions: ${defenseActSummary || "none"}
 
-မြန်မာဘာသာဖြင့် SOC threat briefing ပြည့်ပြည့်စုံစုံ ရေးပါ။ Section တစ်ခုချင်းစီကို အပြည့်ဖော်ပြပါ:
+အောက်ပါ sections တိုင်းကို ပြည့်ပြည့်စုံစုံ ဖြည့်ပေးပါ — section heading English uppercase, content မြန်မာလို conversational ပြောပြ:
 
-ခြိမ်းခြောက်မှု အကျဉ်းချုပ်:
-(ဘာတွေ ဖြစ်နေသလဲ၊ ဘယ် IP တွေ ဘာ attack တွေ လုပ်နေသလဲ — ရှင်းလင်းပြည့်စုံစွာ)
+THREAT SUMMARY:
+(ဘာတွေ ဖြစ်နေသလဲ၊ ဘယ် IP တွေ ဘာ attack တွေ လုပ်နေသလဲ — သူငယ်ချင်းကို ပြောပြသလို တိုက်ရိုက်ရှင်းပြ)
 
-အပြင်းထန်ဆုံး ခြိမ်းခြောက်မှုများ:
-(top attacker IP တစ်ခုချင်းစီ — attack type, severity, target host, ဘယ်လောက် ကြိမ် ဖြစ်သလဲ)
+TOP THREATS:
+(top attacker IP တစ်ခုချင်းစီ — attack type, severity, target host, ကြိမ်ရေ — ဘယ် IP က အပြင်းဆုံးလဲ ပြောပြ)
 
-Defense အခြေအနေ:
-(ဘာ block လုပ်ပြီးပြီ၊ Fail2ban/Suricata/pfSense status၊ ဘာ pending ကျန်နေသေးသလဲ)
+DEFENSE STATUS:
+(ဘာ block လုပ်ပြီးပြီ၊ Fail2ban/Suricata/pfSense status၊ ဘာ pending ကျန်နေသေးသလဲ — ဖြေရှင်းမှု အနေအထားကို ရှင်းရှင်းပြောပြ)
 
-ထောက်ပံ့ချက် (Recommendations):
-(အနည်းဆုံး ၅ ချက် — တစ်ချက်ချင်းစီ တိကျသော command သို့မဟုတ် action ပါဝင်ပါစေ)
+RECOMMENDATIONS:
+(အနည်းဆုံး ၅ ချက် — တစ်ချက်ချင်းစီ တိကျသော command သို့မဟုတ် action ပါဝင်ပါစေ — "ဒါကြောင့် ဒီ command ကို run ပါ" သလို conversational ဖြစ်ပါစေ)
 `.trim();
 
     const analysis = await askGroq({ system: SOC_SYSTEM, user: userPrompt, maxTokens: 4000 });
@@ -181,27 +182,27 @@ router.post("/ai/defend", async (req, res) => {
 
     const userPrompt = `
 ATTACKER IP: ${ip}
-ဒီ IP မှ စုစုပေါင်း event: ${events.length}
-Attack အမျိုးအစား: ${attackSummary}
-တိုက်ခိုက်ခံ host များ: ${[...targets].join(", ")}
+Total events from this IP: ${events.length}
+Attack types: ${attackSummary}
+Targeted hosts: ${[...targets].join(", ")}
 Severity levels: ${severities}
-ယခင် defense actions: ${defenseHistory_str}
-ပထမဆုံး တွေ့ချိန်: ${events[events.length-1]?.createdAt?.toISOString?.() ?? "unknown"}
-နောက်ဆုံး တွေ့ချိန်: ${events[0]?.createdAt?.toISOString?.() ?? "unknown"}
+Previous defense actions: ${defenseHistory_str}
+First seen: ${events[events.length-1]?.createdAt?.toISOString?.() ?? "unknown"}
+Last seen: ${events[0]?.createdAt?.toISOString?.() ?? "unknown"}
 
-မြန်မာဘာသာဖြင့် ဒီ IP အတွက် defense recommendation ပြည့်ပြည့်စုံစုံ ရေးပါ:
+အောက်ပါ sections တိုင်းကို ဖြည့်ပေးပါ — section heading English uppercase, content မြန်မာလို conversational ပြောပြ:
 
-ခြိမ်းခြောက်မှု ကိုယ်ပိုင်ပုံရိပ် (Threat Profile):
-(ဒီ attacker ဘာ attack pattern ဆောင်ထားသလဲ၊ ဘာ tool သုံးနေသလဲ ဖော်ပြပါ)
+THREAT PROFILE:
+(ဒီ attacker ဘာ attack pattern ဆောင်ထားသလဲ၊ ဘာ tool သုံးနေသလဲ — သူဘာကို ကြိုးစားနေသလဲ ရှင်းရှင်းပြောပြ)
 
-အန္တရာယ် အဆင့် (Risk Level):
-(Critical / High / Medium — ဘာကြောင့် ဒီ level ဆိုတာ ရှင်းပြပါ)
+RISK LEVEL:
+(Critical / High / Medium — ဘာကြောင့် ဒီ level ဆိုတာ conversational ဖြင့် ရှင်းပြ)
 
-ချက်ချင်း လုပ်ဆောင်ရမည့် အဆင့်များ (Immediate Actions):
-(အနည်းဆုံး ၅ ချက် — iptables command, pfSense rule, fail2ban config တိကျစွာ ပါဝင်ပါစေ)
+IMMEDIATE ACTIONS:
+(အနည်းဆုံး ၅ ချက် — iptables command, pfSense rule, fail2ban config တိကျစွာ ပါဝင်ပါစေ — "ဒါကြောင့် ဒါ run ပါ" သလို ဆော်ဆော်ပြောပြ)
 
-ဆက်လက် စောင့်ကြည့်ရမည့် အချက်များ (Monitor):
-(ဘာ log တွေ၊ ဘာ port တွေ၊ ဘာ alert တွေ ဆက်ကြည့်မလဲ)
+MONITORING:
+(ဘာ log တွေ၊ ဘာ port တွေ၊ ဘာ alert တွေ ဆက်ကြည့်မလဲ — practical advice ပေးပြ)
 
 ဒီ IP က မည်သည့် IP မဆို ဖြစ်နိုင်သည် (internal network, external, VPN) — assumption မမှားပါနှင့်
 `.trim();
