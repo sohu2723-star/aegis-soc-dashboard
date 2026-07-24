@@ -25,6 +25,7 @@ import { getSetting } from "../lib/app-settings";
 import { isDefenderIp, isLabInternalIp, isAttackerSubnetIp, isSuricataProtocolNoiseSid } from "../lib/ip-classifier";
 import { eq } from "drizzle-orm";
 import { recordTrafficStats } from "./network";
+import { logger } from "../lib/logger";
 import {
   resolveSeverity,
   type SecuritySeverity,
@@ -72,34 +73,80 @@ async function insertEvent(values: typeof securityEventsTable.$inferInsert) {
     description: event.description,
     status:      event.status,
   });
+  // Every real attack severity is visible in Active Alerts. The endpoint-
+  // specific calls below add a more descriptive message; mkAlert is
+  // idempotent per event so they cannot create duplicate rows.
+  if (event.severity === "critical" || event.severity === "high" || event.severity === "medium") {
+    await mkAlert(
+      event.id,
+      event.severity,
+      `${event.severity.toUpperCase()} [${event.subtype}]: ${event.description.slice(0, 180)}`,
+    );
+  }
   return event;
 }
 
-async function mkAlert(eventId: number, severity: "critical"|"high", message: string) {
+const telegramNotifiedEvents = new Set<number>();
+
+async function notifyTelegramForAlert(
+  eventId: number,
+  severity: "critical" | "high" | "medium",
+  message: string,
+): Promise<boolean> {
+  if ((severity !== "critical" && severity !== "high") || !telegramAvailable()) return false;
+  if (telegramNotifiedEvents.has(eventId)) return true;
+
+  try {
+    const enabled = await getSetting("telegramEnabled");
+    if (enabled === "false") return false;
+
+    // Myanmar Standard Time (UTC+6:30) timestamp
+    const MST_OFFSET_MS = (6 * 60 + 30) * 60 * 1000;
+    const mst = new Date(Date.now() + MST_OFFSET_MS);
+    const ts = `${mst.getUTCFullYear()}-${String(mst.getUTCMonth() + 1).padStart(2, "0")}-${String(mst.getUTCDate()).padStart(2, "0")} ${String(mst.getUTCHours()).padStart(2, "0")}:${String(mst.getUTCMinutes()).padStart(2, "0")}:${String(mst.getUTCSeconds()).padStart(2, "0")} (MST)`;
+    const emoji = severity === "critical" ? "🚨" : "⚠️";
+    const label = severity === "critical" ? "CRITICAL ALERT" : "HIGH ALERT";
+    await sendTelegramMessage(
+      `${emoji} <b>AEGIS — ${label}</b>\n🕐 ${ts}\n${message.slice(0, 280)}`,
+    );
+    telegramNotifiedEvents.add(eventId);
+    return true;
+  } catch (error: any) {
+    logger.warn({ err: error?.message ?? String(error), eventId }, "Telegram alert send failed");
+    return false;
+  }
+}
+
+async function mkAlert(eventId: number, severity: "critical"|"high"|"medium", message: string) {
+  const [existing] = await db.select({ id: alertsTable.id }).from(alertsTable)
+    .where(eq(alertsTable.eventId, eventId));
+  if (existing) {
+    // Auto-defense can create the alert before this common ingest path runs.
+    // Still send the high/critical Telegram notification exactly once.
+    const alreadyNotified = telegramNotifiedEvents.has(eventId);
+    const telegramSent = await notifyTelegramForAlert(eventId, severity, message);
+    // The endpoint-specific handler may call mkAlert after insertEvent has
+    // already created and broadcast the same row. Avoid a duplicate SSE
+    // packet/toast, while still broadcasting a first successful send for an
+    // alert row created by auto-defense.
+    if (!alreadyNotified && telegramSent) {
+      broadcaster.broadcast("alert", { id: existing.id, eventId, severity, telegramSent });
+    }
+    return existing;
+  }
+
   const [row] = await db.insert(alertsTable).values({
     message: message.slice(0, 255), severity,
-    channel: "telegram",           // all high+ go to telegram channel
+    channel: severity === "medium" ? "dashboard" : "telegram",
     acknowledged: false, eventId,
   }).returning();
-  broadcaster.broadcast("alert", { id: row.id, severity });
 
-  // Send Telegram immediately for all high+ alerts — do not wait; fail silently
-  if (telegramAvailable()) {
-    getSetting("telegramEnabled").then(enabled => {
-      if (enabled === "false") return;
-      // Myanmar Standard Time (UTC+6:30) timestamp
-      const MST_OFFSET_MS = (6 * 60 + 30) * 60 * 1000;
-      const mst = new Date(Date.now() + MST_OFFSET_MS);
-      const ts  = `${mst.getUTCFullYear()}-${String(mst.getUTCMonth()+1).padStart(2,"0")}-${String(mst.getUTCDate()).padStart(2,"0")} ${String(mst.getUTCHours()).padStart(2,"0")}:${String(mst.getUTCMinutes()).padStart(2,"0")}:${String(mst.getUTCSeconds()).padStart(2,"0")} (MST)`;
-      const emoji = severity === "critical" ? "🚨" : "⚠️";
-      const label = severity === "critical" ? "CRITICAL ALERT" : "HIGH ALERT";
-      const text  =
-        `${emoji} <b>AEGIS — ${label}</b>\n` +
-        `🕐 ${ts}\n` +
-        `${message.slice(0, 280)}`;
-      sendTelegramMessage(text).catch(() => {/* silent */});
-    }).catch(() => {/* silent */});
-  }
+  const telegramSent = await notifyTelegramForAlert(eventId, severity, message);
+
+  // Broadcast after the send attempt so the Threat Map's TELEGRAM packet and
+  // badge reflect an actual successful Telegram delivery, not just a DB row.
+  broadcaster.broadcast("alert", { id: row.id, eventId, severity, telegramSent });
+  return row;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

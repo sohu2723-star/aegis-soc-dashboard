@@ -327,7 +327,13 @@ async function suggestManualDefense(rule: DefenseRule, event: IngestEvent) {
     eventId:      event.id,
   }).returning();
 
-  broadcaster.broadcast("alert", { id: alertRow.id, severity: event.severity, manualAction: true });
+  broadcaster.broadcast("alert", {
+    id: alertRow.id,
+    eventId: event.id,
+    severity: event.severity,
+    telegramSent: false,
+    manualAction: true,
+  });
   broadcaster.broadcast("incident", { id: incRow.id, title: `[ACTION NEEDED] ${rule.name}` });
 }
 

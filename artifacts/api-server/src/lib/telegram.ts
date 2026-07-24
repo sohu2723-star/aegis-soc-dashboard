@@ -5,6 +5,11 @@
 
 const BOT_TOKEN  = () => process.env.TELEGRAM_BOT_TOKEN ?? "";
 const CHAT_ID    = () => process.env.TELEGRAM_CHAT_ID   ?? "";
+const RETRY_DELAYS_MS = [250, 750];
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 export function telegramAvailable(): boolean {
   return Boolean(BOT_TOKEN() && CHAT_ID());
@@ -15,15 +20,24 @@ export async function sendTelegramMessage(text: string): Promise<void> {
   const chatId = CHAT_ID();
   if (!token || !chatId) throw new Error("TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not configured");
 
-  const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML" }),
-  });
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML" }),
+      });
+      if (res.ok) return;
 
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Telegram API ${res.status}: ${body.slice(0, 200)}`);
+      const body = await res.text();
+      const retryable = res.status === 429 || res.status >= 500;
+      if (!retryable || attempt === RETRY_DELAYS_MS.length) {
+        throw new Error(`Telegram API ${res.status}: ${body.slice(0, 200)}`);
+      }
+    } catch (error) {
+      if (attempt === RETRY_DELAYS_MS.length) throw error;
+    }
+    await sleep(RETRY_DELAYS_MS[attempt]);
   }
 }
 

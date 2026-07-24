@@ -7,6 +7,10 @@ import {
   getListEventsQueryKey,
   getGetSystemStatusQueryKey,
 } from "@workspace/api-client-react";
+import {
+  appendLiveFeed,
+  markLiveFeedTelegram,
+} from "@/lib/live-feed";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -14,6 +18,7 @@ export function useSSE() {
   const queryClient = useQueryClient();
   const esRef = useRef<EventSource | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const announcedAlertsRef = useRef<Set<string>>(new Set());
 
   const invalidateAll = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
@@ -32,9 +37,46 @@ export function useSSE() {
 
     es.addEventListener("connected", () => {});
 
-    es.addEventListener("security_event", () => {
+    es.addEventListener("security_event", (event: MessageEvent) => {
+      // Keep the live feed independent from the currently mounted page.
+      // The store is pruned to the last 24 hours by appendLiveFeed/readLiveFeed.
+      try {
+        const data = JSON.parse((event as MessageEvent).data ?? "{}");
+        appendLiveFeed({
+          id: `event-${data.id}`,
+          eventId: data.id,
+          createdAt: data.createdAt ?? new Date().toISOString(),
+          evType: data.type ?? "unknown",
+          severity: data.severity ?? "medium",
+          srcIp: data.sourceIp ?? "?",
+          target: data.targetHost ?? "?",
+          desc: data.description ?? "",
+          defense: false,
+          telegram: false,
+          toolUsed: data.toolUsed ?? undefined,
+          signatureText: data.signatureText ?? undefined,
+        });
+      } catch { /* malformed data — skip persistence */ }
       queryClient.invalidateQueries({ queryKey: getGetRecentEventsQueryKey() });
       queryClient.invalidateQueries({ queryKey: getListEventsQueryKey({}) });
+    });
+
+    es.addEventListener("defense_action", (event: MessageEvent) => {
+      try {
+        const data = JSON.parse(event.data ?? "{}");
+        appendLiveFeed({
+          id: `defense-${data.commandId ?? data.timestamp ?? Date.now()}`,
+          createdAt: data.timestamp ?? new Date().toISOString(),
+          evType: data.action ?? "block",
+          severity: "info",
+          srcIp: data.targetIp ?? "?",
+          target: data.targetHost ?? "?",
+          desc: data.reason ?? "Defense executed",
+          defense: true,
+          telegram: false,
+          ruleName: data.ruleName ?? undefined,
+        });
+      } catch { /* malformed data — skip persistence */ }
     });
 
     es.addEventListener("alert", (e: MessageEvent) => {
@@ -44,8 +86,17 @@ export function useSSE() {
       // Dispatch custom event so sound-alert hook can play a tone
       try {
         const data = JSON.parse(e.data ?? "{}");
+        if (data.eventId) markLiveFeedTelegram(data.eventId, data.telegramSent !== false);
+        const alertKey = data.eventId ? `${data.eventId}:${data.severity}` : "";
+        if (alertKey && announcedAlertsRef.current.has(alertKey)) return;
+        if (alertKey) {
+          announcedAlertsRef.current.add(alertKey);
+          if (announcedAlertsRef.current.size > 500) {
+            announcedAlertsRef.current.delete(announcedAlertsRef.current.values().next().value as string);
+          }
+        }
         if (data.severity === "critical" || data.severity === "high") {
-          window.dispatchEvent(new CustomEvent("aegis:alert", { detail: { severity: data.severity } }));
+          window.dispatchEvent(new CustomEvent("aegis:alert", { detail: data }));
         }
       } catch { /* malformed data — skip */ }
     });

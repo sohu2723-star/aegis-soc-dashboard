@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
+import { readLiveFeed, type StoredLiveFeedEntry } from "@/lib/live-feed";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -159,6 +160,7 @@ interface Packet {
 
 interface LogEntry {
   id: string;
+  eventId?: number;
   ts: string;
   evType: string;
   severity: string;
@@ -175,7 +177,7 @@ interface LogEntry {
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function AttackFlowPage() {
   const [packets, setPackets]       = useState<Packet[]>([]);
-  const [log, setLog]               = useState<LogEntry[]>([]);
+  const [log, setLog]               = useState<LogEntry[]>(() => readLiveFeed().map(toLogEntry));
   const [alertNodes, setAlertNodes] = useState<Set<NodeKey>>(new Set());  // red border flash
   const [pulseNodes, setPulseNodes] = useState<Set<NodeKey>>(new Set());  // expanding ring
   const [stats, setStats]           = useState({ attacks: 0, blocked: 0 });
@@ -185,6 +187,49 @@ export default function AttackFlowPage() {
 
   const rafRef      = useRef<number | null>(null);
   const prevNowRef  = useRef<number>(0);
+
+  const addPacket = useCallback((ev: {
+    id?: string;
+    severity?: string;
+    type?: string;
+    targetHost?: string;
+    sourceIp?: string;
+  }, replay = false) => {
+    const path = getAttackPath(ev.targetHost);
+    const pkt: Packet = {
+      id: ev.id ?? `pkt-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      path,
+      seg: 0,
+      t: 0,
+      // Slow enough to follow the full path. Replay uses the same pace.
+      speed: replay ? 0.00018 : 0.00020 + Math.random() * 0.00008,
+      blocked: false,
+      blockedAt: 0,
+      severity: ev.severity ?? "medium",
+      evType: ev.type ?? "unknown",
+      targetHost: ev.targetHost ?? "",
+      sourceIp: ev.sourceIp ?? "",
+    };
+    setPackets(prev => [...prev.slice(-40), pkt]);
+    return pkt;
+  }, []);
+
+  const replayEntry = useCallback((entry: LogEntry) => {
+    if (entry.defense) return;
+    addPacket({
+      id: `replay-${entry.id}-${Date.now()}`,
+      severity: entry.severity,
+      type: entry.evType,
+      targetHost: entry.target,
+      sourceIp: entry.srcIp,
+    }, true);
+    setPulseNodes(prev => new Set([...prev, "attacker"]));
+    window.setTimeout(() => setPulseNodes(prev => {
+      const next = new Set(prev);
+      next.delete("attacker");
+      return next;
+    }), 1400);
+  }, [addPacket]);
 
   // ── rAF animation loop ───────────────────────────────────────────────────
   const animate = useCallback((now: number) => {
@@ -232,23 +277,7 @@ export default function AttackFlowPage() {
       es.addEventListener("security_event", (e) => {
         try {
           const ev = JSON.parse(e.data);
-          const path = getAttackPath(ev.targetHost);
-
-          const pkt: Packet = {
-            id: `pkt-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-            path,
-            seg: 0,
-            t: 0,
-            speed: 0.00045 + Math.random() * 0.00025,
-            blocked: false,
-            blockedAt: 0,
-            severity: ev.severity ?? "medium",
-            evType: ev.type ?? "unknown",
-            targetHost: ev.targetHost ?? "",
-            sourceIp: ev.sourceIp ?? "",
-          };
-
-          setPackets(prev => [...prev.slice(-40), pkt]);
+          const pkt = addPacket(ev);
           setStats(s => ({ ...s, attacks: s.attacks + 1 }));
 
           // Update live attacker IP on the node
@@ -256,21 +285,21 @@ export default function AttackFlowPage() {
 
           // Pulse attacker
           setPulseNodes(prev => new Set([...prev, "attacker"]));
-          setTimeout(() => setPulseNodes(prev => { const n = new Set(prev); n.delete("attacker"); return n; }), 900);
+           setTimeout(() => setPulseNodes(prev => { const n = new Set(prev); n.delete("attacker"); return n; }), 1400);
 
           const sev = ev.severity ?? "medium";
-          setLog(prev => [{
-            id: pkt.id, ts: now(),
+           setLog(prev => [{
+             id: pkt.id, eventId: ev.id, ts: now(),
             evType: ev.type ?? "unknown",
             severity: sev,
             srcIp: ev.sourceIp ?? "?",
             target: ev.targetHost ?? "?",
             desc: ev.description ?? "",
             defense: false,
-            telegram: sev === "critical" || sev === "high",
+             telegram: false,
             toolUsed: ev.toolUsed ?? undefined,
             signatureText: ev.signatureText ?? undefined,
-          }, ...prev].slice(0, 60));
+          }, ...prev]);
         } catch { /* skip malformed */ }
       });
 
@@ -307,7 +336,7 @@ export default function AttackFlowPage() {
             defense: true,
             telegram: false,
             ruleName: ev.ruleName ?? undefined,
-          }, ...prev].slice(0, 60));
+          }, ...prev]);
         } catch { /* skip */ }
       });
 
@@ -315,12 +344,17 @@ export default function AttackFlowPage() {
       es.addEventListener("alert", (e) => {
         try {
           const ev = JSON.parse(e.data);
-          const sev = ev.severity ?? "high";
+           const sev = ev.severity ?? "high";
+           // A notification packet represents a real Telegram delivery, not
+           // merely an alert row or an optimistic frontend state.
+           if (ev.telegramSent !== true || (sev !== "critical" && sev !== "high")) return;
           const toastId = `tg-${Date.now()}`;
 
           // 1. Mark latest high/critical entry in live feed
-          setLog(prev => {
-            const idx = prev.findIndex(l => !l.telegram && (l.severity === "critical" || l.severity === "high"));
+           setLog(prev => {
+             const idx = ev.eventId
+               ? prev.findIndex(l => l.eventId === ev.eventId)
+               : -1;
             if (idx !== -1) {
               const next = [...prev];
               next[idx] = { ...next[idx], telegram: true };
@@ -333,7 +367,7 @@ export default function AttackFlowPage() {
               srcIp: "AEGIS", target: "Telegram",
               desc: "Alert dispatched via Telegram",
               defense: false, telegram: true,
-            }, ...prev].slice(0, 60);
+            }, ...prev];
           });
 
           // 2. Spawn animated packet: AEGIS → Telegram node
@@ -341,7 +375,7 @@ export default function AttackFlowPage() {
             id: toastId,
             path: ["aegis", "telegram"],
             seg: 0, t: 0,
-            speed: 0.0008,           // faster — short hop
+             speed: 0.00035,
             blocked: false, blockedAt: 0,
             severity: sev,
             evType: "telegram",
@@ -353,7 +387,7 @@ export default function AttackFlowPage() {
 
           // 3. Pulse Telegram node for 1.2 s
           setPulseNodes(prev => new Set([...prev, "telegram"]));
-          setTimeout(() => setPulseNodes(prev => { const n = new Set(prev); n.delete("telegram"); return n; }), 1200);
+           setTimeout(() => setPulseNodes(prev => { const n = new Set(prev); n.delete("telegram"); return n; }), 1600);
 
           // 4. Floating toast (auto-dismiss 4 s)
           setTgToasts(prev => [{ id: toastId, sev, ts: now() }, ...prev.slice(0, 3)]);
@@ -734,6 +768,16 @@ export default function AttackFlowPage() {
               return (
                 <div
                   key={e.id}
+                   onClick={() => replayEntry(e)}
+                   onKeyDown={(event) => {
+                     if (!e.defense && (event.key === "Enter" || event.key === " ")) {
+                       event.preventDefault();
+                       replayEntry(e);
+                     }
+                   }}
+                  title={e.defense ? "Defense log" : "Click to replay attack animation"}
+                  role={e.defense ? undefined : "button"}
+                  tabIndex={e.defense ? undefined : 0}
                   className="rounded px-2 py-1.5 text-[10px] font-mono space-y-0.5"
                   style={{
                     borderLeft: `2px solid ${col}`,
@@ -956,4 +1000,22 @@ function NodeIcon({ nodeKey, x, y, color }: { nodeKey: NodeKey; x: number; y: nu
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function now() {
   return new Date().toLocaleTimeString("en-US", { hour12: false });
+}
+
+function toLogEntry(entry: StoredLiveFeedEntry): LogEntry {
+  return {
+    id: entry.id,
+    eventId: entry.eventId,
+    ts: new Date(entry.createdAt).toLocaleTimeString("en-US", { hour12: false }),
+    evType: entry.evType,
+    severity: entry.severity,
+    srcIp: entry.srcIp,
+    target: entry.target,
+    desc: entry.desc,
+    defense: entry.defense,
+    telegram: entry.telegram,
+    toolUsed: entry.toolUsed,
+    signatureText: entry.signatureText,
+    ruleName: entry.ruleName,
+  };
 }

@@ -16,3 +16,4 @@
 - [Company services roadmap](company-services-roadmap.md) — Final internship project; Email/DNS (priority 1), CCTV/VoIP (priority 2), ATM/AD (priority 3); per-service checklist + VLAN plan.
 - [Signature text feature](signature-text-feature.md) — Full rule text on dashboard; DB col + API ingest + forwarder auto-lookup (cached SSH) + UI pre block; Supabase migration already run.
 - [Company topology rename](company-rename.md) — bank-web→company-web-server etc.; OBSOLETE_RULE_NAMES updated; legacy aliases in host-utils.tsx kept for old DB events.
+- [Monitoring notifications](monitoring-notifications.md) — Alert/Telegram flows are event-id idempotent; live feed persists 24h; 12/24h reports anchor to Myanmar midnight/noon.

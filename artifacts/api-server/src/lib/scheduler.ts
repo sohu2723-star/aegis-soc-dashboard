@@ -60,6 +60,21 @@ function reportType(secs: number): string {
   return "daily";
 }
 
+/** Return the current Myanmar-time boundary for fixed daily schedules. */
+function mstBoundary(now: Date, intervalSeconds: number): number | null {
+  if (intervalSeconds !== 86400 && intervalSeconds !== 43200) return null;
+  const mst = toMST(now);
+  const hour = intervalSeconds === 86400
+    ? 0
+    : mst.getUTCHours() >= 12 ? 12 : 0;
+  return Date.UTC(
+    mst.getUTCFullYear(),
+    mst.getUTCMonth(),
+    mst.getUTCDate(),
+    hour,
+  ) - MST_OFFSET_MS;
+}
+
 // ── Interval storage (seconds) ────────────────────────────────────────────────
 
 export async function getIntervalSeconds(): Promise<number> {
@@ -88,8 +103,18 @@ export async function setIntervalSeconds(seconds: number): Promise<void> {
   await setSetting("reportIntervalSeconds", String(clamped));
   // Clear legacy minutes key to avoid confusion
   await setSetting("reportIntervalMinutes", "");
-  // Reset lastAutoReportAt so the new interval starts fresh from now
-  await setSetting("lastAutoReportAt", new Date().toISOString());
+  // For the fixed 12/24-hour presets, schedule the next exact Myanmar-time
+  // boundary (12:00/00:00) instead of drifting from the time the setting was
+  // clicked. The persisted marker is just before that boundary so the next
+  // poll fires once when it arrives.
+  const now = new Date();
+  const currentBoundary = mstBoundary(now, clamped);
+  const nextBoundary = currentBoundary === null
+    ? now.getTime() + clamped * 1_000
+    : currentBoundary <= now.getTime()
+      ? currentBoundary + clamped * 1_000
+      : currentBoundary;
+  await setSetting("lastAutoReportAt", new Date(nextBoundary - 1).toISOString());
   logger.info({ intervalSeconds: clamped }, "Report interval updated");
 }
 
@@ -237,7 +262,12 @@ async function poll(): Promise<void> {
     const lastRun      = lastRunStr ? new Date(lastRunStr).getTime() : 0;
     const now          = Date.now();
 
-    if (now - lastRun >= intervalSecs * 1_000) {
+    const boundary = mstBoundary(new Date(now), intervalSecs);
+    const due = boundary !== null
+      ? now >= boundary && lastRun < boundary
+      : now - lastRun >= intervalSecs * 1_000;
+
+    if (due) {
       // Persist before running to prevent double-fire if runAutoReport is slow
       await setSetting("lastAutoReportAt", new Date().toISOString());
       await runAutoReport(intervalSecs);
@@ -280,4 +310,4 @@ export async function triggerReportNow(): Promise<void> {
   await runAutoReport(secs);
 }
 
-export { fmtMST, toMST };
+export { fmtMST, toMST, mstBoundary };
