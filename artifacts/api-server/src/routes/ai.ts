@@ -191,7 +191,7 @@ THREAT SUMMARY:
 (2-3 sentences: what is happening right now, which IPs, which attack types)
 
 TOP THREATS:
-(One line per top attacker IP: IP → attack type → target host → count → severity)
+(One line per top attacker IP: "IP: attack type, target: host, N events, severity level" — no arrows, no special symbols)
 
 DEFENSE STATUS:
 (2-3 sentences: what Fail2ban/Suricata/pfSense blocked, what is still active)
@@ -210,7 +210,7 @@ THREAT SUMMARY:
 (2-3 sentences covering total event count, key attacker IPs, main attack types)
 
 TOP THREATS:
-(One line per top attacker IP: IP → attack type → target host → event count → severity)
+(One line per top attacker IP: "IP: attack type, target: host, N events, severity level" — no arrows, no special symbols)
 
 DEFENSE STATUS:
 (2-3 sentences: what Fail2ban/Suricata/pfSense blocked or is actively running; if no defense actions say "No defense actions required yet")
@@ -256,8 +256,8 @@ STRICT RULES:
       // NOTE: maxTokens must be high enough to complete ALL four sections including RECOMMENDATIONS
       analysis = await askGroq({
         system: myStep2System,
-        user: `Translate the following cybersecurity briefing into natural Burmese following all the rules above. CRITICAL: You MUST translate ALL four sections completely — THREAT SUMMARY, TOP THREATS, DEFENSE STATUS, and RECOMMENDATIONS. Do NOT stop mid-sentence or omit any section.\n\n${englishBrief}`,
-        maxTokens: 2000,
+        user: `Translate the following cybersecurity briefing into natural Burmese following all the rules above. CRITICAL: You MUST translate ALL four sections completely — THREAT SUMMARY, TOP THREATS, DEFENSE STATUS, and RECOMMENDATIONS. Do NOT stop mid-sentence or omit any section. Make sure RECOMMENDATIONS section is fully translated.\n\n${englishBrief}`,
+        maxTokens: 2500,
         temperature: 0.3,
         topP: 0.9,
       });

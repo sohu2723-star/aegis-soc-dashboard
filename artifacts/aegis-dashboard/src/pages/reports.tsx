@@ -59,28 +59,113 @@ function AiAnalysisText({ text }: { text: string }) {
   );
 }
 
+// ── TTS text preprocessing & language segmentation ──────────────────────────
+
+const MY_CHAR_RE = /[\u1000-\u109F\uAA60-\uAA7F]/;
+const MY_DIGITS = ["၀","၁","၂","၃","၄","၅","၆","၇","၈","၉"];
+const IP_PATTERN = /^\s*\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?::\d+)?\s*$/;
+
+function toMyanmarDigits(s: string): string {
+  return s.replace(/\d/g, (d) => MY_DIGITS[+d]);
+}
+
+/** Clean the raw text before sending to TTS */
+function preprocessTts(raw: string): string {
+  return raw
+    .replace(/_+/g, " ")       // remove underscores
+    .replace(/ {2,}/g, " ")    // collapse spaces
+    .trim();
+}
+
+type LangChunk = { text: string; lang: "en" | "my" };
+
+/** Split one line into contiguous Myanmar / English character runs */
+function segmentLine(line: string): LangChunk[] {
+  const raw: LangChunk[] = [];
+  let buf = "";
+  let curLang: "en" | "my" = "en";
+
+  for (const ch of line) {
+    const chLang: "en" | "my" = MY_CHAR_RE.test(ch) ? "my" : "en";
+    if (chLang !== curLang && buf) {
+      raw.push({ text: buf, lang: curLang });
+      buf = "";
+    }
+    curLang = chLang;
+    buf += ch;
+  }
+  if (buf) raw.push({ text: buf, lang: curLang });
+
+  // Convert standalone numbers surrounded by Myanmar text → Myanmar digits
+  // Keep IPs, port numbers, and English-context numbers as English
+  return raw.map((chunk, i) => {
+    if (chunk.lang === "en") {
+      const prevLang = i > 0 ? raw[i - 1].lang : null;
+      const nextLang = i < raw.length - 1 ? raw[i + 1].lang : null;
+      const surroundedByMyanmar = prevLang === "my" || nextLang === "my";
+      const isOnlyDigits = /^\s*[\d\s,]+\s*$/.test(chunk.text);
+      const isIp = IP_PATTERN.test(chunk.text);
+      if (surroundedByMyanmar && isOnlyDigits && !isIp) {
+        return { text: toMyanmarDigits(chunk.text), lang: "my" as const };
+      }
+    }
+    return chunk;
+  });
+}
+
+/** Segment full text into ordered Myanmar / English chunks for mixed TTS playback */
+function segmentForTts(text: string): LangChunk[] {
+  const result: LangChunk[] = [];
+
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    // ALL-CAPS section header → speak in English (title-cased for natural TTS)
+    if (/^[A-Z][A-Z ]{2,}:/.test(trimmed) && trimmed.length < 80) {
+      const title = trimmed
+        .replace(/:$/, "")
+        .toLowerCase()
+        .replace(/\b\w/g, (c) => c.toUpperCase());
+      result.push({ text: title + ". ", lang: "en" });
+      continue;
+    }
+
+    const lineChunks = segmentLine(trimmed);
+    result.push(...lineChunks);
+  }
+
+  return result.filter((c) => c.text.trim().length > 0);
+}
+
 /**
- * Voice reader — speaks AI analysis.
- * language="my" → Google Translate TTS (free, no API key) for natural Burmese voice
- * language="en" → Web Speech API (English voice)
+ * Voice reader — speaks AI analysis with mixed Myanmar / English TTS.
  *
- * Google TTS mode: backend /api/tts/speak returns an array of audio URLs
- * that the browser plays sequentially via HTML Audio (bypasses CORS).
+ * language="my":
+ *   • Segments text into Myanmar chunks (Google TTS via backend) and English
+ *     chunks (Web Speech API), played sequentially — English words are spoken
+ *     in English, Myanmar words in Myanmar.
+ *   • IPs and ports stay English; standalone numbers in Myanmar context are
+ *     converted to Myanmar digits before speaking.
+ *   • Underscores are stripped before sending.
+ *
+ * language="en":
+ *   • Web Speech API only (English voice).
  */
 function VoiceReader({ text, language }: { text: string; language: "en" | "my" }) {
   const [speaking, setSpeaking] = useState(false);
-  const [paused, setPaused] = useState(false);
-  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
-  const keepAliveRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const stopRef = useRef(false);
-  // Google TTS state
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const audioQueueRef = useRef<string[]>([]);
-  const modeRef = useRef<"web" | "google">("web");
+  const [paused, setPaused]     = useState(false);
+  const [voices, setVoices]     = useState<SpeechSynthesisVoice[]>([]);
+
+  const stopRef            = useRef(false);
+  const pausedRef          = useRef(false);
+  const audioRef           = useRef<HTMLAudioElement | null>(null);
+  const currentLangRef     = useRef<"en" | "my">("en");  // chunk currently playing
+  const keepAliveRef       = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const supported = typeof window !== "undefined" && "speechSynthesis" in window;
 
-  // Load voices for Web Speech API (English mode)
+  // Load Web Speech voices
   useEffect(() => {
     if (!supported) return;
     const load = () => {
@@ -95,21 +180,18 @@ function VoiceReader({ text, language }: { text: string; language: "en" | "my" }
     };
   }, [supported]);
 
-  // When text or language changes — stop any ongoing speech
-  useEffect(() => {
-    hardStop();
-  }, [text, language]);
+  useEffect(() => { hardStop(); }, [text, language]);
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
 
   function hardStop() {
     stopRef.current = true;
-    // Stop Google TTS audio
+    pausedRef.current = false;
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.src = "";
       audioRef.current = null;
     }
-    audioQueueRef.current = [];
-    // Stop Web Speech API
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       window.speechSynthesis.cancel();
     }
@@ -118,85 +200,15 @@ function VoiceReader({ text, language }: { text: string; language: "en" | "my" }
     setPaused(false);
   }
 
-  // ── Google TTS (Burmese) ─────────────────────────────────────────────────────
-
-  /** Decode a base64 MP3 chunk → Blob URL so the browser can play it without CORS issues */
   function base64ToBlobUrl(b64: string): string {
     const binary = atob(b64);
-    const bytes = new Uint8Array(binary.length);
+    const bytes  = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-    const blob = new Blob([bytes], { type: "audio/mpeg" });
-    return URL.createObjectURL(blob);
+    return URL.createObjectURL(new Blob([bytes], { type: "audio/mpeg" }));
   }
-
-  async function speakGoogle() {
-    stopRef.current = false;
-    modeRef.current = "google";
-    setSpeaking(true);
-    setPaused(false);
-
-    try {
-      // Backend proxies Google TTS server-side → returns base64 MP3 chunks (no CORS)
-      const r = await fetch(`${BASE}/api/tts/speak`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, lang: "my" }),
-      });
-      if (!r.ok) throw new Error("TTS backend error");
-      const data = await r.json();
-
-      // New format: { chunks: string[], type: "base64/mp3" }
-      // Legacy format: { urls: string[] }  (kept for compat)
-      let blobUrls: string[];
-      if (data.chunks?.length) {
-        blobUrls = (data.chunks as string[]).map(base64ToBlobUrl);
-      } else if (data.urls?.length) {
-        blobUrls = data.urls as string[];
-      } else {
-        throw new Error("No audio data returned");
-      }
-
-      if (stopRef.current) { blobUrls.forEach(u => URL.revokeObjectURL(u)); setSpeaking(false); return; }
-      audioQueueRef.current = blobUrls;
-      playNextGoogle();
-    } catch {
-      // Backend failed → fall back to Web Speech API
-      modeRef.current = "web";
-      speakWeb();
-    }
-  }
-
-  function playNextGoogle() {
-    if (stopRef.current) return;
-    const url = audioQueueRef.current.shift();
-    if (!url) { setSpeaking(false); return; }
-
-    const audio = new Audio(url);
-    audioRef.current = audio;
-    audio.onended = () => {
-      URL.revokeObjectURL(url);
-      if (!stopRef.current) playNextGoogle();
-    };
-    audio.onerror = () => {
-      URL.revokeObjectURL(url);
-      if (!stopRef.current) playNextGoogle();
-    };
-    audio.play().catch(() => {
-      URL.revokeObjectURL(url);
-      if (!stopRef.current) playNextGoogle();
-    });
-  }
-
-  function togglePauseGoogle() {
-    if (!audioRef.current) return;
-    if (paused) { audioRef.current.play(); setPaused(false); }
-    else        { audioRef.current.pause(); setPaused(true); }
-  }
-
-  // ── Web Speech API (English / fallback) ─────────────────────────────────────
 
   function pickVoice(lang: string): SpeechSynthesisVoice | undefined {
-    if (voices.length === 0) return undefined;
+    if (!voices.length) return undefined;
     const prefix = lang.split("-")[0];
     return (
       voices.find((v) => v.lang === lang) ??
@@ -206,9 +218,94 @@ function VoiceReader({ text, language }: { text: string; language: "en" | "my" }
     );
   }
 
-  function toTitleCase(str: string): string {
-    return str.replace(/\b[A-Z]{2,}\b/g, (w) => w.charAt(0) + w.slice(1).toLowerCase());
+  // ── Play a single Myanmar chunk via Google TTS backend ─────────────────────
+
+  async function playMyChunkAsync(chunkText: string): Promise<void> {
+    return new Promise<void>(async (resolve) => {
+      if (stopRef.current) { resolve(); return; }
+      currentLangRef.current = "my";
+      try {
+        const r = await fetch(`${BASE}/api/tts/speak`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: chunkText, lang: "my" }),
+        });
+        if (!r.ok) { resolve(); return; }
+        const data = await r.json();
+
+        let blobUrls: string[] = [];
+        if (data.chunks?.length)      blobUrls = (data.chunks as string[]).map(base64ToBlobUrl);
+        else if (data.urls?.length)   blobUrls = data.urls as string[];
+
+        if (!blobUrls.length || stopRef.current) {
+          blobUrls.forEach((u) => { try { URL.revokeObjectURL(u); } catch {} });
+          resolve(); return;
+        }
+
+        const playNext = () => {
+          if (stopRef.current) {
+            blobUrls.forEach((u) => { try { URL.revokeObjectURL(u); } catch {} });
+            resolve(); return;
+          }
+          const url = blobUrls.shift();
+          if (!url) { resolve(); return; }
+
+          const audio = new Audio(url);
+          audioRef.current = audio;
+          const onDone = () => { try { URL.revokeObjectURL(url); } catch {} playNext(); };
+          audio.onended = onDone;
+          audio.onerror = onDone;
+          audio.play().catch(onDone);
+        };
+        playNext();
+      } catch { resolve(); }
+    });
   }
+
+  // ── Play a single English chunk via Web Speech API ─────────────────────────
+
+  async function playEnChunkAsync(chunkText: string): Promise<void> {
+    const t = chunkText.trim();
+    if (!supported || !t) return;
+    return new Promise<void>((resolve) => {
+      if (stopRef.current) { resolve(); return; }
+      currentLangRef.current = "en";
+      const utter   = new SpeechSynthesisUtterance(t);
+      utter.lang    = "en-US";
+      const voice   = pickVoice("en-US");
+      if (voice) utter.voice = voice;
+      utter.rate    = 0.92;
+      let done      = false;
+      const finish  = () => { if (!done) { done = true; resolve(); } };
+      utter.onend   = finish;
+      utter.onerror = (e) => { if (e.error === "interrupted" || e.error === "canceled") return; finish(); };
+      window.speechSynthesis.speak(utter);
+    });
+  }
+
+  // ── Mixed-language playback (Myanmar mode) ─────────────────────────────────
+
+  async function speakMixed() {
+    stopRef.current  = false;
+    pausedRef.current = false;
+    setSpeaking(true);
+    setPaused(false);
+
+    const processed = preprocessTts(text);
+    const chunks    = segmentForTts(processed);
+
+    for (const chunk of chunks) {
+      if (stopRef.current) break;
+      try {
+        if (chunk.lang === "my") await playMyChunkAsync(chunk.text);
+        else                      await playEnChunkAsync(chunk.text);
+      } catch { /* continue */ }
+    }
+
+    if (!stopRef.current) { setSpeaking(false); setPaused(false); }
+  }
+
+  // ── English-only playback (EN mode) ────────────────────────────────────────
 
   function speakWeb() {
     if (!supported) return;
@@ -216,7 +313,7 @@ function VoiceReader({ text, language }: { text: string; language: "en" | "my" }
     window.speechSynthesis.resume();
     stopRef.current = false;
 
-    const lines = text.split("\n").filter((l) => l.trim());
+    const lines = preprocessTts(text).split("\n").filter((l) => l.trim());
     let idx = 0;
 
     keepAliveRef.current = setInterval(() => {
@@ -233,22 +330,20 @@ function VoiceReader({ text, language }: { text: string; language: "en" | "my" }
         if (keepAliveRef.current) { clearInterval(keepAliveRef.current); keepAliveRef.current = null; }
         return;
       }
-      const line = lines[idx++];
-      const isSectionHeading = /^[A-Z][A-Z\s]{2,}:/.test(line.trim()) && line.trim().length < 80;
-      const utter = new SpeechSynthesisUtterance(
-        isSectionHeading ? toTitleCase(line.replace(/:$/, "")) : line
-      );
-      utter.lang = "en-US";
-      const voice = pickVoice("en-US");
+      const line            = lines[idx++];
+      const isSectionHead   = /^[A-Z][A-Z ]{2,}:/.test(line.trim()) && line.trim().length < 80;
+      const spoken          = isSectionHead
+        ? line.replace(/:$/, "").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())
+        : line;
+      const utter           = new SpeechSynthesisUtterance(spoken);
+      utter.lang            = "en-US";
+      const voice           = pickVoice("en-US");
       if (voice) utter.voice = voice;
-      utter.rate = 0.92;
-      let fired = false;
-      const advance = () => { if (!fired) { fired = true; speakNext(); } };
-      utter.onend = advance;
-      utter.onerror = (e) => {
-        if (e.error === "interrupted" || e.error === "canceled") return;
-        advance();
-      };
+      utter.rate            = 0.92;
+      let fired             = false;
+      const advance         = () => { if (!fired) { fired = true; speakNext(); } };
+      utter.onend           = advance;
+      utter.onerror         = (e) => { if (e.error === "interrupted" || e.error === "canceled") return; advance(); };
       window.speechSynthesis.speak(utter);
     };
 
@@ -257,20 +352,32 @@ function VoiceReader({ text, language }: { text: string; language: "en" | "my" }
     speakNext();
   }
 
-  // ── Unified controls ─────────────────────────────────────────────────────────
+  // ── Controls ───────────────────────────────────────────────────────────────
 
   function handleSpeak() {
-    if (language === "my") speakGoogle();
-    else { modeRef.current = "web"; speakWeb(); }
+    if (language === "my") speakMixed();
+    else speakWeb();
   }
 
   function handleStop() { hardStop(); }
 
   function handleTogglePause() {
-    if (modeRef.current === "google") { togglePauseGoogle(); }
-    else {
-      if (paused) { window.speechSynthesis.resume(); setPaused(false); }
-      else        { window.speechSynthesis.pause();  setPaused(true);  }
+    if (paused) {
+      // Resume
+      if (currentLangRef.current === "my" && audioRef.current) {
+        audioRef.current.play().catch(() => {});
+      }
+      window.speechSynthesis.resume();
+      pausedRef.current = false;
+      setPaused(false);
+    } else {
+      // Pause
+      if (currentLangRef.current === "my" && audioRef.current) {
+        audioRef.current.pause();
+      }
+      window.speechSynthesis.pause();
+      pausedRef.current = true;
+      setPaused(true);
     }
   }
 
@@ -280,7 +387,7 @@ function VoiceReader({ text, language }: { text: string; language: "en" | "my" }
         <button
           onClick={handleSpeak}
           className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors border border-border hover:border-primary/50 rounded px-2.5 py-1.5"
-          title={language === "my" ? "Google Translate TTS — မြန်မာ voice" : "Web Speech API — English"}
+          title={language === "my" ? "Mixed TTS — မြန်မာ + English segments" : "Web Speech API — English"}
         >
           <Volume2 className="w-3.5 h-3.5" />
           {language === "en" ? "Listen" : "နားထောင်"}

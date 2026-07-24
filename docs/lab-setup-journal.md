@@ -3264,3 +3264,22 @@ pnpm install   # workspace root မှာ
 
 **Result:** TypeScript compile ✅ no new errors
 **Next:** GitHub push → Render redeploy → production မှာ scheduler polling loop start ဖြစ်မယ်; 24h auto-report ပို့ပြီ
+
+---
+
+### [2026-07-24] — Sidebar Labels + AI Truncation + Mixed-Language TTS
+**Status:** ✅ Done
+**What:** 7 ချက် fix လုပ်ခဲ့
+1. Sidebar group labels ("Operations", "Network & Defense", "Intelligence") ပြန်ထည့်ခဲ့ — `SidebarGroupLabel` import မပါခဲ့လို့ ပျောက်သွားတာ
+2. AI analysis Defense Status + Recommendations ပျောက်နေတာ fix — step 2 maxTokens 2000→2500, section completion instruction အားကောင်းပြင်ခဲ့
+3. TOP THREATS format `→` arrows ဖြုတ်ပြီး `IP: attack type, target: host, N events, severity` format ပြောင်းခဲ့ (TTS ဖတ်ရ ပိုလွယ်)
+4. Mixed-language TTS — VoiceReader ကို segment-based playback ပြောင်းခဲ့: Myanmar chunks → Google TTS backend, English chunks (IPs, technical terms, section headers) → Web Speech API English voice, sequentially played
+5. Underscores (_) ဖြုတ်ခဲ့ — preprocessTts() ထဲ `replace(/_+/g, " ")`
+6. Numbers in Myanmar context → Myanmar digits (၀-၉) auto-convert; IPs/port numbers → English ထားခဲ့
+7. Pause/Resume: mixed mode မှာ current chunk type (my vs en) track ပြီး audio.pause()/speechSynthesis.pause() နှစ်ဘက်လုံး handle ခဲ့
+**How:** Files changed:
+- `artifacts/aegis-dashboard/src/components/layout.tsx` — SidebarGroupLabel import + 3 group labels
+- `artifacts/api-server/src/routes/ai.ts` — TOP THREATS format, maxTokens 2500
+- `artifacts/aegis-dashboard/src/pages/reports.tsx` — VoiceReader full overhaul (mixed TTS)
+**Result:** Frontend running ✅ (port 5000). API server builds OK; fails at startup because SUPABASE_DB_URL not set in local Replit env (expected — secrets needed)
+**Next:** GitHub push → Render/Vercel auto-deploy → production မှာ changes ထင်မယ်

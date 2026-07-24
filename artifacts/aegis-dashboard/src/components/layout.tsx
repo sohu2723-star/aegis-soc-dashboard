@@ -26,7 +26,7 @@ import {
   SidebarContent,
   SidebarGroup,
   SidebarGroupContent,
- 
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
@@ -74,6 +74,9 @@ export function Layout({ children }: { children: ReactNode }) {
           </SidebarHeader>
           <SidebarContent>
             <SidebarGroup>
+              <SidebarGroupLabel className="text-[10px] uppercase tracking-widest text-muted-foreground/50 px-3 pt-3 pb-1">
+                Operations
+              </SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
                   {opsItems.map((item) => (
@@ -91,6 +94,9 @@ export function Layout({ children }: { children: ReactNode }) {
             </SidebarGroup>
 
             <SidebarGroup>
+              <SidebarGroupLabel className="text-[10px] uppercase tracking-widest text-muted-foreground/50 px-3 pt-3 pb-1">
+                Network &amp; Defense
+              </SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
                   {networkItems.map((item) => (
@@ -108,6 +114,9 @@ export function Layout({ children }: { children: ReactNode }) {
             </SidebarGroup>
 
             <SidebarGroup>
+              <SidebarGroupLabel className="text-[10px] uppercase tracking-widest text-muted-foreground/50 px-3 pt-3 pb-1">
+                Intelligence
+              </SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
                   {reportItems.map((item) => (
