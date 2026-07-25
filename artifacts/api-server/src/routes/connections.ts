@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, sshSessionsTable, httpAttacksTable, dbAttacksTable, dnsAttacksTable, ldapAttacksTable, ftpSessionsTable } from "@workspace/db";
+import { db, sshSessionsTable, httpAttacksTable, dbAttacksTable, dnsAttacksTable, ldapAttacksTable } from "@workspace/db";
 import { desc } from "drizzle-orm";
 
 const router = Router();
@@ -55,16 +55,6 @@ router.get("/connections/ldap-attacks", async (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 50, 200);
   const rows = await db.select().from(ldapAttacksTable)
     .orderBy(desc(ldapAttacksTable.createdAt)).limit(limit);
-  res.json(rows.map(r => ({ ...r, createdAt: r.createdAt.toISOString() })));
-});
-
-// ─── FTP Sessions ─────────────────────────────────────────────────────────────
-// Source: /var/log/vsftpd.log on company-web-server (10.10.10.10:21)
-
-router.get("/connections/ftp", async (req, res) => {
-  const limit = Math.min(Number(req.query.limit) || 50, 200);
-  const rows = await db.select().from(ftpSessionsTable)
-    .orderBy(desc(ftpSessionsTable.createdAt)).limit(limit);
   res.json(rows.map(r => ({ ...r, createdAt: r.createdAt.toISOString() })));
 });
 

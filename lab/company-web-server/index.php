@@ -25,6 +25,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $_SESSION['staff_user'] = $staff['username'];
         header('Location: dashboard.php'); exit;
     } else {
+        $safeUser = preg_replace('/[^A-Za-z0-9_.@-]/', '_', substr($username, 0, 64));
+        error_log('AEGIS_WEB_AUTH_FAIL src=' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown') . ' user=' . $safeUser);
         $error = 'Invalid username or password.';
     }
 }

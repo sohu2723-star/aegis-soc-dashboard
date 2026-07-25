@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Terminal, Globe, Database, Server, Shield, FolderOpen } from "lucide-react";
+import { Terminal, Globe, Database, Server, Shield } from "lucide-react";
 import { format } from "date-fns";
 import { HostLabel } from "@/lib/host-utils";
 import { useDeviceContext } from "@/lib/device-context";
@@ -41,13 +41,6 @@ interface LdapAttack {
   dn: string | null; errorCode: number | null; attackType: string | null; severity: string;
   logSource: string | null; matchedRule: string | null; createdAt: string;
 }
-interface FtpSession {
-  id: number; sourceIp: string; username: string | null;
-  status: string; command: string | null; filename: string | null; filesize: number | null;
-  failures: number; bannedBy: string | null;
-  logSource: string | null; matchedRule: string | null; createdAt: string;
-}
-
 // ─── Fetch hooks ───────────────────────────────────────────────────────────────
 
 function useSsh()        { return useQuery<SshSession[]>({ queryKey: ["conn-ssh"],  queryFn: () => fetch(`${BASE}/api/connections/ssh?limit=100`).then(r => r.json()),          refetchInterval: 15000 }); }
@@ -55,7 +48,6 @@ function useHttp()       { return useQuery<HttpAttack[]>({ queryKey: ["conn-http
 function useDb()         { return useQuery<DbAttack[]>({   queryKey: ["conn-db"],   queryFn: () => fetch(`${BASE}/api/connections/db-attacks?limit=100`).then(r => r.json()),   refetchInterval: 15000 }); }
 function useDns()        { return useQuery<DnsAttack[]>({  queryKey: ["conn-dns"],  queryFn: () => fetch(`${BASE}/api/connections/dns-attacks?limit=100`).then(r => r.json()),  refetchInterval: 15000 }); }
 function useLdap()       { return useQuery<LdapAttack[]>({ queryKey: ["conn-ldap"], queryFn: () => fetch(`${BASE}/api/connections/ldap-attacks?limit=100`).then(r => r.json()), refetchInterval: 15000 }); }
-function useFtp()        { return useQuery<FtpSession[]>({ queryKey: ["conn-ftp"],  queryFn: () => fetch(`${BASE}/api/connections/ftp?limit=100`).then(r => r.json()),           refetchInterval: 15000 }); }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -70,8 +62,6 @@ const sevColor: Record<string, string> = {
   active:   "border-cyan-500 text-cyan-400",
   stale:    "border-yellow-500 text-yellow-400",
   ended:    "border-gray-500 text-gray-400",
-  upload:   "border-orange-500 text-orange-400",
-  download: "border-yellow-500 text-yellow-400",
 };
 
 const attackColor: Record<string, string> = {
@@ -125,14 +115,13 @@ function RuleBadge({ rule }: { rule: string | null }) {
   );
 }
 
-type TabId = "ssh" | "http" | "db" | "dns" | "ldap" | "ftp";
+type TabId = "ssh" | "http" | "db" | "dns" | "ldap";
 const TABS: { id: TabId; label: string; icon: React.ReactNode; host: string }[] = [
   { id: "ssh",  label: "SSH Sessions",  icon: <Terminal  className="w-3.5 h-3.5" />, host: "All VMs · /var/log/auth.log" },
   { id: "http", label: "HTTP Attacks",  icon: <Globe     className="w-3.5 h-3.5" />, host: "company-web-server · modsec_audit.log" },
   { id: "db",   label: "DB Attacks",    icon: <Database  className="w-3.5 h-3.5" />, host: "company-customer-db (10.20.20.10:3306) · /var/log/mysql/error.log" },
   { id: "dns",  label: "DNS Attacks",   icon: <Server    className="w-3.5 h-3.5" />, host: "company-dns-server (10.10.10.20:53) · /var/log/named/named.log" },
   { id: "ldap", label: "LDAP Attacks",  icon: <Shield    className="w-3.5 h-3.5" />, host: "company-ldap-server (10.20.20.20:389) · /var/log/syslog (slapd)" },
-  { id: "ftp",  label: "FTP Sessions",  icon: <FolderOpen className="w-3.5 h-3.5" />, host: "company-web-server (10.10.10.10:21) · /var/log/vsftpd.log" },
 ];
 
 // ─── SSH Tab ───────────────────────────────────────────────────────────────────
@@ -422,69 +411,6 @@ function LdapTab({ selectedIp }: { selectedIp: string | null }) {
   );
 }
 
-// ─── FTP Sessions Tab ─────────────────────────────────────────────────────────
-
-function FtpTab({ selectedIp }: { selectedIp: string | null }) {
-  const { data: raw = [], isLoading } = useFtp();
-  const data = selectedIp ? raw.filter(s => s.sourceIp === selectedIp) : raw;
-  return (
-    <Table>
-      <TableHeader className="bg-muted/50 sticky top-0">
-        <TableRow className="border-border">
-          <TableHead>Time</TableHead>
-          <TableHead>Source IP</TableHead>
-          <TableHead>Username</TableHead>
-          <TableHead>Status</TableHead>
-          <TableHead>Command</TableHead>
-          <TableHead>File</TableHead>
-          <TableHead className="text-right">Failures</TableHead>
-          <TableHead>Banned By</TableHead>
-          <TableHead>Log File</TableHead>
-          <TableHead>Matched Rule</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {isLoading ? (
-          <TableRow><TableCell colSpan={10} className="text-center py-8 text-muted-foreground">Loading FTP sessions…</TableCell></TableRow>
-        ) : data.length === 0 ? (
-          <TableRow><TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
-            {selectedIp ? `No FTP sessions from ${selectedIp}.` : "No FTP sessions recorded yet."}
-          </TableCell></TableRow>
-        ) : data.map(s => (
-          <TableRow key={s.id} className="border-border hover:bg-muted/10">
-            <TableCell><Ts v={s.createdAt} /></TableCell>
-            <TableCell><Ip v={s.sourceIp} /></TableCell>
-            <TableCell className="font-mono text-xs text-foreground">{s.username ?? "—"}</TableCell>
-            <TableCell>
-              <Badge variant="outline" className={`text-[10px] uppercase ${sevColor[s.status] ?? "border-border text-muted-foreground"}`}>{s.status}</Badge>
-            </TableCell>
-            <TableCell>
-              {s.command
-                ? <Badge variant="outline" className="text-[10px] font-mono border-primary/30 text-primary/80">{s.command}</Badge>
-                : <span className="text-muted-foreground">—</span>}
-            </TableCell>
-            <TableCell className="font-mono text-xs text-muted-foreground max-w-[140px] truncate" title={s.filename ?? ""}>
-              {s.filename
-                ? <>{s.filename.split("/").pop()}{s.filesize != null ? <span className="text-muted-foreground/60 ml-1">({Math.round(s.filesize / 1024)}KB)</span> : null}</>
-                : "—"}
-            </TableCell>
-            <TableCell className="text-right font-mono text-xs">
-              <span className={s.failures > 0 ? "text-orange-400" : "text-muted-foreground"}>{s.failures}</span>
-            </TableCell>
-            <TableCell className="text-xs">
-              {s.bannedBy
-                ? <Badge variant="outline" className="text-[10px] border-red-500/50 text-red-400">{s.bannedBy}</Badge>
-                : <span className="text-muted-foreground">—</span>}
-            </TableCell>
-            <TableCell><LogBadge src={s.logSource} /></TableCell>
-            <TableCell><RuleBadge rule={s.matchedRule} /></TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
-  );
-}
-
 // ─── Page ──────────────────────────────────────────────────────────────────────
 
 export default function Connections() {
@@ -543,7 +469,6 @@ export default function Connections() {
           {tab === "db"   && <DbTab   selectedIp={selectedIp} />}
           {tab === "dns"  && <DnsTab  selectedIp={selectedIp} />}
           {tab === "ldap" && <LdapTab selectedIp={selectedIp} />}
-          {tab === "ftp"  && <FtpTab  selectedIp={selectedIp} />}
         </div>
       </Card>
     </div>

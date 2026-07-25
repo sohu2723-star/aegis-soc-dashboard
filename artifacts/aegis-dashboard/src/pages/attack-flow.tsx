@@ -15,21 +15,21 @@ const VH = 580;
 const NODES = {
   attacker: {
     x: 55,  y: 285,
-    label: "Attacker", sub: "Any Source IP",
-    ip: "* / any",
+    label: "Attacker", sub: "Dynamic source",
+    ip: "Any external IP",
     color: "#ef4444", glow: "rgba(239,68,68,0.4)",
     icon: "👤",
   },
   r1: {
     x: 200, y: 285,
     label: "R1 Router", sub: "MikroTik CHR",
-    ip: "192.168.122.2",
+    ip: "e1 · 192.168.10.1",
     color: "#818cf8", glow: "rgba(129,140,248,0.3)",
     icon: "⬡",
   },
   pfsense: {
     x: 368, y: 285,
-    label: "pfSense", sub: "Firewall / OVS",
+    label: "pfSense", sub: "Firewall · Suricata",
     ip: "10.0.23.2",
     color: "#f59e0b", glow: "rgba(245,158,11,0.45)",
     icon: "🛡",
@@ -194,6 +194,44 @@ export default function AttackFlowPage() {
   const rafRef      = useRef<number | null>(null);
   const prevNowRef  = useRef<number>(0);
 
+  // The database is authoritative. Hydrate recent events so changing browser,
+  // clearing localStorage, or opening the map after an SSE disconnect does not
+  // produce an empty feed.
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${BASE}/api/events?limit=100`)
+      .then(async response => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json();
+      })
+      .then((rows: any[]) => {
+        if (cancelled || !Array.isArray(rows)) return;
+        const serverLog: LogEntry[] = rows.map(row => ({
+          id: `event-${row.id}`,
+          eventId: row.id,
+          ts: row.createdAt,
+          evType: row.type ?? "unknown",
+          severity: row.severity ?? "medium",
+          srcIp: row.sourceIp ?? "?",
+          target: row.targetHost ?? "?",
+          desc: row.description ?? "",
+          defense: false,
+          telegram: false,
+          toolUsed: row.toolUsed ?? undefined,
+          signatureText: row.signatureText ?? undefined,
+        }));
+        setLog(previous => {
+          const byId = new Map(serverLog.map(entry => [entry.id, entry]));
+          for (const entry of previous) if (!byId.has(entry.id)) byId.set(entry.id, entry);
+          return [...byId.values()].sort((a, b) => Date.parse(b.ts) - Date.parse(a.ts)).slice(0, 200);
+        });
+        const latestSource = serverLog.find(entry => entry.srcIp !== "?")?.srcIp;
+        if (latestSource) setAttackerIp(latestSource);
+      })
+      .catch(() => { /* SSE and local cache remain available during API downtime */ });
+    return () => { cancelled = true; };
+  }, []);
+
   const addPacket = useCallback((ev: {
     id?: string;
     severity?: string;
@@ -313,6 +351,17 @@ export default function AttackFlowPage() {
         try {
           const ev = JSON.parse(e.data);
 
+          if (ev.status !== "executed") {
+            setLog(prev => [{
+              id: `defq-${ev.commandId ?? Date.now()}`, ts: now(),
+              evType: ev.action ?? "defense_queued", severity: "info",
+              srcIp: ev.targetIp ?? "?", target: ev.targetHost ?? ev.targetVm ?? "?",
+              desc: `Defense queued${ev.ruleName ? ` by ${ev.ruleName}` : ""}`,
+              defense: true, telegram: false, ruleName: ev.ruleName ?? undefined,
+            }, ...prev]);
+            return;
+          }
+
           // Block in-flight packets to this host
           const nowMs = Date.now();
           // Match in-flight packets whose *victim* (targetHost) or *attacker* (sourceIp)
@@ -346,14 +395,34 @@ export default function AttackFlowPage() {
         } catch { /* skip */ }
       });
 
+      es.addEventListener("defense_result", (e) => {
+        try {
+          const ev = JSON.parse(e.data);
+          const executed = ev.status === "executed";
+          if (executed && ev.targetIp) {
+            const nowMs = Date.now();
+            setPackets(prev => prev.map(p => !p.blocked && p.sourceIp === ev.targetIp
+              ? { ...p, blocked: true, blockedAt: nowMs } : p));
+            setStats(s => ({ ...s, blocked: s.blocked + 1 }));
+          }
+          setLog(prev => [{
+            id: `defr-${ev.commandId ?? Date.now()}`, ts: ev.timestamp ?? now(),
+            evType: executed ? "defense_executed" : "defense_failed",
+            severity: executed ? "info" : "high", srcIp: ev.targetIp ?? "?",
+            target: ev.commandType ?? "?",
+            desc: executed ? "Defense command executed" : (ev.error ?? "Defense command failed"),
+            defense: true, telegram: false,
+          }, ...prev]);
+        } catch { /* skip */ }
+      });
+
       // ── Telegram alert notification (real SSE "alert" event) ──────────
       es.addEventListener("alert", (e) => {
         try {
           const ev = JSON.parse(e.data);
            const sev = ev.severity ?? "high";
-           // Show AEGIS→Telegram animation for every critical/high alert
-           // regardless of whether Telegram is actually configured in this env.
-           if (sev !== "critical" && sev !== "high") return;
+           // Animate Telegram only when the server confirmed actual delivery.
+           if ((sev !== "critical" && sev !== "high") || ev.telegramSent !== true) return;
           const toastId = `tg-${Date.now()}`;
 
           // 1. Mark latest high/critical entry in live feed

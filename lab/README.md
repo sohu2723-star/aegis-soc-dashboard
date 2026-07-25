@@ -1,40 +1,20 @@
-# AEGIS Lab — Web & DB Setup
+# AEGIS Four-Server Lab
 
-## Quick Deploy
+The authoritative installation, troubleshooting, sensor/rule and classroom-demo instructions are in [`SYSTEM_SETUP_AND_DEMO_GUIDE.md`](SYSTEM_SETUP_AND_DEMO_GUIDE.md).
 
-### company-web-server VM
-```bash
-# 1. Install Apache + PHP
-sudo apt update && sudo apt install -y apache2 php libapache2-mod-php php-mysql
+Active lab scope:
 
-# 2. Download all files
-cd /var/www/html
-for f in db.php style.css index.php signup.php dashboard.php transfer.php history.php profile.php logout.php; do
-  sudo wget -O $f https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/lab/company-web-server/$f
-done
+- Company Web — `10.10.10.10`
+- Company DNS — `10.10.10.20`
+- Customer DB — `10.20.20.10`
+- LDAP — `10.20.20.20`
+- pfSense Suricata and the AEGIS Hub
 
-# 3. Start Apache
-sudo systemctl enable apache2 && sudo systemctl start apache2
-```
+Do not use old download lists or external paste links: deploy the tracked directory for each component. Do not commit credentials or run destructive tests against any non-lab host.
 
-### company-customer-db VM
-```bash
-# 1. Install MySQL
-sudo apt update && sudo apt install -y mysql-server
-
-# 2. Download & run setup SQL
-wget -O setup.sql https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/lab/company-customer-db/setup.sql
-sudo mysql < setup.sql
-
-# 3. Allow remote connections (MySQL 8.0 — sed မအလုပ်ဘူး၊ append နည်း သုံးရမယ်)
-sudo bash -c 'echo "bind-address = 0.0.0.0" >> /etc/mysql/mysql.conf.d/mysqld.cnf'
-sudo bash -c 'echo "mysqlx-bind-address = 0.0.0.0" >> /etc/mysql/mysql.conf.d/mysqld.cnf'
-sudo systemctl enable mysql && sudo systemctl restart mysql
-# Verify: ss -tlnp | grep 3306 → should show 0.0.0.0:3306
-```
-
-## Attack Targets
-- SQLi: Login page (`index.php`) — try `' OR '1'='1' --`
-- XSS: Profile page (`profile.php`) — try `<script>alert(1)</script>`
-- Brute force: PIN is 4 digits (0000–9999)
-- IDOR: Change account ID in URL params
+| Component | Source |
+|---|---|
+| Web application and DB seed | `company-web-server/` |
+| BIND zone/config | `dns-server/` |
+| LDAP LDIF | `ldap-server/` |
+| Local Suricata rules | `pfsense-suricata/local.rules` |

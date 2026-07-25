@@ -61,9 +61,7 @@ const attackTypeLabel: Record<string, string> = {
   network:    "Network Attack",
   web:        "Web Attack",
   ssh:        "SSH Attack",
-  tls:        "TLS Anomaly",
   fail2ban:   "Fail2ban Ban",
-  malware:    "Malware",
 };
 
 export default function Alerts() {

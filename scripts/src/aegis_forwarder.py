@@ -19,6 +19,7 @@ import argparse
 import json
 import os
 import re
+import shlex
 import socket
 import subprocess
 import sys
@@ -27,6 +28,7 @@ import threading
 import requests
 from pathlib import Path
 from datetime import datetime
+from urllib.parse import urlparse
 
 # ── pfSense Suricata IDS connection state (shared across suricata threads) ──────
 # Tracks how many _watch_pfsense_suricata threads are currently SSH-connected.
@@ -89,13 +91,12 @@ REMOTE_HOSTS = [h for h in [
     {
         "name": "company-web-server",
         "ip":   COMPANYWEB_IP,
-        "sensors": ["fail2ban", "ssh", "http_access", "ftp"],
+        "sensors": ["fail2ban", "ssh", "http_access"],
         # services to health-check via SSH systemctl on this VM
         "health_services": [
             ("fail2ban",  "Fail2ban",        "sensor"),
             ("ssh",       "SSH Monitor",     "sensor"),
             ("apache2",   "Apache Monitor",  "sensor"),
-            ("vsftpd",    "FTP Monitor",     "sensor"),
         ],
     } if COMPANYWEB_IP else None,
     {
@@ -177,7 +178,44 @@ PFSENSE_SSH_USER = _cfg("PFSENSE_SSH_USER", "admin")
 PFSENSE_API_URL = _cfg("PFSENSE_API_URL", f"http://{PFSENSE_IP}/api/v1")
 PFSENSE_API_KEY = _cfg("PFSENSE_API_KEY", "")
 
-DEFENSE_POLL_SECS = int(_cfg("DEFENSE_POLL_SECS", "5"))
+try:
+    DEFENSE_POLL_SECS = int(_cfg("DEFENSE_POLL_SECS", "5"))
+except ValueError:
+    # Preserve fail-closed startup and let validate_runtime_config() emit a
+    # non-sensitive, actionable error instead of crashing during import.
+    DEFENSE_POLL_SECS = 0
+
+# Remote log locations differ between distributions and service packaging.
+# Keep known Ubuntu defaults, but allow each deployed VM to override them in
+# aegis_forwarder.local.conf instead of requiring source edits.
+REMOTE_AUTH_LOG       = _cfg("REMOTE_AUTH_LOG", "/var/log/auth.log")
+REMOTE_FAIL2BAN_LOG   = _cfg("REMOTE_FAIL2BAN_LOG", "/var/log/fail2ban.log")
+REMOTE_APACHE_LOG     = _cfg("REMOTE_APACHE_LOG", "/var/log/apache2/access.log")
+REMOTE_MODSEC_LOG     = _cfg("REMOTE_MODSEC_LOG", "/var/log/apache2/modsec_audit.log")
+REMOTE_MYSQL_LOG      = _cfg("REMOTE_MYSQL_LOG", "/var/log/mysql/error.log")
+REMOTE_POSTGRES_LOG   = _cfg("REMOTE_POSTGRES_LOG", "/var/log/postgresql/postgresql-*.log")
+REMOTE_BIND_LOG       = _cfg("REMOTE_BIND_LOG", "/var/log/named/named.log")
+REMOTE_SLAPD_LOG      = _cfg("REMOTE_SLAPD_LOG", "/var/log/syslog")
+
+
+def validate_runtime_config(defense_enabled: bool = True) -> list[str]:
+    """Return configuration errors without ever including secret values."""
+    errors: list[str] = []
+    parsed = urlparse(AEGIS_URL)
+    if (
+        parsed.scheme not in ("http", "https")
+        or not parsed.netloc
+        or "<" in AEGIS_URL
+        or not parsed.path.rstrip("/").endswith("/api")
+    ):
+        errors.append("AEGIS_URL must be a valid HTTP(S) API base URL ending in /api")
+    if not AEGIS_KEY or AEGIS_KEY == "aegis-demo-key-change-me":
+        errors.append("AEGIS_KEY must be configured with the deployed ingest key")
+    if defense_enabled and not DEFENSE_HEADERS.get("X-AEGIS-Admin-Key"):
+        errors.append("AEGIS_ADMIN_KEY is required when the defense agent is enabled")
+    if DEFENSE_POLL_SECS < 1 or DEFENSE_POLL_SECS > 3600:
+        errors.append("DEFENSE_POLL_SECS must be between 1 and 3600")
+    return errors
 
 # ─── SIGNATURE TEXT HELPERS ───────────────────────────────────────────────────
 # Cache per (host:jail) or sid so we SSH/read once, not once per ban event.
@@ -412,12 +450,14 @@ def get_os_info() -> str:
 
 def _report_defense_result(cmd_id: int, success: bool, error: str = None):
     try:
-        requests.post(
+        response = requests.post(
             f"{AEGIS_URL}/defense/commands/{cmd_id}/result",
             json={"success": success, "error": error},
             headers=DEFENSE_HEADERS,
             timeout=5,
         )
+        if not 200 <= response.status_code < 300:
+            print(f"[defense] [WARN] result for cmd {cmd_id} rejected: HTTP {response.status_code}")
     except Exception as e:
         print(f"[defense] [WARN] could not report result for cmd {cmd_id}: {e}")
 
@@ -654,8 +694,9 @@ def _dispatch_defense_hub(cmd: dict):
             _exec_defense_pfsense(command_text, cmd_id)
             return
 
-    # Default: run locally on this machine (AEGIS VM iptables)
-    _exec_defense_shell(command_text, cmd_id)
+    # Unknown target must fail closed; never execute a typo locally as root.
+    print(f"[defense-hub] Unknown target VM: {target_vm!r}")
+    _report_defense_result(cmd_id, False, "Unknown target VM")
 
 
 def defense_agent_loop(hub_mode: bool = False):
@@ -894,20 +935,29 @@ def service_health_loop():
 
 
 def post(endpoint: str, data: dict):
-    try:
-        r = requests.post(
-            f"{AEGIS_URL}/ingest/{endpoint}",
-            json=data,
-            headers=HEADERS,
-            timeout=30,
-        )
-        ts = datetime.now().strftime("%H:%M:%S")
-        if r.status_code == 201:
-            print(f"[{ts}] ✓ {endpoint.upper()} → AEGIS")
-        else:
-            print(f"[{ts}] WARN {endpoint}: HTTP {r.status_code} — {r.text[:80]}")
-    except Exception as e:
-        print(f"[ERROR] Cannot reach AEGIS: {e}")
+    for attempt in range(1, 4):
+        try:
+            r = requests.post(
+                f"{AEGIS_URL}/ingest/{endpoint}",
+                json=data,
+                headers=HEADERS,
+                timeout=30,
+            )
+            ts = datetime.now().strftime("%H:%M:%S")
+            if 200 <= r.status_code < 300:
+                print(f"[{ts}] ✓ {endpoint.upper()} → AEGIS (HTTP {r.status_code})")
+                return True
+            # Authentication/validation failures will not recover by retrying.
+            if 400 <= r.status_code < 500:
+                print(f"[{ts}] WARN {endpoint}: HTTP {r.status_code} — event rejected")
+                return False
+            print(f"[{ts}] WARN {endpoint}: HTTP {r.status_code} (attempt {attempt}/3)")
+        except Exception as e:
+            print(f"[WARN] Cannot reach AEGIS (attempt {attempt}/3): {type(e).__name__}")
+        if attempt < 3:
+            time.sleep(2 ** attempt)
+    print(f"[ERROR] {endpoint} event could not be delivered after 3 attempts")
+    return False
 
 
 def tail_file(path: str):
@@ -1107,6 +1157,8 @@ def watch_http_access():
 
         elif status in (200, 302) and method in ("POST", "GET"):
             prior = login_fails.pop(ip, 0)
+            if prior < 3:
+                continue
             post("http_access", {
                 "src_ip":         ip,
                 "dest_ip":        OWN_IP,
@@ -1135,7 +1187,7 @@ def _ssh_tail(host_name: str, host_ip: str, log_path: str):
         "-o", "ServerAliveCountMax=3",
         "-o", "BatchMode=yes",        # fail immediately if key auth not set up
         f"{REMOTE_SSH_USER}@{host_ip}",
-        f"tail -F {log_path} 2>/dev/null",
+        f"tail -n 0 -F {log_path} 2>/dev/null",
     ]
     while True:
         try:
@@ -1278,6 +1330,21 @@ def _suricata_mark_offline() -> None:
             _suricata_offline_timer = t
 
 
+def _pfsense_suricata_log_paths(logs_config: str = "", single_config: str = "") -> list[str]:
+    """Return explicit paths, or one PID-independent discovery pattern per interface."""
+    if logs_config.strip():
+        return [path.strip() for path in logs_config.split(",") if path.strip()]
+    # Older examples used this root path, but pfSense actually stores one EVE
+    # file per interface. Treat the legacy value as auto-discovery, not as a
+    # request to watch whichever instance happened to write most recently.
+    if single_config.strip() and single_config.strip() != "/var/log/suricata/eve.json":
+        return [single_config.strip()]
+    return [
+        "/var/log/suricata/suricata_em1.*/eve.json",
+        "/var/log/suricata/suricata_em2.*/eve.json",
+    ]
+
+
 def _watch_pfsense_suricata(log_path: str | None = None):
     """
     SSH into pfSense (PFSENSE_IP) and tail one Suricata EVE JSON log.
@@ -1286,14 +1353,13 @@ def _watch_pfsense_suricata(log_path: str | None = None):
     aegis_forwarder.local.conf examples:
         # Single custom path (overrides default):
         PFSENSE_SURICATA_LOG = /var/log/suricata/eve.json
-        # Two paths — comma-separated (hub mode spawns one thread per path):
-        PFSENSE_SURICATA_LOGS = /var/log/suricata/eve.json,/var/log/suricata/suricata_em2.2062963/eve.json
+        # Two paths/patterns — comma-separated (hub mode spawns one thread per item):
+        PFSENSE_SURICATA_LOGS = /var/log/suricata/suricata_em1.*/eve.json,/var/log/suricata/suricata_em2.*/eve.json
 
     Defaults (lab topology v4 — pfSense FreeBSD):
-        pfSense Suricata package writes EVE JSON to /var/log/suricata/eve.json
-        (root-level combined log). Instance subdirectory names include a dynamic
-        PID number (e.g. suricata_em1.1042709) that changes on every restart,
-        so the stable root path /var/log/suricata/eve.json is used as default.
+        pfSense creates a separate EVE JSON file for PUBLIC em1 and INTERNAL em2.
+        Instance directory suffixes change on restart, so the defaults use one
+        discovery glob per interface rather than selecting only the newest file.
 
         NOTE: /var/db/suricata/ holds rules only — logs go to /var/log/suricata/
     """
@@ -1315,13 +1381,13 @@ def _watch_pfsense_suricata(log_path: str | None = None):
     # (the pfSense console menu) which exits immediately without a PTY, causing
     # the connection to drop before our while-loop even starts. By passing
     # ["/bin/sh", "-c", script] as separate args, SSH invokes /bin/sh directly.
+    log_spec = shlex.quote(log_path)
     shell_script = (
-        f"P={log_path}; "
+        f"SPEC={log_spec}; P=\"$SPEC\"; "
         # Check if configured path is a real file (not broken symlink)
         "[ -f \"$P\" ] || "
-        # Try find: search deeper (maxdepth 3) and also skip broken symlinks
-        "  P=$(find /var/log/suricata/ -maxdepth 3 -name eve.json -type f 2>/dev/null"
-        " | sort | tail -1); "
+        # Resolve a configured interface glob to its newest active instance.
+        "  P=$(ls -1t $SPEC 2>/dev/null | head -1); "
         # If still not found, print a hint every 30s and keep waiting
         "C=0; "
         "while [ -z \"$P\" ] || [ ! -f \"$P\" ]; do "
@@ -1330,11 +1396,10 @@ def _watch_pfsense_suricata(log_path: str | None = None):
         "    echo \"[wait] No eve.json found — enable EVE JSON in pfSense Suricata GUI\"; "
         "  fi; "
         "  sleep 5; "
-        "  P=$(find /var/log/suricata/ -maxdepth 3 -name eve.json -type f 2>/dev/null"
-        " | sort | tail -1); "
+        "  P=$(ls -1t $SPEC 2>/dev/null | head -1); "
         "done; "
         "echo \"[found] Tailing $P\"; "
-        "tail -F \"$P\" 2>/dev/null"
+        "tail -n 0 -F \"$P\" 2>/dev/null"
     )
     ssh_cmd  = [
         "ssh", "-T",
@@ -1398,12 +1463,11 @@ def _watch_pfsense_suricata(log_path: str | None = None):
                             # ── Topology-aware pre-filter ──────────────────
                             # Suricata sees ALL traffic on the VLAN interfaces,
                             # including internal lab monitoring and GNS3 NAT
-                            # cloud return traffic. Only 192.168.10.x (Kali,
-                            # routed via R1) is a real attacker source.
-                            # Drop everything else before hitting the API.
+                            # cloud return traffic. Attacker addressing is
+                            # dynamic, so reject only known defender/NAT sources.
                             _src = evt.get("src_ip", "")
                             _is_internal = (
-                                _src.startswith("10.")          # all lab VLANs + pfSense WAN link
+                                _src in _INTERNAL_IPS
                                 or _src.startswith("192.168.122.")  # GNS3 NAT cloud / apt update noise
                                 or _src.startswith("127.")      # loopback
                                 or _src == "::1"
@@ -1423,13 +1487,6 @@ def _watch_pfsense_suricata(log_path: str | None = None):
                                         alert_obj["rule"] = rule_text
                                         evt["alert"] = alert_obj
                             post("suricata", evt)
-                        elif etype == "tls":
-                            post("suricata/tls", {
-                                "src_ip":    evt.get("src_ip"),
-                                "dest_ip":   evt.get("dest_ip"),
-                                "dest_port": evt.get("dest_port"),
-                                "tls":       evt.get("tls", {}),
-                            })
                     except json.JSONDecodeError:
                         pass
             finally:
@@ -1446,7 +1503,7 @@ def _watch_pfsense_suricata(log_path: str | None = None):
 
 def _watch_remote_ssh(host_name: str, host_ip: str):
     """Tail auth.log on a remote VM via SSH and forward failed/success login events."""
-    log_path = "/var/log/auth.log"
+    log_path = REMOTE_AUTH_LOG
     fail_counts: dict[str, int] = {}
     print(f"[{host_name}] ssh thread started")
     for line in _ssh_tail(host_name, host_ip, log_path):
@@ -1497,7 +1554,7 @@ def _watch_remote_ssh(host_name: str, host_ip: str):
 def _watch_remote_fail2ban(host_name: str, host_ip: str):
     """Tail fail2ban.log on a remote VM via SSH and forward ban events."""
     print(f"[{host_name}] fail2ban thread started")
-    for line in _ssh_tail(host_name, host_ip, "/var/log/fail2ban.log"):
+    for line in _ssh_tail(host_name, host_ip, REMOTE_FAIL2BAN_LOG):
         m = FAIL2BAN_RE.search(line)
         if not m:
             continue
@@ -1517,7 +1574,7 @@ def _watch_remote_fail2ban(host_name: str, host_ip: str):
 
 def _watch_remote_modsecurity(host_name: str, host_ip: str):
     """Tail ModSecurity audit log on a remote VM (company-web-server) via SSH."""
-    log_path = "/var/log/apache2/modsec_audit.log"
+    log_path = REMOTE_MODSEC_LOG
     print(f"[{host_name}] http/modsecurity thread (log: {log_path})")
     current_ip     = None
     current_method = None
@@ -1575,7 +1632,7 @@ def _watch_remote_http_access(host_name: str, host_ip: str):
     Tail Apache access.log on a remote VM (company-web-server) via SSH.
     Detects login brute-force success: repeated 401/403 → 200/302 on login URLs.
     """
-    log_path = "/var/log/apache2/access.log"
+    log_path = REMOTE_APACHE_LOG
     print(f"[{host_name}] http_access thread started")
     login_fails: dict[str, int] = {}
 
@@ -1609,6 +1666,8 @@ def _watch_remote_http_access(host_name: str, host_ip: str):
 
         elif status in (200, 302) and method in ("POST", "GET"):
             prior = login_fails.pop(ip, 0)
+            if prior < 3:
+                continue
             post("http_access", {
                 "src_ip":         ip,
                 "dest_ip":        host_ip,
@@ -1625,7 +1684,7 @@ def _watch_remote_http_access(host_name: str, host_ip: str):
 def _watch_remote_postgresql(host_name: str, host_ip: str):
     """Tail PostgreSQL log on company-customer-db via SSH and forward auth failures and SQL errors."""
     # Default pg log location on Ubuntu (may vary by version)
-    log_path = "/var/log/postgresql/postgresql-*.log"
+    log_path = REMOTE_POSTGRES_LOG
     # Use tail -F with glob expansion via bash
     ssh_cmd = [
         "ssh", "-T",
@@ -1685,7 +1744,7 @@ def _watch_remote_postgresql(host_name: str, host_ip: str):
 
 def _watch_remote_mysql(host_name: str, host_ip: str):
     """Tail MySQL error log on company-customer-db via SSH and forward auth failures."""
-    log_path = "/var/log/mysql/error.log"
+    log_path = REMOTE_MYSQL_LOG
     fail_counts: dict[str, int] = {}
     print(f"[{host_name}] mysql thread started")
     for line in _ssh_tail(host_name, host_ip, log_path):
@@ -1731,7 +1790,7 @@ def _watch_remote_mysql(host_name: str, host_ip: str):
 def _watch_remote_bind9(host_name: str, host_ip: str):
     """Tail BIND9 query log on dns-server via SSH and detect DNS attacks."""
     # BIND9 query log path (needs logging category queries { file } in named.conf)
-    log_path = "/var/log/named/named.log"
+    log_path = REMOTE_BIND_LOG
     # Internal/defender IPs — skip routine queries from our own infrastructure.
     # Zone transfers (AXFR/IXFR) are always suspicious and bypass this filter.
     # Rate-limit dns_query_refused: only alert after >= 5 refused queries from
@@ -1804,9 +1863,24 @@ def _watch_remote_slapd(host_name: str, host_ip: str):
     """
     # conn_id (str) → src_ip (str) — populated from ACCEPT lines
     _conn_ip: dict = {}
+    # (conn_id, op_id) → bind DN — BIND and RESULT are separate slapd lines.
+    _bind_dn: dict[tuple[str, str], str] = {}
     print(f"[{host_name}] slapd thread started")
-    for line in _ssh_tail(host_name, host_ip, "/var/log/syslog"):
+    for line in _ssh_tail(host_name, host_ip, REMOTE_SLAPD_LOG):
         if "slapd" not in line:
+            continue
+
+        # Preserve the DN from the BIND line so the later RESULT line can be
+        # attributed using its conn/op pair.
+        if " BIND " in line and "dn=" in line:
+            m_conn = re.search(r"conn=(\d+)", line)
+            m_op   = re.search(r"op=(\d+)", line)
+            m_dn   = re.search(r'BIND dn="([^"]*)"', line)
+            if m_conn and m_op and m_dn:
+                _bind_dn[(m_conn.group(1), m_op.group(1))] = m_dn.group(1)
+                if len(_bind_dn) > 1000:
+                    for key in list(_bind_dn.keys())[:200]:
+                        del _bind_dn[key]
             continue
 
         # Track conn→IP from ACCEPT lines
@@ -1826,11 +1900,12 @@ def _watch_remote_slapd(host_name: str, host_ip: str):
         # Auth failure: RESULT err=49 (Invalid credentials) or err=32 (No such object — DN enum)
         if "err=49" in line or "err=32" in line or "Invalid credentials" in line:
             m_conn  = re.search(r"conn=(\d+)", line)
+            m_op    = re.search(r"op=(\d+)", line)
             m_err   = re.search(r"err=(\d+)", line)
-            m_dn    = re.search(r'BIND dn="([^"]*)"', line)
             cid     = m_conn.group(1) if m_conn else None
+            op_id   = m_op.group(1) if m_op else None
             err_num = int(m_err.group(1)) if m_err else 49
-            dn      = m_dn.group(1) if m_dn else None
+            dn      = _bind_dn.pop((cid, op_id), None) if cid and op_id else None
             src_ip  = _conn_ip.get(cid, "unknown") if cid else "unknown"
             if src_ip in _INTERNAL_IPS:
                 continue
@@ -1842,107 +1917,8 @@ def _watch_remote_slapd(host_name: str, host_ip: str):
                 "error_code":  err_num,
                 "attack_type": atype,
                 "severity":    "high",
-                "log_source":  "/var/log/syslog (slapd)",
+                "log_source":  f"{REMOTE_SLAPD_LOG} (slapd)",
                 "matched_rule": f"slapd: err={err_num} {'Invalid credentials' if err_num == 49 else 'No such object'} — dn=\"{dn or '?'}\"",
-                "signature_text": line.strip(),
-            })
-
-
-def _watch_remote_ftp(host_name: str, host_ip: str):
-    """Tail vsftpd.log on company-web-server via SSH and forward FTP brute force / file upload events.
-
-    vsftpd log format:
-      FAIL LOGIN: Client "192.168.10.99"
-      OK LOGIN:   Client "192.168.10.99", anon_password "user@x.com"
-      OK DOWNLOAD: Client "192.168.10.99", "/path/to/file", 1234 bytes, 5.67Kbyte/sec
-      OK UPLOAD:   Client "192.168.10.99", "/path/to/file", 1234 bytes, 5.67Kbyte/sec
-      OK DELETE:   Client "192.168.10.99", "/path/to/file"
-    """
-    log_path = "/var/log/vsftpd.log"
-    fail_counts: dict[str, int] = {}
-    print(f"[{host_name}] ftp thread started (log: {log_path})")
-    for line in _ssh_tail(host_name, host_ip, log_path):
-        # Extract client IP — all vsftpd lines have Client "IP"
-        m_ip = re.search(r'Client "?([\d.]+)"?', line)
-        if not m_ip:
-            continue
-        src_ip = m_ip.group(1)
-        if src_ip in _INTERNAL_IPS:
-            continue
-
-        if "FAIL LOGIN" in line:
-            fail_counts[src_ip] = fail_counts.get(src_ip, 0) + 1
-            cnt = fail_counts[src_ip]
-            if cnt == 1 or cnt % 5 == 0:
-                post("ftp", {
-                    "src_ip":       src_ip,
-                    "status":       "failed",
-                    "command":      "LOGIN",
-                    "failures":     cnt,
-                    "log_source":   log_path,
-                    "matched_rule": f"vsftpd: FAIL LOGIN — {cnt} attempt{'s' if cnt > 1 else ''} from {src_ip}",
-                    "signature_text": line.strip(),
-                })
-
-        elif "OK LOGIN" in line:
-            # Extract username if present: anon_password "user@example.com"
-            m_user = re.search(r'anon_password "([^"]+)"', line)
-            prior  = fail_counts.pop(src_ip, 0)
-            post("ftp", {
-                "src_ip":       src_ip,
-                "username":     m_user.group(1) if m_user else "anonymous",
-                "status":       "success",
-                "command":      "LOGIN",
-                "failures":     prior,
-                "log_source":   log_path,
-                "matched_rule": (
-                    f"vsftpd: OK LOGIN after {prior} failures — BREACH"
-                    if prior >= 3
-                    else "vsftpd: OK LOGIN"
-                ),
-                "signature_text": line.strip(),
-            })
-
-        elif "OK UPLOAD" in line:
-            m_file = re.search(r'"([^"]+)",\s*(\d+)\s*bytes', line)
-            fname  = m_file.group(1) if m_file else None
-            fsize  = int(m_file.group(2)) if m_file else None
-            post("ftp", {
-                "src_ip":       src_ip,
-                "status":       "upload",
-                "command":      "UPLOAD",
-                "filename":     fname,
-                "filesize":     fsize,
-                "log_source":   log_path,
-                "matched_rule": f"vsftpd: OK UPLOAD — '{fname}' ({fsize}B) — possible webshell/exfil",
-                "signature_text": line.strip(),
-            })
-
-        elif "OK DOWNLOAD" in line:
-            m_file = re.search(r'"([^"]+)",\s*(\d+)\s*bytes', line)
-            fname  = m_file.group(1) if m_file else None
-            fsize  = int(m_file.group(2)) if m_file else None
-            post("ftp", {
-                "src_ip":       src_ip,
-                "status":       "download",
-                "command":      "DOWNLOAD",
-                "filename":     fname,
-                "filesize":     fsize,
-                "log_source":   log_path,
-                "matched_rule": f"vsftpd: OK DOWNLOAD — '{fname}' ({fsize}B)",
-                "signature_text": line.strip(),
-            })
-
-        elif "OK DELETE" in line:
-            m_file = re.search(r'"([^"]+)"', line)
-            fname  = m_file.group(1) if m_file else None
-            post("ftp", {
-                "src_ip":       src_ip,
-                "status":       "upload",  # treat delete as suspicious write action
-                "command":      "DELETE",
-                "filename":     fname,
-                "log_source":   log_path,
-                "matched_rule": f"vsftpd: OK DELETE — '{fname}' — suspicious file deletion",
                 "signature_text": line.strip(),
             })
 
@@ -2080,7 +2056,6 @@ def run_hub_mode():
         "fail2ban":    _watch_remote_fail2ban,
         "ssh":         _watch_remote_ssh,
         "http_access": _watch_remote_http_access,
-        "ftp":         _watch_remote_ftp,
         "mysql":       _watch_remote_mysql,
         "postgresql":  _watch_remote_postgresql,
         "bind9":       _watch_remote_bind9,
@@ -2160,17 +2135,10 @@ def run_hub_mode():
     # pfSense Suricata IDS — one thread per interface log (PUBLIC + INTERNAL)
     # Configurable via PFSENSE_SURICATA_LOGS (comma-separated paths) or
     # PFSENSE_SURICATA_LOG (single path, used for both if LOGS not set).
-    _pf_logs_raw = _cfg("PFSENSE_SURICATA_LOGS", "")
-    if _pf_logs_raw:
-        _pf_log_paths = [p.strip() for p in _pf_logs_raw.split(",") if p.strip()]
-    else:
-        # Default: /var/log/suricata/eve.json — pfSense writes a root-level
-        # combined EVE JSON log. Instance subdirs include dynamic PID numbers
-        # (e.g. suricata_em1.1042709) that change on restart — use root path.
-        # Monitor once (single thread) to avoid duplicate events.
-        _default_log = "/var/log/suricata/eve.json"
-        _single = _cfg("PFSENSE_SURICATA_LOG", "")
-        _pf_log_paths = [_single] if _single else [_default_log]
+    _pf_log_paths = _pfsense_suricata_log_paths(
+        _cfg("PFSENSE_SURICATA_LOGS", ""),
+        _cfg("PFSENSE_SURICATA_LOG", ""),
+    )
     _pf_iface_labels = ["PUBLIC(em1.10)", "INTERNAL(em2.20)"] + ["extra"] * 8
     for idx, _lp in enumerate(_pf_log_paths):
         _label = _pf_iface_labels[idx] if idx < len(_pf_iface_labels) else f"iface{idx}"
@@ -2231,6 +2199,14 @@ Modes:
         DEFENSE_HEADERS["X-AEGIS-Key"] = args.key
     if args.admin_key:
         DEFENSE_HEADERS["X-AEGIS-Admin-Key"] = args.admin_key
+
+    config_errors = validate_runtime_config(defense_enabled=not args.no_defense)
+    if config_errors:
+        print("AEGIS forwarder configuration is invalid:", file=sys.stderr)
+        for error in config_errors:
+            print(f"  - {error}", file=sys.stderr)
+        print("No credential values were displayed. Forwarder was not started.", file=sys.stderr)
+        sys.exit(2)
 
     _is_hub = args.mode in ("hub", "remote")
 

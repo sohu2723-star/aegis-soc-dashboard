@@ -5,6 +5,7 @@ import { z } from "zod";
 import { isAutoDefenseEnabled, setSetting } from "../lib/app-settings";
 import { sanitizeIp } from "../lib/defense-sanitize";
 import { ensureSystemStatusSeeded } from "./system";
+import { requireAuth } from "../lib/jwt-auth";
 
 const router = Router();
 const PFSENSE_IP = "10.30.30.1";
@@ -20,105 +21,60 @@ router.get("/defense/blocks", async (req, res) => {
   })));
 });
 
-router.post("/defense/block", async (req, res) => {
-  const schema = z.object({
-    ip:         z.string().ip(),
-    reason:     z.string().min(1),
-    blockedBy:  z.enum(["manual", "auto"]).optional(),
-    targetHost: z.string().optional(),
-  });
-  const body = schema.safeParse(req.body);
-  if (!body.success) { res.status(400).json({ error: "Invalid IP or reason" }); return; }
-
-  const existing = await db.select().from(blockedIpsTable)
-    .where(and(eq(blockedIpsTable.ip, body.data.ip), eq(blockedIpsTable.isActive, true)));
-  if (existing.length > 0) { res.status(409).json({ error: "IP already blocked" }); return; }
-
-  const [row] = await db.insert(blockedIpsTable).values({
-    ip:         body.data.ip,
-    reason:     body.data.reason,
-    blockedBy:  body.data.blockedBy ?? "manual",
-    targetHost: body.data.targetHost ?? null,
-    isActive:   true,
-  }).returning();
-
-  await db.insert(defenseActionsTable).values({
-    type:        body.data.blockedBy === "auto" ? "auto" : "manual",
-    action:      "block",
-    targetIp:    body.data.ip,
-    targetHost:  body.data.targetHost ?? null,
-    reason:      body.data.reason,
-    performedBy: body.data.blockedBy === "auto" ? "system" : "admin",
-    status:      "success",
-  });
-
-  // Push block to infrastructure agents — Ubuntu iptables + pfSense SSH.
-  // defense_agent.py / aegis_forwarder.py claims these via GET /defense/commands/pending.
-  try {
-    const safeIp = sanitizeIp(body.data.ip);
-    // All VMs: iptables — targetVm="all" broadcasts to all 4 company VMs + aegis via SSH
-    await db.insert(defenseCommandsTable).values({
-      targetVm:    "all",
-      commandType: "iptables",
-      commandText: `iptables -I INPUT -s ${safeIp} -j DROP`,
-      undoCommand: `iptables -D INPUT -s ${safeIp} -j DROP`,
-      targetIp:    safeIp,
-      status:      "pending",
-    });
-    // pfSense: SSH easyrule (no REST API — forwarder SSHes into pfSense)
-    await db.insert(defenseCommandsTable).values({
-      targetVm:    "pfsense",
-      commandType: "ssh_pfsense",
-      commandText: `easyrule block WAN ${safeIp}`,
-      undoCommand: `easyrule pass WAN ${safeIp}`,
-      targetIp:    safeIp,
-      status:      "pending",
-    });
-  } catch { /* invalid IP already rejected by zod above — defensive only */ }
-
-  const [blocked] = await db.select().from(blockedIpsTable).where(eq(blockedIpsTable.id, row.id));
-  res.json({ ...blocked, blockedAt: blocked.blockedAt.toISOString(), unblockedAt: null });
-});
-
-router.delete("/defense/block/:ip", async (req, res) => {
-  const ip = req.params.ip;
+router.delete("/defense/block/:ip", requireAuth, async (req, res) => {
+  const rawIp = req.params.ip;
+  const ip = Array.isArray(rawIp) ? rawIp[0] : rawIp;
   const existing = await db.select().from(blockedIpsTable)
     .where(and(eq(blockedIpsTable.ip, ip), eq(blockedIpsTable.isActive, true)));
   if (existing.length === 0) { res.status(404).json({ error: "IP not found in block list" }); return; }
 
-  await db.update(blockedIpsTable).set({ isActive: false, unblockedAt: new Date() })
-    .where(eq(blockedIpsTable.ip, ip));
-
-  await db.insert(defenseActionsTable).values({
-    type:        "manual",
-    action:      "unblock",
-    targetIp:    ip,
-    reason:      "Admin manually unblocked",
-    performedBy: "admin",
-    status:      "success",
-  });
-
   try {
     const safeIp = sanitizeIp(ip);
-    // All VMs: remove iptables rule
-    await db.insert(defenseCommandsTable).values({
-      targetVm:    "all",
-      commandType: "iptables",
-      commandText: `iptables -D INPUT -s ${safeIp} -j DROP`,
-      targetIp:    safeIp,
-      status:      "pending",
-    });
-    // pfSense: SSH easyrule pass (re-allow)
-    await db.insert(defenseCommandsTable).values({
-      targetVm:    "pfsense",
-      commandType: "ssh_pfsense",
-      commandText: `easyrule pass WAN ${safeIp}`,
-      targetIp:    safeIp,
-      status:      "pending",
-    });
-  } catch { /* invalid IP format — nothing to unblock on agents */ }
+    const block = existing[0];
+    if (block.blockedBy.startsWith("fail2ban:")) {
+      const jail = block.blockedBy.slice("fail2ban:".length);
+      const targetByIp: Record<string, string> = {
+        "10.10.10.10": "company-web-server",
+        "10.10.10.20": "company-dns-server",
+        "10.20.20.10": "company-customer-db",
+        "10.20.20.20": "company-ldap-server",
+      };
+      const targetVm = targetByIp[block.targetHost ?? ""] ?? block.targetHost;
+      if (!targetVm) throw new Error("Fail2ban target is missing");
+      const [command] = await db.insert(defenseCommandsTable).values({
+        targetVm, commandType: "fail2ban_unban",
+        commandText: `fail2ban-client set ${jail} unbanip ${safeIp}`,
+        targetIp: safeIp, status: "pending",
+      }).returning();
+      await db.insert(defenseActionsTable).values({
+        type: "manual", action: "unblock", targetIp: safeIp,
+        targetHost: block.targetHost,
+        reason: `Fail2ban unban queued; command #${command.id}`,
+        performedBy: "admin", status: "queued",
+      });
+    } else {
+      await db.insert(defenseCommandsTable).values({
+        targetVm: "all", commandType: "iptables",
+        commandText: `iptables -D INPUT -s ${safeIp} -j DROP`,
+        targetIp: safeIp, status: "pending",
+      });
+      const [pfCommand] = await db.insert(defenseCommandsTable).values({
+        targetVm: "pfsense", commandType: "ssh_pfsense",
+        commandText: `pfctl -t EasyRuleBlockHosts -T delete ${safeIp}`,
+        targetIp: safeIp, status: "pending",
+      }).returning();
+      await db.insert(defenseActionsTable).values({
+        type: "manual", action: "unblock", targetIp: safeIp,
+        reason: `Admin unblock queued; pfSense command #${pfCommand.id}`,
+        performedBy: "admin", status: "queued",
+      });
+    }
+  } catch {
+    res.status(400).json({ error: "Unblock could not be queued safely" });
+    return;
+  }
 
-  res.json({ success: true, ip });
+  res.status(202).json({ queued: true, ip });
 });
 
 router.get("/defense/actions", async (req, res) => {
@@ -209,10 +165,8 @@ router.get("/defense/status", async (req, res) => {
 });
 
 // ─── Auto-defense global toggle — real persisted setting ──────────────────────
-// Same trust level as the manual block/unblock endpoints above: called directly
-// from the (unauthenticated) dashboard UI, not from VM agents, so it does not
-// require the VM-facing X-AEGIS-Admin-Key.
-router.patch("/defense/settings", async (req, res) => {
+// Browser mutation: requires a valid admin JWT (VM agents use their own key path).
+router.patch("/defense/settings", requireAuth, async (req, res) => {
   const schema = z.object({ autoDefenseEnabled: z.boolean() });
   const body = schema.safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: "autoDefenseEnabled (boolean) required" }); return; }

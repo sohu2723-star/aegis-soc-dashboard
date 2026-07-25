@@ -7,7 +7,8 @@ const PING_INTERVAL_MS = 4 * 60 * 1000;
 export function useKeepAlive() {
   useEffect(() => {
     const ping = () => {
-      fetch("/api/healthz", { method: "GET" }).catch(() => {});
+      // Liveness only: do not make every browser tab query Supabase.
+      fetch("/api/ping", { method: "GET", cache: "no-store" }).catch(() => {});
     };
 
     ping();

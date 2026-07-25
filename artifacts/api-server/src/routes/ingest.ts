@@ -16,14 +16,14 @@ import {
   dbAttacksTable,
   dnsAttacksTable,
   ldapAttacksTable,
-  ftpSessionsTable,
+  blockedIpsTable,
 } from "@workspace/db";
 import { broadcaster } from "../lib/broadcaster";
 import { evaluateEvent } from "../lib/auto-defense";
 import { sendTelegramMessage, telegramAvailable } from "../lib/telegram";
 import { getSetting } from "../lib/app-settings";
-import { isDefenderIp, isLabInternalIp, isAttackerSubnetIp, isSuricataProtocolNoiseSid } from "../lib/ip-classifier";
-import { eq } from "drizzle-orm";
+import { isDefenderIp, isLabInternalIp, isSuricataProtocolNoiseSid } from "../lib/ip-classifier";
+import { and, eq } from "drizzle-orm";
 import { recordTrafficStats } from "./network";
 import { logger } from "../lib/logger";
 import {
@@ -55,6 +55,18 @@ function sev(
   context: Parameters<typeof resolveSeverity>[1] = {},
 ): SecuritySeverity {
   return resolveSeverity(s, context);
+}
+
+function classifyWebSignature(signature: string, category: string): string | null {
+  const text = `${signature} ${category}`.toLowerCase();
+  if (text.includes("sql") || text.includes("sqli")) return "SQLi";
+  if (text.includes("cross site") || text.includes("xss")) return "XSS";
+  if (text.includes("directory traversal") || text.includes("path traversal")) return "Traversal";
+  if (text.includes("local file") || text.includes(" lfi")) return "LFI";
+  if (text.includes("remote file") || text.includes(" rfi")) return "RFI";
+  if (text.includes("csrf")) return "CSRF";
+  if (text.includes("http") || text.includes("web application")) return "HTTP";
+  return null;
 }
 
 async function insertEvent(values: typeof securityEventsTable.$inferInsert) {
@@ -172,7 +184,7 @@ router.post("/ingest/event", auth, async (req, res) => {
     subtype: eventSubtype,
     description,
     status: blocked ? "blocked" : "detected",
-    untrustedSource: isAttackerSubnetIp(sourceIp),
+    untrustedSource: !isDefenderIp(sourceIp) && !isLabInternalIp(sourceIp),
   });
   const event = await insertEvent({
     type: eventType, subtype: eventSubtype,
@@ -199,8 +211,7 @@ router.post("/ingest/suricata", auth, async (req, res) => {
   // pfSense gateway probes, and GNS3 NAT cloud return traffic (192.168.122.x,
   // 91.189.x.x internet updates → Suricata TCP-reassembly noise).
   //
-  // Valid attack source: 192.168.10.x (Kali attacker subnet, routed via R1).
-  // Everything else is either lab-internal or outbound response traffic — skip silently.
+  // Known lab-internal/NAT sources are noise; attacker source addressing is dynamic.
   if (isLabInternalIp(src_ip)) {
     res.status(200).json({ ok: true, skipped: "lab_internal_ip" });
     return;
@@ -220,16 +231,9 @@ router.post("/ingest/suricata", auth, async (req, res) => {
     return;
   }
 
-  // ── Attacker-subnet-only filter ───────────────────────────────────────────
-  // In this lab, ALL attacks originate from Kali (192.168.10.0/24) via Router.
-  // If src_ip is a public internet IP (not lab-internal, not 192.168.10.x),
-  // it is outbound RESPONSE traffic — company VMs doing apt-get, DNS, NTP, etc.
-  // These responses trigger Suricata on return but are NOT attacks.
-  // Drop them silently; only Kali subnet traffic is real hostile traffic.
-  if (!isAttackerSubnetIp(src_ip)) {
-    res.status(200).json({ ok: true, skipped: "not_attacker_subnet" });
-    return;
-  }
+  // Attacker addressing is intentionally dynamic. Accept any non-defender
+  // source that produced a real Suricata signature; do not hard-code Kali.
+  // Internal/NAT noise and protocol-only SIDs were already rejected above.
   const subtype = a.signature ? String(a.signature) : "Unknown Attack";
   const s = sev(a.severity ?? 3, { subtype });
 
@@ -244,6 +248,34 @@ router.post("/ingest/suricata", auth, async (req, res) => {
   const signatureText: string | null =
     (a.rule ? String(a.rule).slice(0, 2000) : null) ??
     (req.body.signature_text ? String(req.body.signature_text).slice(0, 2000) : null);
+
+  // Suricata is the hub-mode HTTP IDS. Persist its web signatures in the
+  // Connections HTTP view as well as the canonical security event stream.
+  const webAttackType = classifyWebSignature(subtype, alertCategory ?? "");
+  if (webAttackType) {
+    try {
+      await db.insert(httpAttacksTable).values({
+        sourceIp: src_ip,
+        targetUrl: dest_ip ? `http://${dest_ip}` : "http://unknown-target",
+        method: "UNKNOWN",
+        statusCode: null,
+        attackType: webAttackType,
+        payload: signatureText ?? subtype,
+        userAgent: null,
+        ruleId: signatureId == null ? null : String(signatureId),
+        blocked: alertAction === "blocked",
+        logSource: "pfSense Suricata EVE JSON",
+      });
+    } catch (error) {
+      // This is a secondary/indexing write. A missing optional connection-log
+      // migration must not discard the canonical security event or prevent
+      // auto-defense. Keep the error server-side without exposing event data.
+      logger.warn(
+        { err: error instanceof Error ? error.message : String(error) },
+        "Could not index Suricata web alert in http_attacks; continuing ingest",
+      );
+    }
+  }
 
   const event = await insertEvent({
     type: "network_attack",
@@ -273,6 +305,7 @@ router.post("/ingest/fail2ban", auth, async (req, res) => {
   // filter_regex: optional Fail2ban filter failregex pattern
   // maxretry / findtime / bantime: optional jail config for rule display
   const { ip, jail, failures, target_ip, filter_regex, maxretry, findtime, bantime } = req.body;
+  if (!ip) { res.status(400).json({ error: "ip required" }); return; }
 
   // Hub (10.30.30.10) repeatedly SSHes into company VMs to tail logs.
   // If SSH key auth fails or the connection is slow, fail2ban can mistakenly
@@ -286,10 +319,24 @@ router.post("/ingest/fail2ban", auth, async (req, res) => {
   // individual SSH failure. Fail2ban fires AFTER N failures (ban event only),
   // so inserting a session here would create a duplicate record with no username.
   //
-  // blockedIpsTable: NOT inserted here — auto-defense evaluates the event via
-  // evaluateEvent() inside insertEvent() and writes to blocked_ips when a
-  // matching rule fires. Manual insert here would bypass auto-defense and write
-  // the wrong reason text.
+  const jailName = String(jail ?? "sshd").slice(0, 20);
+  const jailLower = jailName.toLowerCase();
+  const subtype = jailLower.includes("ssh") ? "SSH Brute Force"
+    : jailLower.includes("mysql") ? "MySQL Auth Brute Force"
+    : jailLower.includes("ldap") || jailLower.includes("slapd") ? "LDAP Auth Brute Force"
+    : jailLower.includes("apache") || jailLower.includes("nginx") ? "Web Brute Force"
+    : "Brute Force";
+
+  // Fail2ban has already enforced this ban on the target server. Reflect the
+  // observed state independently of whether a second auto-defense rule matches.
+  const existingBlock = await db.select({ id: blockedIpsTable.id }).from(blockedIpsTable)
+    .where(and(eq(blockedIpsTable.ip, ip), eq(blockedIpsTable.isActive, true)));
+  if (existingBlock.length === 0) {
+    await db.insert(blockedIpsTable).values({
+      ip, reason: `Fail2ban jail ${jailName}`, blockedBy: `fail2ban:${jailName}`,
+      targetHost: target_ip ?? "company-web-server", isActive: true,
+    });
+  }
 
   // Build a human-readable rule text for the dashboard.
   // If forwarder sends filter_regex, prefer that; otherwise summarise jail config.
@@ -304,7 +351,7 @@ router.post("/ingest/fail2ban", auth, async (req, res) => {
       ].filter(Boolean).join("\n");
 
   const event = await insertEvent({
-    type:"network_attack", subtype:"Brute Force", severity:"high",
+    type:"network_attack", subtype, severity:"high",
     sourceIp: ip ?? "unknown",
     targetHost: target_ip ?? "company-web-server",
     toolUsed:"fail2ban", description:`Fail2ban banned ${ip} from [${jail ?? "sshd"}] after ${failures ?? "?"} failures. Auto-block applied.`,
@@ -607,7 +654,7 @@ router.post("/ingest/mysql", auth, async (req, res) => {
   });
 
   const event = await insertEvent({
-    type:"network_attack", subtype: attack_type ?? "DB Auth Brute Force", severity: s,
+    type:"network_attack", subtype: `MySQL ${attack_type ?? "DB Auth Brute Force"}`, severity: s,
     sourceIp: src_ip, targetHost: target_ip ?? "company-customer-db",
     toolUsed:"mysql",
     description:`MySQL ${attack_type ?? "auth failure"}: user='${username ?? "?"}' from ${src_ip} → ${target_ip ?? "10.20.20.10"}:3306`,
@@ -649,7 +696,7 @@ router.post("/ingest/ldap", auth, async (req, res) => {
   });
 
   const event = await insertEvent({
-    type:"network_attack", subtype: attack_type ?? "LDAP Auth Brute Force", severity: s,
+    type:"network_attack", subtype: `LDAP ${attack_type ?? "Auth Brute Force"}`, severity: s,
     sourceIp: src_ip, targetHost: target_ip ?? "company-ldap-server",
     toolUsed:"slapd",
     description:`LDAP ${attack_type ?? "auth failure"} from ${src_ip}: dn="${dn ?? "?"}" err=${errNum ?? "?"}`,
@@ -659,65 +706,6 @@ router.post("/ingest/ldap", auth, async (req, res) => {
   if (s === "critical" || s === "high")
     await mkAlert(event.id, s as "critical"|"high", `LDAP ATTACK: ${attack_type ?? "auth brute"} from ${src_ip}`);
   res.status(201).json({ id:event.id });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// FTP Sessions — company-web-server (10.10.10.10:21)
-// Source: /var/log/vsftpd.log via _watch_remote_ftp()
-// Fields: src_ip, username, status, command, filename, filesize, failures, banned_by, log_source, matched_rule
-// status: failed | success | upload | download
-// ─────────────────────────────────────────────────────────────────────────────
-router.post("/ingest/ftp", auth, async (req, res) => {
-  const { src_ip, username, status: st, command, filename, filesize, failures, banned_by, log_source, matched_rule, signature_text } = req.body;
-  if (!src_ip) { res.status(400).json({ error: "src_ip required" }); return; }
-  if (isDefenderIp(src_ip) || isLabInternalIp(src_ip)) {
-    res.status(200).json({ ok: true, skipped: "internal_ip" }); return;
-  }
-
-  const failCount = Number(failures) || 0;
-  await db.insert(ftpSessionsTable).values({
-    sourceIp:    src_ip,
-    username:    username  ? String(username).slice(0, 64)   : null,
-    status:      st ?? "failed",
-    command:     command   ? String(command).slice(0, 32)    : null,
-    filename:    filename  ? String(filename).slice(0, 512)  : null,
-    filesize:    filesize  ? Number(filesize) : null,
-    failures:    failCount,
-    bannedBy:    banned_by ? String(banned_by).slice(0, 32)  : null,
-    logSource:   log_source   ? String(log_source).slice(0, 128)   : "/var/log/vsftpd.log",
-    matchedRule: matched_rule ? String(matched_rule).slice(0, 256)
-                              : failCount >= 3 ? `fail2ban[vsftpd]: ban after ${failCount} failures`
-                              : st === "failed" ? "vsftpd: FAIL LOGIN"
-                              : st === "upload" ? "vsftpd: OK UPLOAD (file exfiltration risk)"
-                              : "vsftpd: FTP event",
-  });
-
-  // Generate security event for attacks (failed login / file upload from attacker)
-  if (st === "failed" && (failCount === 1 || failCount % 5 === 0)) {
-    const s = failCount >= 5 ? "high" : "medium";
-    const event = await insertEvent({
-      type:"network_attack", subtype:"FTP Brute Force", severity: s,
-      sourceIp: src_ip, targetHost:"company-web-server",
-      toolUsed:"vsftpd",
-      description:`FTP brute force from ${src_ip}: ${failCount} failed login attempt(s) for user '${username ?? "?"}'`,
-      status:"detected", layer:"application",
-      signatureText: signature_text ? String(signature_text).slice(0, 2000) : null,
-    });
-    if (s === "high")
-      await mkAlert(event.id, "high", `FTP BRUTE FORCE: ${src_ip} — ${failCount} failures for '${username ?? "?"}'`);
-  } else if (st === "upload") {
-    // File upload from attacker IP is suspicious (data exfiltration / webshell plant)
-    const event = await insertEvent({
-      type:"web_attack", subtype:"FTP File Upload", severity:"high",
-      sourceIp: src_ip, targetHost:"company-web-server",
-      toolUsed:"vsftpd",
-      description:`FTP file upload from ${src_ip}: user='${username ?? "?"}' uploaded '${filename ?? "?"}' (${filesize ?? "?"}B)`,
-      status:"detected", layer:"application",
-    });
-    await mkAlert(event.id, "high", `FTP UPLOAD: ${src_ip} uploaded '${filename ?? "unknown"}' — possible webshell/exfil`);
-  }
-
-  res.status(201).json({ ok:true });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -763,38 +751,6 @@ router.post("/ingest/pfsense", auth, async (req, res) => {
     description:`pfSense: ${action ?? "log"} | ${proto ?? "TCP"} | ${src_ip}:${src_port ?? "?"} → ${dest_ip}:${dest_port ?? "?"} | Rule:${rule_number ?? "N/A"} | ${message ?? ""}`,
     status: isBlock ? "blocked":"detected", layer:"perimeter",
   });
-  res.status(201).json({ id:event.id });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Cowrie honeypot
-// ─────────────────────────────────────────────────────────────────────────────
-router.post("/ingest/cowrie", auth, async (req, res) => {
-  const { eventid, src_ip, input, session, username, password } = req.body;
-  const isLogin = eventid === "cowrie.login.failed" || eventid === "cowrie.login.success";
-  const isCmd   = eventid === "cowrie.command.input";
-  const isUnknown = !isLogin && !isCmd;
-  const s       = eventid === "cowrie.login.success"
-    ? "critical"
-    : isUnknown
-      ? "critical"
-      : "high";
-  const subtype = isUnknown ? "Unknown Attack" : "Honeypot Trap";
-
-  const desc = isLogin
-    ? `Honeypot: ${eventid === "cowrie.login.success" ? "SUCCESSFUL" : "Failed"} login from ${src_ip}. Creds: ${username}/${password}. Session: ${session}`
-    : isCmd
-    ? `Honeypot: Command by ${src_ip} in session ${session}: "${input}"`
-    : `Honeypot event [${eventid}] from ${src_ip}`;
-
-  // dest_ip: IP of the honeypot host (e.g. 10.10.10.10 or dedicated honeypot IP)
-  const dest_ip = req.body.dest_ip;
-  const event = await insertEvent({
-    type:"network_attack", subtype, severity: s as any,
-    sourceIp: src_ip ?? "unknown", targetHost: dest_ip ?? "cowrie-honeypot",
-    toolUsed:"cowrie", description: desc, status:"detected", layer:"perimeter",
-  });
-  await mkAlert(event.id, s as any, `COWRIE: ${desc.slice(0,100)}`);
   res.status(201).json({ id:event.id });
 });
 
