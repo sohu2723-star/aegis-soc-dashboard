@@ -1375,12 +1375,12 @@ def _watch_pfsense_suricata(log_path: str | None = None):
     # The root-level eve.json is sometimes a broken symlink. If the configured
     # path is missing or a broken symlink, we run `find` to locate the real file.
     #
-    # IMPORTANT: Pass /bin/sh -c <script> as SEPARATE SSH args, NOT as a single
-    # "sh -c '...'" string. When passed as one arg, SSH wraps it in the remote
-    # user's login shell ($SHELL). On pfSense, admin's shell is /etc/rc.initial
-    # (the pfSense console menu) which exits immediately without a PTY, causing
-    # the connection to drop before our while-loop even starts. By passing
-    # ["/bin/sh", "-c", script] as separate args, SSH invokes /bin/sh directly.
+    # IMPORTANT: Pass the shell script as a SINGLE SSH arg — no "/bin/sh", "-c"
+    # prefix.  When three separate args are passed, OpenSSH joins them with
+    # spaces on the wire: /bin/sh -c SPEC=... — the remote shell then treats
+    # only "SPEC=..." as the -c script and discards the rest.
+    # Passing one arg lets pfSense sshd run it through its login-shell handler
+    # (confirmed: simple commands execute correctly this way on pfSense admin).
     log_spec = shlex.quote(log_path)
     shell_script = (
         f"SPEC={log_spec}; P=\"$SPEC\"; "
@@ -1416,8 +1416,11 @@ def _watch_pfsense_suricata(log_path: str | None = None):
         "-o", "BatchMode=yes",
         "-o", "IdentityAgent=none",
         f"{PFSENSE_SSH_USER}@{PFSENSE_IP}",
-        # Explicit /bin/sh bypasses pfSense admin's login shell (/etc/rc.initial)
-        "/bin/sh", "-c", shell_script,
+        # Single-arg script — pfSense sshd passes it to shell as-is.
+        # Do NOT split into ["/bin/sh", "-c", script]: OpenSSH joins multiple
+        # args with spaces on the wire, so the remote shell sees only the first
+        # whitespace-delimited token as the -c script body (drops the rest).
+        shell_script,
     ]
     print(f"[pfSense-suricata] Starting — {PFSENSE_SSH_USER}@{PFSENSE_IP}:{log_path}")
     while True:
@@ -2046,9 +2049,15 @@ def _pfsense_health_loop():
             pass
 
         # ── 2. Suricata IDS process check via SSH pgrep ───────────────────────
-        # FreeBSD/pfSense: `pgrep -x Suricata` returns 0 if ≥1 process matches.
-        # This correctly shows "offline" when Suricata is stopped, even while
-        # the log-tail SSH connection is still alive (tail -F waits for data).
+        # FreeBSD pgrep does NOT support -x (lowercase); passing it causes pgrep
+        # to print usage and exit non-zero → "stopped" even when running.
+        # Plain `pgrep Suricata` (substring match) is correct on FreeBSD/pfSense.
+        #
+        # Command is passed as a SINGLE SSH arg (no "/bin/sh", "-c" prefix).
+        # When split as separate args, SSH joins them with spaces on the wire:
+        #   /bin/sh -c pgrep -x Suricata...  ← remote shell sees "pgrep" as script
+        # Passing one arg lets pfSense sshd execute it through the login shell
+        # as-is (confirmed working: `echo test` → "test" via same mechanism).
         if fw_status == "online":
             try:
                 result = subprocess.run(
@@ -2060,8 +2069,7 @@ def _pfsense_health_loop():
                         "-o", "BatchMode=yes",
                         "-o", "IdentityAgent=none",
                         f"{PFSENSE_SSH_USER}@{PFSENSE_IP}",
-                        "/bin/sh", "-c",
-                        "pgrep -x Suricata >/dev/null 2>&1 && echo running || echo stopped",
+                        "pgrep Suricata >/dev/null 2>&1 && echo running || echo stopped",
                     ],
                     capture_output=True, text=True, timeout=15,
                 )
