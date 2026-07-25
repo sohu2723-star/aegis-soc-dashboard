@@ -3429,3 +3429,10 @@ sudo -n systemctl status fail2ban
 - Diagnosed failed defense commands containing `--sport` and `--dport` without a TCP or UDP protocol match.
 - Added API validation so invalid port rules are rejected before they are saved or queued to the four agents.
 - Updated the Defense Rules form to enable port fields only after TCP or UDP is selected.
+
+### [2026-07-25] — Watch both pfSense Suricata interfaces
+**Status:** ✅ Done
+**What:** Hub default EVE discovery က newest file တစ်ခုတည်းကိုသာ tail လုပ်သဖြင့် PUBLIC scan သည် INTERNAL file newest ဖြစ်နေချိန် dashboard မရောက်နိုင်သည်ကို ပြင်ခဲ့သည်။
+**How:** Default ကို PUBLIC `suricata_em1.*` နှင့် INTERNAL `suricata_em2.*` pattern နှစ်ခုအဖြစ်ခွဲပြီး thread တစ်ခုစီ tail လုပ်စေကာ config tests ထည့်ခဲ့သည်။
+**Result:** PID suffix ပြောင်းလဲသည့် pfSense EVE directory များကို interface အလိုက်ရှာပြီး zone နှစ်ခုလုံးမှ alert များကို ingest လုပ်နိုင်သည်။
+**Next:** Hub forwarder update/restart ပြီး `[found] Tailing ...em1...` နှင့် `[found] Tailing ...em2...` နှစ်ကြောင်းလုံး journal တွင်စစ်ပါ။

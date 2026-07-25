@@ -58,6 +58,24 @@ class ForwarderConfigTests(unittest.TestCase):
         forwarder.DEFENSE_POLL_SECS = 0
         self.assertTrue(any("DEFENSE_POLL_SECS" in error for error in forwarder.validate_runtime_config()))
 
+    def test_suricata_defaults_monitor_both_lab_interfaces(self):
+        self.assertEqual(forwarder._pfsense_suricata_log_paths(), [
+            "/var/log/suricata/suricata_em1.*/eve.json",
+            "/var/log/suricata/suricata_em2.*/eve.json",
+        ])
+
+    def test_suricata_explicit_paths_override_defaults(self):
+        self.assertEqual(
+            forwarder._pfsense_suricata_log_paths("/tmp/public.json, /tmp/internal.json"),
+            ["/tmp/public.json", "/tmp/internal.json"],
+        )
+
+    def test_legacy_root_log_enables_both_interface_patterns(self):
+        self.assertEqual(
+            forwarder._pfsense_suricata_log_paths("", "/var/log/suricata/eve.json"),
+            forwarder._pfsense_suricata_log_paths(),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

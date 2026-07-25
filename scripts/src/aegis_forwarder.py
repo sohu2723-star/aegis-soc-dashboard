@@ -19,6 +19,7 @@ import argparse
 import json
 import os
 import re
+import shlex
 import socket
 import subprocess
 import sys
@@ -1329,6 +1330,21 @@ def _suricata_mark_offline() -> None:
             _suricata_offline_timer = t
 
 
+def _pfsense_suricata_log_paths(logs_config: str = "", single_config: str = "") -> list[str]:
+    """Return explicit paths, or one PID-independent discovery pattern per interface."""
+    if logs_config.strip():
+        return [path.strip() for path in logs_config.split(",") if path.strip()]
+    # Older examples used this root path, but pfSense actually stores one EVE
+    # file per interface. Treat the legacy value as auto-discovery, not as a
+    # request to watch whichever instance happened to write most recently.
+    if single_config.strip() and single_config.strip() != "/var/log/suricata/eve.json":
+        return [single_config.strip()]
+    return [
+        "/var/log/suricata/suricata_em1.*/eve.json",
+        "/var/log/suricata/suricata_em2.*/eve.json",
+    ]
+
+
 def _watch_pfsense_suricata(log_path: str | None = None):
     """
     SSH into pfSense (PFSENSE_IP) and tail one Suricata EVE JSON log.
@@ -1337,14 +1353,13 @@ def _watch_pfsense_suricata(log_path: str | None = None):
     aegis_forwarder.local.conf examples:
         # Single custom path (overrides default):
         PFSENSE_SURICATA_LOG = /var/log/suricata/eve.json
-        # Two paths — comma-separated (hub mode spawns one thread per path):
-        PFSENSE_SURICATA_LOGS = /var/log/suricata/eve.json,/var/log/suricata/suricata_em2.2062963/eve.json
+        # Two paths/patterns — comma-separated (hub mode spawns one thread per item):
+        PFSENSE_SURICATA_LOGS = /var/log/suricata/suricata_em1.*/eve.json,/var/log/suricata/suricata_em2.*/eve.json
 
     Defaults (lab topology v4 — pfSense FreeBSD):
-        pfSense Suricata package writes EVE JSON to /var/log/suricata/eve.json
-        (root-level combined log). Instance subdirectory names include a dynamic
-        PID number (e.g. suricata_em1.1042709) that changes on every restart,
-        so the stable root path /var/log/suricata/eve.json is used as default.
+        pfSense creates a separate EVE JSON file for PUBLIC em1 and INTERNAL em2.
+        Instance directory suffixes change on restart, so the defaults use one
+        discovery glob per interface rather than selecting only the newest file.
 
         NOTE: /var/db/suricata/ holds rules only — logs go to /var/log/suricata/
     """
@@ -1366,12 +1381,13 @@ def _watch_pfsense_suricata(log_path: str | None = None):
     # (the pfSense console menu) which exits immediately without a PTY, causing
     # the connection to drop before our while-loop even starts. By passing
     # ["/bin/sh", "-c", script] as separate args, SSH invokes /bin/sh directly.
+    log_spec = shlex.quote(log_path)
     shell_script = (
-        f"P={log_path}; "
+        f"SPEC={log_spec}; P=\"$SPEC\"; "
         # Check if configured path is a real file (not broken symlink)
         "[ -f \"$P\" ] || "
-        # Pick the most recently written active instance, not lexicographic PID.
-        "  P=$(ls -1t /var/log/suricata/*/eve.json 2>/dev/null | head -1); "
+        # Resolve a configured interface glob to its newest active instance.
+        "  P=$(ls -1t $SPEC 2>/dev/null | head -1); "
         # If still not found, print a hint every 30s and keep waiting
         "C=0; "
         "while [ -z \"$P\" ] || [ ! -f \"$P\" ]; do "
@@ -1380,7 +1396,7 @@ def _watch_pfsense_suricata(log_path: str | None = None):
         "    echo \"[wait] No eve.json found — enable EVE JSON in pfSense Suricata GUI\"; "
         "  fi; "
         "  sleep 5; "
-        "  P=$(ls -1t /var/log/suricata/*/eve.json 2>/dev/null | head -1); "
+        "  P=$(ls -1t $SPEC 2>/dev/null | head -1); "
         "done; "
         "echo \"[found] Tailing $P\"; "
         "tail -n 0 -F \"$P\" 2>/dev/null"
@@ -2119,17 +2135,10 @@ def run_hub_mode():
     # pfSense Suricata IDS — one thread per interface log (PUBLIC + INTERNAL)
     # Configurable via PFSENSE_SURICATA_LOGS (comma-separated paths) or
     # PFSENSE_SURICATA_LOG (single path, used for both if LOGS not set).
-    _pf_logs_raw = _cfg("PFSENSE_SURICATA_LOGS", "")
-    if _pf_logs_raw:
-        _pf_log_paths = [p.strip() for p in _pf_logs_raw.split(",") if p.strip()]
-    else:
-        # Default: /var/log/suricata/eve.json — pfSense writes a root-level
-        # combined EVE JSON log. Instance subdirs include dynamic PID numbers
-        # (e.g. suricata_em1.1042709) that change on restart — use root path.
-        # Monitor once (single thread) to avoid duplicate events.
-        _default_log = "/var/log/suricata/eve.json"
-        _single = _cfg("PFSENSE_SURICATA_LOG", "")
-        _pf_log_paths = [_single] if _single else [_default_log]
+    _pf_log_paths = _pfsense_suricata_log_paths(
+        _cfg("PFSENSE_SURICATA_LOGS", ""),
+        _cfg("PFSENSE_SURICATA_LOG", ""),
+    )
     _pf_iface_labels = ["PUBLIC(em1.10)", "INTERNAL(em2.20)"] + ["extra"] * 8
     for idx, _lp in enumerate(_pf_log_paths):
         _label = _pf_iface_labels[idx] if idx < len(_pf_iface_labels) else f"iface{idx}"
