@@ -1,10 +1,9 @@
 import { Router } from "express";
 import { db, networkHostsTable } from "@workspace/db";
-import { securityEventsTable, defenseCommandsTable, systemStatusTable } from "@workspace/db";
+import { securityEventsTable, systemStatusTable } from "@workspace/db";
 import { eq, desc, or, lt, and, gte, asc } from "drizzle-orm";
 import { z } from "zod";
 import { broadcaster } from "../lib/broadcaster";
-import { sanitizeIp } from "../lib/defense-sanitize";
 
 const router = Router();
 const PFSENSE_IP = "10.30.30.1";
@@ -116,7 +115,7 @@ router.post("/network/hosts", async (req, res) => {
   const schema = z.object({
     ip:          z.string(),
     hostname:    z.string(),
-    role:        z.enum(["kali", "ubuntu", "honeypot", "router", "pfsense", "unknown", "web-server", "mail-server", "workstation", "database", "forwarder"]).optional(),
+    role:        z.enum(["kali", "ubuntu", "router", "pfsense", "unknown", "web-server", "database", "forwarder"]).optional(),
     os:          z.string().nullish(),
     mac:         z.string().nullish(),
     openPorts:   z.string().nullish(),
@@ -200,7 +199,7 @@ router.delete("/network/hosts/:id", async (req, res) => {
   res.json({ success: true });
 });
 
-// ─── Mark host OFFLINE + queue iptables block ──────────────────────────────────
+// ─── Mark host OFFLINE (inventory state only) ─────────────────────────────────
 router.patch("/network/hosts/:id/offline", async (req, res) => {
   const id = Number(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
@@ -208,21 +207,6 @@ router.patch("/network/hosts/:id/offline", async (req, res) => {
   await db.update(networkHostsTable).set({ status: "offline" }).where(eq(networkHostsTable.id, id));
   const [updated] = await db.select().from(networkHostsTable).where(eq(networkHostsTable.id, id));
   if (!updated) { res.status(404).json({ error: "Not found" }); return; }
-
-  // Queue iptables block on all company VMs so attacks actually can't get through
-  try {
-    const safeIp = sanitizeIp(updated.ip);
-    const blockCmd = `iptables -I INPUT -s ${safeIp} -j DROP && iptables -I OUTPUT -d ${safeIp} -j DROP && iptables -I FORWARD -s ${safeIp} -j DROP`;
-    const undoCmd  = `iptables -D INPUT -s ${safeIp} -j DROP; iptables -D OUTPUT -d ${safeIp} -j DROP; iptables -D FORWARD -s ${safeIp} -j DROP`;
-    await db.insert(defenseCommandsTable).values({
-      targetVm:    "all",
-      commandType: "network_isolate",
-      commandText: blockCmd,
-      undoCommand:  undoCmd,
-      targetIp:    updated.ip,
-      status:      "pending",
-    });
-  } catch { /* skip if IP format invalid */ }
 
   broadcaster.broadcast("host_status_change", {
     id:       updated.id,
@@ -235,7 +219,7 @@ router.patch("/network/hosts/:id/offline", async (req, res) => {
   res.json({ ...updated, lastSeen: updated.lastSeen.toISOString(), createdAt: updated.createdAt.toISOString() });
 });
 
-// ─── Mark host ONLINE + queue iptables unblock ─────────────────────────────────
+// ─── Mark host ONLINE (inventory state only) ──────────────────────────────────
 router.patch("/network/hosts/:id/online", async (req, res) => {
   const id = Number(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
@@ -243,20 +227,6 @@ router.patch("/network/hosts/:id/online", async (req, res) => {
   await db.update(networkHostsTable).set({ status: "online", lastSeen: new Date() }).where(eq(networkHostsTable.id, id));
   const [updated] = await db.select().from(networkHostsTable).where(eq(networkHostsTable.id, id));
   if (!updated) { res.status(404).json({ error: "Not found" }); return; }
-
-  // Queue iptables unblock on all company VMs
-  try {
-    const safeIp = sanitizeIp(updated.ip);
-    const unblockCmd = `iptables -D INPUT -s ${safeIp} -j DROP; iptables -D OUTPUT -d ${safeIp} -j DROP; iptables -D FORWARD -s ${safeIp} -j DROP`;
-    await db.insert(defenseCommandsTable).values({
-      targetVm:    "all",
-      commandType: "network_restore",
-      commandText: unblockCmd,
-      undoCommand:  `iptables -I INPUT -s ${safeIp} -j DROP && iptables -I OUTPUT -d ${safeIp} -j DROP && iptables -I FORWARD -s ${safeIp} -j DROP`,
-      targetIp:    updated.ip,
-      status:      "pending",
-    });
-  } catch { /* skip if IP format invalid */ }
 
   broadcaster.broadcast("host_status_change", {
     id:       updated.id,

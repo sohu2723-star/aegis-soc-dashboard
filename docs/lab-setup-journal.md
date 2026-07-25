@@ -1,5 +1,7 @@
 # AEGIS SOC Dashboard — Lab Setup Journal
 
+> **Current-scope notice (2026-07-25):** ဤ file သည် chronological engineering history ဖြစ်၍ အောက်ပိုင်း historical entries များတွင် စမ်းသပ်ခဲ့ပြီးနောက် ဖယ်ရှားထားသော component names ပါနိုင်သည်။ လက်ရှိ authoritative runtime scope သည် Web, DNS, Customer DB, LDAP, pfSense Suricata နှင့် four-server Fail2ban ဖြစ်သည်။ Mail, Cowrie, Incident page, encrypted-connection page နှင့် Snort တို့သည် active scope မဟုတ်ပါ။ Final narrative အတွက် `docs/PROJECT_BOOK.md` ကိုသုံးပါ။
+
 ---
 
 ## [2026-07-24] — Report Page: Language Selector + VoiceReader Stop Fix
@@ -3326,3 +3328,83 @@ sudo -n systemctl status fail2ban
 - `artifacts/api-server/src/routes/ai.ts` — English maxTokens 1400
 **Result:** TypeScript compile ✅ no errors
 **Next:** GitHub push → Render/Vercel auto-deploy → production မှာ Listen button stable ဖြစ်မယ်
+---
+
+### [2026-07-24] — Full repository security and architecture audit
+**Status:** ✅ Done
+**What:** Commit `9228c9a` verification and non-destructive audit of API, Supabase schema/driver, event and connection pipelines, log paths, forwarder, SSE, threat map, classification, defense rules, command queue, VM/pfSense flow, duplication, errors, and vulnerabilities.
+**How:** Read `replit.md` and `docs/PROJECT_BOOK.md`; checked credential presence without printing values; compared local HEAD with GitHub's public latest-commit metadata; ran Git integrity, secret-pattern, TypeScript, production build, Python byte-compile, shell syntax, and production dependency audit checks; reviewed all relevant source paths. No production DB or VM mutation was performed.
+**Result:** Full findings and prioritized remediation recorded in `docs/FULL_AUDIT_2026-07-24.md`. Build/static checks pass. Audit identifies critical unauthenticated mutation and privileged command-execution risk; dependency audit reports 23 advisories. Live integrations were not tested because credentials were absent from the audit environment.
+**Next:** Disable/restrict production command execution until AEGIS-01/02 are remediated; then fix queue claiming, dependency vulnerabilities, ingest identity/validation, SSE authorization, and add security tests.
+
+---
+
+### [2026-07-24] — Server and defense-flow readiness follow-up
+**Status:** ✅ Done
+**What:** Rechecked duplicate routes, web/DNS/customer-DB/LDAP/pfSense requirements, forwarder coverage, rule execution flow, and ability to perform a live non-destructive test.
+**How:** Checked credential presence without values, attempted read-only Render API calls, traced sensor endpoints and database migrations, inspected service/log requirements, and added fail-closed forwarder configuration tests. Updated DB connectivity output to redact deployment metadata.
+**Result:** Detailed readiness report added at `docs/SYSTEM_READINESS_REVIEW_2026-07-24.md`. Live integration remains unverified because secrets were absent from this process and the execution proxy rejected the Render tunnel. Confirmed missing TLS endpoint/schema, no automatic rule seeding, unsafe queue claiming, duplicate route security drift, and incomplete SMTP/Snort/Cowrie coverage. No production mutation occurred.
+**Next:** Run the documented read-only checks on `aegis-company-admin`, attach the resulting status summary without secrets, then remediate TLS and command-queue/authentication issues before controlled attack/undo testing.
+
+---
+
+### [2026-07-24] — Log paths, classification, LDAP correlation, and attack-flow corrections
+**Status:** ✅ Done
+**What:** Validated the screenshot findings against source and corrected concrete P1 issues without touching production data.
+**How:** Made all remote Ubuntu log paths configurable with documented defaults; joined slapd BIND and RESULT records by conn/op; added DB/LDAP/FTP/mail normalization; stored Suricata web signatures in `http_attacks`; corrected Kali/R1/pfSense threat-map labels.
+**Result:** Defaults now match the documented Ubuntu lab but can be overridden per deployment. LDAP events retain attempted DN, non-SSH brute force is no longer mislabeled as SSH, and Suricata HTTP alerts populate the Connections view. P0 authorization/queue/shell risks and missing TLS remain open.
+**Next:** Deploy the forwarder update to the hub with its existing local config, run read-only connectivity/log checks, then fix authenticated mutation boundaries and transactional typed command execution before enabling production auto-defense.
+
+---
+
+### [2026-07-24] — Push and deployment readiness verification
+**Status:** ✅ Done
+**What:** Checked whether the current changes introduce install, compile, build, API startup, or route-loading failures before push.
+**How:** Ran frozen-lockfile install, full workspace build, Python unit/compile checks, shell syntax checks, and a local production API bundle smoke test using non-production placeholder credentials and an unreachable local DB. Tested only DB-independent routes and authentication rejection paths.
+**Result:** Install/typecheck/build pass; API starts and `/api/ping` returns 200. Protected defense-rule and invalid-key ingest requests return 401. The later four-server scope cleanup removed the stale TLS forwarder call. Suricata HTTP secondary indexing is failure-isolated so a missing optional migration cannot discard the canonical event. No production system was contacted or modified.
+**Next:** Confirm Render variables by presence only, add a strong `SESSION_SECRET`, verify migration 0004, deploy, then perform read-only health checks before updating/restarting the hub forwarder.
+
+---
+
+### [2026-07-24] — Four-server scope cleanup and dynamic attacker support
+**Status:** ✅ Done
+**What:** Aligned runtime code with the actual lab: dynamic attacker IP, web/DNS/customer-DB/LDAP only, pfSense Suricata, per-server Fail2ban, auto-defense rules, and manual unblock.
+**How:** Removed the hard-coded Kali subnet gate, stale Cowrie/mail/TLS runtime paths, dead incident and legacy firewall routes, and duplicate defense-rule CRUD. Added atomic command claiming, Fail2ban start/stop/restart controls, DB-backed threat-map hydration, correct pfSense-only Suricata checks, and lightweight API keepalive.
+**Result:** Nmap/Suricata alerts can be accepted from any non-defender source IP; changing browsers no longer empties the threat-map history; only Fail2ban/auto rules create blocks through the active UI flow; unblock remains available. Build and static tests pass. Live lab effectiveness still requires read-only evidence from the hub and production DB.
+**Next:** Provide presence-only Render variable status plus redacted outputs from `check_connectivity.sh`, forwarder service status/log tail, active defense-rule list, and one controlled nmap event chain.
+
+---
+
+### [2026-07-25] — Parallel function-effectiveness audit and correctness fixes
+**Status:** ✅ Done
+**What:** Parallel-audited all four server sensors, alert/SSE flow, Fail2ban, auto-defense, command queue, VM iptables, pfSense WAN block/unblock, Threat Map persistence, API availability and connectivity checks.
+**How:** Traced every runtime function across forwarder, ingest, classification, DB, queue, executor and frontend; ran build/static checks; repaired retry/reconnect duplication, web false positives, Fail2ban mapping/inventory/unban, pfSense block verification/unblock, queue results, target fan-out/validation, auth boundaries and queued-vs-executed UI state.
+**Result:** Detailed matrix is in `docs/FUNCTION_EFFECTIVENESS_AUDIT_2026-07-25.md`. Static correctness improved, but live effectiveness is intentionally not certified without private-lab rule/table/packet read-back evidence. No production mutation or secret output occurred.
+**Next:** Run one controlled disposable-IP block/unblock test and provide redacted evidence listed in the audit; then implement typed executor commands, queue leases and durable event spooling.
+
+---
+
+### [2026-07-25] — Final project book and presentation consolidation
+**Status:** ✅ Done
+**What:** Presentation အတွက် project documentation ကို actual four-server runtime scope နှင့်ညှိပြီး duplicate/stale narrative ကို authoritative final book တစ်အုပ်အဖြစ်စုစည်းခဲ့သည်။
+**How:** `docs/PROJECT_BOOK.md` ကို architecture, sensor/log path, code/API/ingest/SSE/route/defense flows, DB model, verification, limitations နှင့် viva answers ပါသော final edition အဖြစ်ပြန်ရေးခဲ့သည်။ `docs/code-flow.md` ကို source-aligned concise reference ပြုလုပ်ပြီး `docs/PRESENTATION_GUIDE.md` တွင် slide notes, safe demo order နှင့် ဆရာ/ဆရာမများမေးနိုင်သည့် questions ထည့်ခဲ့သည်။ Repository image scan ပြုလုပ်ရာ presentation screenshot file မရှိသဖြင့် ဖျက်ရန် binary screenshot မရှိခဲ့ပါ။
+**Result:** Mail, Cowrie, Incident, encrypted-connection နှင့် Snort ကို active flow အဖြစ်မဖော်ပြတော့ဘဲ Web/DNS/Customer DB/LDAP + pfSense/Hub architecture တစ်မျိုးတည်းကို final presentation source of truth အဖြစ်ရရှိခဲ့သည်။ Historical journal entries ကို audit chronology မပျက်စေရန်မဖျက်ဘဲ current-scope notice ထည့်ထားသည်။ Secret value နှင့် production data ကိုမထိခဲ့ပါ။
+**Next:** Presentation မတိုင်မီ `docs/PRESENTATION_GUIDE.md` safe live-demo checklist အတိုင်း controlled lab acceptance test ပြုလုပ်ပါ။
+
+---
+
+### [2026-07-25] — Manual firewall backup and rule-evidence clarification
+**Status:** ✅ Done
+**What:** Detection signature/rule text နှင့် auto-defense rule chain dashboard ပေါ်တွင်မည်သို့ပြသသည်ကို source အလိုက်အတည်ပြုပြီး legacy `firewall.ts` deletion ၏အကြောင်းရင်းနှင့် manual backup path ကိုရှင်းလင်းခဲ့သည်။
+**How:** Consolidated `/api/ui/firewall/rules` add/remove ကို company server လေးလုံးအတွက် target-specific queue rows အဖြစ်ပြင်ပြီး queued status ကိုမှန်ကန်စွာမှတ်တမ်းတင်ခဲ့သည်။ Export script မှ destructive `iptables -F` ကိုဖယ်ပြီး UI toast နှင့် Project Book တွင် queued/executed semantics, detection rule နှင့် defense rule ကွာခြားချက်ကိုထည့်ခဲ့သည်။
+**Result:** Legacy duplicate/unprotected route ကိုပြန်မထည့်ဘဲ authenticated dashboard manual firewall backup ဆက်ရှိသည်။ Rule တစ်ခုကို agent တစ်ခုတည်း claim သွားနိုင်သည့် `targetVm=all` ambiguity မရှိတော့ဘဲ target လေးခုစီ result သီးခြားရရှိမည်။ Secret သို့မဟုတ် production firewall ကိုမထိခဲ့ပါ။
+**Next:** Controlled lab တွင် additive rule add/remove တစ်ကြိမ်စီ run ပြီး command history နှင့် target-side iptables state ကို redacted evidence ဖြင့်စစ်ပါ။
+
+---
+
+### [2026-07-25] — Four-server sensor, setup and safe attack-demo guide
+**Status:** ✅ Done
+**What:** pfSense Suricata local alerts, VM packages/sensors, attack-to-block mapping, bounded Kali demo tools, Web white-page diagnosis, DNS apex fix နှင့် DB/LDAP verification ကို single lab guide အဖြစ်ထည့်ခဲ့သည်။
+**How:** DNS apex A record ကို Web IP သို့ပြင်၍ serial တိုးခဲ့သည်; LDAP README base DN ကို LDIF နှင့်ကိုက်အောင်ပြင်ခဲ့သည်; PHP DB failures ကို non-secret HTTP 503 အဖြစ်ပြပြီး Web authentication failure marker ကို Apache log ထည့်ခဲ့သည်။ ET Open supplement local rules နှင့် safe flag explanations ထည့်ပြီး stale root lab README ကို authoritative guide pointer ဖြင့်အစားထိုးခဲ့သည်။
+**Result:** `goldenmyanmar.trading.com` direct DNS answer သည် Web ကိုညွှန်မည်၊ blank DB failure အစား diagnosable response ရမည်၊ classroom tests သည် bounded commands သာဖြစ်မည်။ Repository-only fixes ပြီးပြီး live VMs တွင် commands run/verify လုပ်ရန်ကျန်သည်; production data/credentials မထိခဲ့ပါ။
+**Next:** `lab/SYSTEM_SETUP_AND_DEMO_GUIDE.md` အစဉ်အတိုင်း DNS/Web/DB/LDAP read-only checks လုပ်ပြီး redacted output ဖြင့် failure hop ကိုအတည်ပြုပါ။

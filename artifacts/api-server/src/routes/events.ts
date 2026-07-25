@@ -2,7 +2,6 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { securityEventsTable } from "@workspace/db";
 import { desc, eq, and } from "drizzle-orm";
-import { z } from "zod";
 
 const router = Router();
 
@@ -33,27 +32,5 @@ router.get("/events/recent", async (_req, res) => {
   res.json(events.map(e => ({ ...e, createdAt: e.createdAt.toISOString() })));
 });
 
-const createEventSchema = z.object({
-  type:       z.string(),
-  subtype:    z.string(),
-  severity:   z.enum(["critical", "high", "medium", "low"]),
-  sourceIp:   z.string(),
-  targetHost: z.string(),
-  toolUsed:   z.string().optional(),
-  description: z.string(),
-  layer:      z.string(),
-});
-
-router.post("/events", async (req, res) => {
-  const body = createEventSchema.parse(req.body);
-  // .returning() already gives us the full inserted row — no extra SELECT needed.
-  const [event] = await db.insert(securityEventsTable).values({
-    ...body,
-    toolUsed: body.toolUsed ?? null,
-    status:   "detected",
-  }).returning();
-
-  res.status(201).json({ ...event, createdAt: event.createdAt.toISOString() });
-});
 
 export default router;

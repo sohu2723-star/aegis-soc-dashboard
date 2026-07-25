@@ -18,7 +18,6 @@ import {
   blockedIpsTable,
   defenseActionsTable,
   alertsTable,
-  incidentsTable,
   type DefenseRule,
 } from "@workspace/db";
 import { and } from "drizzle-orm";
@@ -35,20 +34,21 @@ import { isDefenderIp } from "./ip-classifier";
 import { isAutoDefenseEnabled } from "./app-settings";
 
 // ─── Attack-type normaliser ───────────────────────────────────────────────────
-function toTriggerType(eventType: string, eventSubtype: string): string {
+export function toTriggerType(eventType: string, eventSubtype: string): string {
   const sub = (eventSubtype ?? "").toLowerCase();
   const typ = (eventType ?? "").toLowerCase();
 
-  if (sub.includes("brute") && (sub.includes("ssh") || typ === "network_attack")) return "ssh_brute";
+  // Service-specific checks must precede the generic network/SSH fallback.
+  if (sub.includes("ldap"))                                 return sub.includes("enum") ? "ldap_enum" : "ldap_brute";
+  if (sub.includes("mysql") || sub.includes("database") || sub.includes("db ")) return "db_attack";
+  if (sub.includes("ftp"))                                  return "ftp_brute";
+  if (sub.includes("brute") && sub.includes("ssh"))        return "ssh_brute";
   if (sub.includes("port scan") || sub.includes("nmap"))   return "port_scan";
   if (sub.includes("ddos") || sub.includes("flood"))       return "ddos";
   if (sub.includes("sqli") || sub.includes("sql") || sub.includes("xss") ||
       sub.includes("lfi") || sub.includes("rfi") || sub.includes("traversal") ||
       sub.includes("csrf") || sub.includes("injection") || sub.includes("ssrf") ||
       sub.includes("xxe") || typ === "web_attack")          return "web_attack";
-  if (sub.includes("phishing") || sub.includes("fake"))    return "phishing";
-  if (sub.includes("honeypot"))                             return "honeypot";
-  if (sub.includes("tls") || sub.includes("ssl"))          return "tls_suspicious";
   if (sub.includes("dns"))                                  return "dns_attack";
   if (sub.includes("arp") || sub.includes("mitm"))         return "mitm";
   return "any";
@@ -83,7 +83,9 @@ function buildCommand(rule: DefenseRule, sourceIp: string, _eventId: number) {
         commandText:
           `iptables -I INPUT -s ${safeIp} -m limit --limit ${rate} --limit-burst 20 -j ACCEPT && ` +
           `iptables -A INPUT -s ${safeIp} -j DROP`,
-        undoCommand: `iptables -D INPUT -s ${safeIp} -j DROP`,
+        undoCommand:
+          `iptables -D INPUT -s ${safeIp} -m limit --limit ${rate} --limit-burst 20 -j ACCEPT; ` +
+          `iptables -D INPUT -s ${safeIp} -j DROP`,
       };
     }
 
@@ -111,19 +113,12 @@ function buildCommand(rule: DefenseRule, sourceIp: string, _eventId: number) {
       // SSH into pfSense via forwarder and run easyrule (no REST API package needed)
       return {
         commandType: "ssh_pfsense",
-        commandText: `easyrule block WAN ${safeIp}`,
-        undoCommand: `easyrule pass WAN ${safeIp}`,
+        commandText: `easyrule block WAN ${safeIp} && pfctl -t EasyRuleBlockHosts -T show | grep -Fx ${safeIp}`,
+        undoCommand: `pfctl -t EasyRuleBlockHosts -T delete ${safeIp}`,
       };
 
     case "pfsense_port_block": {
-      const port  = sanitizePort(params.port || "80");
-      const proto = sanitizeProtocol(params.protocol);
-      return {
-        commandType: "ssh_pfsense",
-        // pfSense easyrule doesn't support per-port; use pfctl table rule via SSH
-        commandText: `pfctl -t blocklist -T add ${safeIp} && echo "block in quick on em0 proto ${proto} from ${safeIp} to any port = ${port}" | pfctl -f -`,
-        undoCommand: `pfctl -t blocklist -T del ${safeIp}`,
-      };
+      throw new Error("pfsense_port_block is disabled; use a reviewed persistent pfSense rule");
     }
 
     case "waf_rule":
@@ -219,16 +214,13 @@ export async function evaluateEvent(event: IngestEvent): Promise<void> {
 async function executeAutoDefense(rule: DefenseRule, event: IngestEvent) {
   const { commandType, commandText, undoCommand } = buildCommand(rule, event.sourceIp, event.id);
 
-  const [cmdRow] = await db.insert(defenseCommandsTable).values({
-    ruleId:      rule.id,
-    eventId:     event.id,
-    targetVm:    rule.targetVm,
-    commandType,
-    commandText,
-    undoCommand:  undoCommand ?? null,
-    targetIp:    event.sourceIp,
-    status:      "pending",
-  }).returning();
+  const targets = commandType === "ssh_pfsense" ? ["pfsense"] : rule.targetVm === "all"
+    ? ["aegis", "company-web-server", "company-dns-server", "company-customer-db", "company-ldap-server"]
+    : [rule.targetVm];
+  const cmdRows = await db.insert(defenseCommandsTable).values(targets.map(targetVm => ({
+    ruleId: rule.id, eventId: event.id, targetVm, commandType, commandText,
+    undoCommand: undoCommand ?? null, targetIp: event.sourceIp, status: "pending",
+  }))).returning();
 
   // Record in blocked_ips for IP-blocking defense types
   if (["block_ip", "null_route", "pfsense_block"].includes(rule.defenseType)) {
@@ -256,18 +248,14 @@ async function executeAutoDefense(rule: DefenseRule, event: IngestEvent) {
     relatedEventId: String(event.id),
   });
 
-  broadcaster.broadcast("defense_action", {
-    type:       "auto",
-    ruleId:     rule.id,
-    ruleName:   rule.name,
-    action:     rule.defenseType,
-    targetIp:   event.sourceIp,   // attacker IP (for block list)
-    sourceIp:   event.sourceIp,   // same — explicit alias used by threat map
-    targetHost: event.targetHost, // victim host — threat map uses this to match in-flight packets
-    commandId:  cmdRow.id,
-    status:     "queued",
-    timestamp:  new Date().toISOString(),
-  });
+  for (const cmdRow of cmdRows) {
+    broadcaster.broadcast("defense_action", {
+      type: "auto", ruleId: rule.id, ruleName: rule.name, action: rule.defenseType,
+      targetIp: event.sourceIp, sourceIp: event.sourceIp, targetHost: event.targetHost,
+      targetVm: cmdRow.targetVm, commandId: cmdRow.id, status: "queued",
+      timestamp: new Date().toISOString(),
+    });
+  }
 
   broadcaster.broadcast("stats_update", { timestamp: new Date().toISOString() });
 }
@@ -309,15 +297,16 @@ async function suggestManualDefense(rule: DefenseRule, event: IngestEvent) {
   const { commandText } = buildCommand(rule, event.sourceIp, event.id);
   const readableCommand = rule.targetVm === "pfsense" ? humanizePfSenseAction(commandText) : commandText;
 
-  const [incRow] = await db.insert(incidentsTable).values({
-    title:       `[ACTION NEEDED] ${rule.name} — ${event.sourceIp}`,
-    severity:    event.severity as any,
-    status:      "open",
-    description: `Rule "${rule.name}" triggered for ${event.sourceIp}. Manual action required.`,
-    responder:   "admin",
-    notes:       `Attack: ${event.subtype} (${event.type}) from ${event.sourceIp} → ${event.targetHost}\n\nSuggested defense (apply on ${rule.targetVm}):\n${readableCommand}`,
-    eventCount:  1,
-  }).returning();
+  await db.insert(defenseActionsTable).values({
+    type: "manual",
+    action: "suggested",
+    targetIp: event.sourceIp,
+    targetHost: event.targetHost,
+    reason: `Rule ${rule.name}: ${readableCommand}`.slice(0, 2000),
+    performedBy: "aegis-auto-defense",
+    status: "suggested",
+    relatedEventId: String(event.id),
+  });
 
   const [alertRow] = await db.insert(alertsTable).values({
     message:      `MANUAL ACTION: ${rule.name} — ${event.sourceIp}`.slice(0, 255),
@@ -334,7 +323,6 @@ async function suggestManualDefense(rule: DefenseRule, event: IngestEvent) {
     telegramSent: false,
     manualAction: true,
   });
-  broadcaster.broadcast("incident", { id: incRow.id, title: `[ACTION NEEDED] ${rule.name}` });
 }
 
 // Defense rules are intentionally managed only through the dashboard CRUD API.
