@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Shield, ShieldOff, Lock, Unlock, Bot, UserCheck, AlertTriangle, RefreshCcw, Sparkles, Zap, Plus, Check } from "lucide-react";
+import { Shield, ShieldOff, Lock, Unlock, Bot, UserCheck, AlertTriangle, RefreshCcw, Sparkles, Zap, Plus, Check, Ban } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { HostLabel } from "@/lib/host-utils";
@@ -159,6 +159,10 @@ export default function Defense() {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
 
+  // Admin manual block
+  const [manualIp, setManualIp] = useState("");
+  const [manualReason, setManualReason] = useState("");
+
   // AI Rule Recommendations state
   interface RuleRec {
     name: string; description: string; reasoning: string;
@@ -218,6 +222,26 @@ export default function Defense() {
 
   const activeBlocks = blocks.filter(b => b.isActive);
   const historyBlocks = blocks.filter(b => !b.isActive);
+
+  const manualBlockMutation = useMutation({
+    mutationFn: async ({ ip, reason }: { ip: string; reason: string }) => {
+      const r = await fetch(`${BASE}/api/defense/block`, {
+        method: "POST",
+        headers: defAuthHeaders(),
+        body: JSON.stringify({ ip, reason: reason || "Admin manual block" }),
+      });
+      if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error ?? "Block failed"); }
+      return r.json();
+    },
+    onSuccess: (_data, { ip }) => {
+      toast({ title: "IP Blocked", description: `${ip} queued for block on all VMs + pfSense.` });
+      setManualIp(""); setManualReason("");
+      qc.invalidateQueries({ queryKey: ["defense-blocks"] });
+      qc.invalidateQueries({ queryKey: ["defense-status"] });
+      qc.invalidateQueries({ queryKey: ["defense-actions"] });
+    },
+    onError: (e: Error) => toast({ title: "Block Failed", description: e.message, variant: "destructive" }),
+  });
 
   const unblockMutation = useMutation({
     mutationFn: async (ip: string) => {
@@ -561,6 +585,55 @@ export default function Defense() {
             </div>
           </CardContent>
         </Card>
+
+      {/* ── ADMIN MANUAL BLOCK ───────────────────────────────────────── */}
+      <Card className="bg-card border-border">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+            <Ban className="w-4 h-4 text-red-400" /> Admin Manual Block
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-xs text-muted-foreground">
+            IP တစ်ခုကို manually block လုပ်မည် — iptables DROP (all VMs) + pfSense EasyRuleBlockHosts တပြိုင်နက် queued ဖြစ်မည်
+          </p>
+          <div className="flex gap-2">
+            <Input
+              placeholder="Attacker IP (e.g. 192.168.10.99)"
+              value={manualIp}
+              onChange={e => setManualIp(e.target.value)}
+              className="font-mono text-sm h-8 flex-1"
+            />
+            <Input
+              placeholder="Reason (optional)"
+              value={manualReason}
+              onChange={e => setManualReason(e.target.value)}
+              className="text-sm h-8 flex-1"
+            />
+            <Button
+              size="sm"
+              variant="destructive"
+              className="h-8 px-3 text-xs shrink-0"
+              disabled={!manualIp.trim() || manualBlockMutation.isPending}
+              onClick={() => manualBlockMutation.mutate({ ip: manualIp.trim(), reason: manualReason.trim() })}
+            >
+              <Ban className="w-3 h-3 mr-1" />
+              {manualBlockMutation.isPending ? "Blocking…" : "Block IP"}
+            </Button>
+          </div>
+          {/* Quick-fill from active attack events */}
+          {activeBlocks.length > 0 && !manualIp && (
+            <div className="flex flex-wrap gap-1">
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wider self-center mr-1">Already blocked:</span>
+              {activeBlocks.slice(0, 5).map(b => (
+                <span key={b.ip} className="font-mono text-[10px] px-2 py-0.5 rounded border border-border text-muted-foreground bg-background">
+                  {b.ip}
+                </span>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* ── AI DEFENSE RECOMMENDATION ─────────────────────────────── */}
       <Card className="bg-card border-primary/30 shadow-[0_0_16px_rgba(var(--primary-rgb),0.06)]">

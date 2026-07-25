@@ -318,8 +318,10 @@ router.get("/system/status", async (_req, res) => {
   // idle gaps and brief network blips without constant online/offline flapping.
   // Global rows (no hostIp) get a 3-minute grace period — they are
   // updated by startSelfHeartbeat() every 30s, so stale means server is down.
-  const STALE_VM_MS     = 5 * 60 * 1000;  // 5 min  — VM sensors (pfSense Suricata, etc.)
-  const STALE_GLOBAL_MS = 3 * 60 * 1000;  // 3 min  — global rows (AEGIS API Server etc.)
+  const STALE_VM_MS     = 5 * 60 * 1000;  // 5 min  — VM sensors
+  const STALE_GLOBAL_MS = 6 * 60 * 1000;  // 6 min  — global rows (pfSense Firewall/Suricata, AEGIS API Server)
+  // pfSense global components send keepalives every 60s via SSH; 6 min = 5 missed keepalives,
+  // giving plenty of tolerance for SSH idle gaps and brief reconnects before flipping offline.
   const now = Date.now();
   res.json(statuses.map(s => {
     const ageMs = now - s.lastCheck.getTime();
@@ -436,7 +438,7 @@ export function startSelfHeartbeat(): void {
 // the stale threshold since the last check, broadcast service_status_change
 // so the frontend sees it go OFFLINE instantly — no waiting for next poll.
 const STALE_VM_MS     = 5 * 60 * 1000;
-const STALE_GLOBAL_MS = 3 * 60 * 1000;
+const STALE_GLOBAL_MS = 6 * 60 * 1000;  // 6 min — pfSense keepalive every 60s; tolerate 5 missed
 const _lastKnownStatus = new Map<number, string>();
 
 async function _broadcastStaleChanges() {

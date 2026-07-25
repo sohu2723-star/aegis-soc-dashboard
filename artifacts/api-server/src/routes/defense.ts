@@ -21,6 +21,58 @@ router.get("/defense/blocks", async (req, res) => {
   })));
 });
 
+// ─── Admin manual block ───────────────────────────────────────────────────────
+router.post("/defense/block", requireAuth, async (req, res) => {
+  const schema = z.object({
+    ip:     z.string(),
+    reason: z.string().default("Admin manual block"),
+  });
+  const body = schema.safeParse(req.body);
+  if (!body.success) { res.status(400).json({ error: "ip required" }); return; }
+
+  let safeIp: string;
+  try { safeIp = sanitizeIp(body.data.ip); }
+  catch { res.status(400).json({ error: "Invalid IP address" }); return; }
+
+  const reason = body.data.reason.slice(0, 200);
+
+  // Idempotent — if already blocked just return the existing row
+  const existing = await db.select().from(blockedIpsTable)
+    .where(and(eq(blockedIpsTable.ip, safeIp), eq(blockedIpsTable.isActive, true)));
+  if (existing.length > 0) {
+    res.json({ already: true, ip: safeIp });
+    return;
+  }
+
+  // Insert to blocked_ips
+  await db.insert(blockedIpsTable).values({
+    ip: safeIp, reason, blockedBy: "manual", isActive: true,
+  });
+
+  // Queue iptables DROP on all VMs
+  await db.insert(defenseCommandsTable).values({
+    targetVm: "all", commandType: "iptables",
+    commandText: `iptables -A INPUT -s ${safeIp} -j DROP`,
+    targetIp: safeIp, status: "pending",
+  });
+
+  // Queue pfSense block
+  await db.insert(defenseCommandsTable).values({
+    targetVm: "pfsense", commandType: "ssh_pfsense",
+    commandText: `pfctl -t EasyRuleBlockHosts -T add ${safeIp}`,
+    targetIp: safeIp, status: "pending",
+  });
+
+  // Log action
+  await db.insert(defenseActionsTable).values({
+    type: "manual", action: "block", targetIp: safeIp,
+    reason: `Admin manual block: ${reason}`,
+    performedBy: "admin", status: "queued",
+  });
+
+  res.status(201).json({ blocked: true, ip: safeIp });
+});
+
 router.delete("/defense/block/:ip", requireAuth, async (req, res) => {
   const rawIp = req.params.ip;
   const ip = Array.isArray(rawIp) ? rawIp[0] : rawIp;
@@ -89,8 +141,8 @@ router.get("/defense/status", async (req, res) => {
   const device = (req.query.device as string) || null;
   await ensureSystemStatusSeeded();
 
-  // 3-minute staleness threshold — same as system.ts
-  const STALE_MS = 3 * 60 * 1000;
+  // 5-minute staleness threshold for VM sensors (matches system.ts STALE_VM_MS)
+  const STALE_MS = 5 * 60 * 1000;
   const now = Date.now();
 
   const [activeBlocks, recentActions, sensorRows, autoDefenseEnabled] = await Promise.all([
@@ -100,7 +152,7 @@ router.get("/defense/status", async (req, res) => {
     isAutoDefenseEnabled(),
   ]);
 
-  // Apply staleness: VM-reported sensors last seen > 3 min ago = offline
+  // Apply staleness: VM-reported sensors last seen > 5 min ago = offline
   const liveSensorRows = sensorRows.map(r => ({
     ...r,
     status: (r.hostIp && r.status === "online" && now - r.lastCheck.getTime() > STALE_MS)

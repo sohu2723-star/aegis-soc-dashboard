@@ -82,10 +82,10 @@ router.get("/network/hosts", async (_req, res) => {
   );
   const pfsenseLastSeen = pfsenseStatus?.lastCheck ?? new Date(0);
   const pfsenseAge = Date.now() - pfsenseLastSeen.getTime();
-  // 4-minute grace period: pfSense Suricata keepalives fire every 60s, so allow
-  // 3 missed keepalives (SSH idle gaps) before declaring it offline.
+  // 6-minute grace period: pfSense Suricata keepalives fire every 60s, so allow
+  // 5 missed keepalives (SSH idle gaps / reconnection time) before declaring it offline.
   const pfsenseResolvedStatus =
-    pfsenseStatus?.status === "online" && pfsenseAge > 4 * 60 * 1000
+    pfsenseStatus?.status === "online" && pfsenseAge > 6 * 60 * 1000
       ? "offline"
       : pfsenseStatus?.status ?? "unknown";
   const hasPersistedPfsense = hosts.some(h => h.ip === PFSENSE_IP);
