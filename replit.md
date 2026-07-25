@@ -19,14 +19,14 @@ A real-time Security Operations Center (SOC) dashboard that receives events from
 
 ```
 [Kali Linux]  ──attack──►  [Ubuntu VM]
-                             │  Snort / Suricata / Fail2ban / Cowrie
+                             │  Apache / BIND9 / MySQL / slapd / Fail2ban
                              │  aegis_forwarder.py
                              ▼
                     [Render — aegis-api-server]
                     https://aegis-api-server-jp3b.onrender.com
                              │  Express 5 + Drizzle ORM
                              │  Supabase PostgreSQL (SUPABASE_DB_URL)
-                             │  SSE /api/stream
+                             │  SSE /api/events/stream
                              ▼
                     [Vercel — aegis-dashboard]
                     https://<your-vercel-app>.vercel.app
@@ -71,7 +71,7 @@ Render free tier spins down after 15 minutes of inactivity. First request after 
 ## Real Lab Architecture
 
 - **Kali Linux** — Red Team attacker (runs nmap, hydra, sqlmap, hping3, metasploit, etc.)
-- **Ubuntu VM** — Blue Team defender (runs Snort, Suricata, Fail2ban, Cowrie, ModSecurity, vsftpd)
+- **Ubuntu servers** — web, DNS, customer DB, and LDAP servers with Fail2ban; pfSense runs Suricata
 - **pfSense** — Firewall/router (iptables / ufw rules, port blocking, null routing)
 - **AEGIS Dashboard** — Web monitoring UI only; receives real events via ingest API
 
@@ -140,18 +140,15 @@ Both workflows run in parallel via the **Project** run button.
 
 - **Network attacks**: port scan, DDoS, SYN flood, ARP spoofing, ICMP flood
 - **Web attacks**: SQLi, XSS, LFI, RFI, directory traversal, brute force, CSRF
-- **SSH/FTP attacks**: brute force, credential stuffing, unauthorized access
-- **Phishing / mail server attacks**: SMTP relay abuse, phishing email detection
-- **Encrypted traffic**: TLS anomalies, weak ciphers, self-signed/expired certs (Suricata TLS)
-- **Honeypot**: Cowrie SSH/Telnet honeypot events
-- **Any other attack** detected by Snort/Suricata/Fail2ban/ModSecurity
+- **SSH attacks**: brute force, credential stuffing, unauthorized access
+- **Other attacks** detected by pfSense Suricata, Fail2ban, and the four server log watchers
 
 ## Defense Model
 
 1. **Auto-defense**: If a defense rule matches → auto-block IP, port, or apply iptables rule automatically
 2. **Manual rule writing**: If auto-defense can't handle it → create firewall rule or defense rule from the dashboard for the VM agent to execute
 3. Defense actions are queued in `defense_commands` table → Ubuntu/pfSense agent polls and executes them
-4. Auto-block triggers: Fail2ban bans, Cowrie hits, repeated SSH/web brute force, DDoS thresholds
+4. Auto-block triggers: active auto-defense rules evaluating Suricata, Fail2ban, SSH, web, DNS, DB, and LDAP events
 
 ## Ubuntu VM မှာ Script Update လုပ်နည်း
 
@@ -185,7 +182,7 @@ wget -O /opt/aegis/scripts/src/aegis_forwarder.py \
 - DB: **Supabase PostgreSQL** + Drizzle ORM (`postgres.js` driver) — pooler port 6543
 - Validation: Zod, drizzle-zod
 - API codegen: Orval (from OpenAPI spec)
-- Real-time: Server-Sent Events (SSE) via `/api/stream`
+- Real-time: Server-Sent Events (SSE) via `/api/events/stream`
 - Build: esbuild (ESM bundle)
 - Hosting: Vercel (frontend) + Render (API)
 
@@ -197,11 +194,13 @@ wget -O /opt/aegis/scripts/src/aegis_forwarder.py \
 - `artifacts/api-server/src/lib/defense-sanitize.ts` — IP/port sanitization before shell commands
 - `lib/db/src/schema/` — Drizzle ORM schema (source of truth for DB)
 - `lib/db/src/schema/defense_engine.ts` — Defense rules, commands queue, attack counters
-- `lib/db/src/schema/connections.ts` — SSH/FTP sessions, TLS traffic, HTTP attacks
+- `lib/db/src/schema/connections.ts` — SSH sessions and HTTP/DB/DNS/LDAP attacks
 - `lib/api-spec/openapi.yaml` — OpenAPI spec (source of truth for API contract)
 - `lib/api-client-react/` — Generated React Query hooks (from Orval)
 - `lib/api-zod/` — Generated Zod schemas (from Orval)
-- `scripts/src/aegis_forwarder.py` — Python log forwarder for Ubuntu VMs (tails Suricata/Snort/Fail2ban/auth.log)
+- `scripts/src/aegis_forwarder.py` — AEGIS Hub forwarder (pfSense Suricata plus four-server Fail2ban/native logs)
+- `docs/PROJECT_BOOK.md` — final presentation-ready Computer Technology project book
+- `docs/PRESENTATION_GUIDE.md` — slide script, live-demo plan, and viva questions
 - `render.yaml` — Render deployment config (API server)
 - `vercel.json` — Vercel deployment config (frontend + /api proxy to Render)
 
@@ -220,40 +219,35 @@ wget -O /opt/aegis/scripts/src/aegis_forwarder.py \
 | Endpoint | Source | Description |
 |---|---|---|
 | `POST /api/ingest/event` | Any | Generic security event |
-| `POST /api/ingest/snort` | Snort IDS | Snort alert_fast format |
 | `POST /api/ingest/suricata` | Suricata | EVE JSON alert |
-| `POST /api/ingest/suricata/tls` | Suricata | EVE JSON TLS events |
 | `POST /api/ingest/fail2ban` | Fail2ban | Ban events → auto-blocks IP |
 | `POST /api/ingest/ssh` | auth.log | SSH login success/fail |
-| `POST /api/ingest/ftp` | vsftpd/proftpd | FTP session + file exfil |
 | `POST /api/ingest/http` | ModSecurity/Nginx | Web attacks (SQLi/XSS/LFI/RFI) |
-| `POST /api/ingest/cowrie` | Cowrie | Honeypot events |
+| `POST /api/ingest/mysql` | MySQL error log | Customer DB attacks |
+| `POST /api/ingest/dns` | BIND9 | DNS attacks |
+| `POST /api/ingest/ldap` | slapd | LDAP attacks |
 
 ## Defense & Firewall API Endpoints
 
 | Endpoint | Description |
 |---|---|
-| `GET /api/firewall/rules` | List all firewall rules |
-| `POST /api/firewall/rules` | Add rule (builds iptables command) |
-| `DELETE /api/firewall/rules/:id` | Deactivate a rule |
-| `GET /api/firewall/rules/export` | Export active rules as bash script |
+| `GET /api/ui/firewall/rules` | List dashboard-managed firewall rules |
+| `POST /api/ui/firewall/rules` | Add a structured firewall rule |
+| `DELETE /api/ui/firewall/rules/:id` | Remove a dashboard-managed rule |
+| `GET /api/ui/firewall/rules/export` | Export active rules |
 | `GET /api/defense/commands/pending` | Agent polls for pending commands |
-| `POST /api/defense/commands/:id/done` | Agent marks command executed |
+| `POST /api/defense/commands/:id/result` | Agent reports execution result |
 | `GET /api/connections/ssh` | SSH session history |
-| `GET /api/connections/ftp` | FTP session history |
-| `GET /api/connections/tls` | Encrypted traffic log |
-| `GET /api/connections/tls/suspicious` | Suspicious TLS entries |
 | `GET /api/connections/http-attacks` | HTTP attack log |
 
 ## Dashboard Pages
 
 - **Command Center** — live event counts, threat charts, telemetry
 - **Security Events** — filterable feed by source/severity
-- **Incidents** — aggregated attack incidents
 - **Active Alerts** — priority notifications
 - **Network Monitor** — connected hosts
-- **Defense Center** — block/unblock IPs, manual + auto defense
-- **System Status** — sensor health (Snort, Suricata, Fail2ban, Cowrie)
+- **Defense Center** — Fail2ban/auto-rule blocks, manual unblock, and service status
+- **System Status** — pfSense Suricata and per-server Fail2ban/service health
 - **Reports** — generated and stored reports
 - **Architecture** — lab topology view
 - **Setup Guide** — lab configuration instructions

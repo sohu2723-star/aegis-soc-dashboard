@@ -30,6 +30,7 @@ function InternetSpeedCard() {
       // Download speed
       const t0 = performance.now();
       const r = await fetch(`${BASE}/api/speedtest`, { cache: "no-store" });
+      if (!r.ok) throw new Error(`Speed test HTTP ${r.status}`);
       const buf = await r.arrayBuffer();
       const elapsed = (performance.now() - t0) / 1000;
       const mbps = parseFloat(((buf.byteLength * 8) / elapsed / 1_000_000).toFixed(2));
@@ -51,7 +52,7 @@ function InternetSpeedCard() {
 
   useEffect(() => {
     measure();
-    const id = setInterval(measure, 10_000);
+    const id = setInterval(measure, 60_000);
     return () => clearInterval(id);
   }, [measure]);
 

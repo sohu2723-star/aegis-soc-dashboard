@@ -87,9 +87,10 @@ export const ldapAttacksTable = pgTable("ldap_attacks", {
   createdAt:   timestamp("created_at").defaultNow().notNull(),
 });
 
-// ─── FTP Sessions ──────────────────────────────────────────────────────────────
-// Source: /var/log/vsftpd.log on company-web-server (10.10.10.10, port 21)
-// Populated by: _watch_remote_ftp() → /ingest/ftp
+// ─── Legacy FTP Sessions ───────────────────────────────────────────────────────
+// Runtime ingest/API/UI support was removed because FTP is not part of the
+// four-server lab. Keep this schema mapping temporarily so existing production
+// rows and historical migrations are not destructively dropped.
 export const ftpSessionsTable = pgTable("ftp_sessions", {
   id:          integer("id").primaryKey().generatedAlwaysAsIdentity(),
   sourceIp:    varchar("source_ip", { length: 45 }).notNull(),
