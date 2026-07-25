@@ -231,14 +231,14 @@ wget -O /opt/aegis/scripts/src/aegis_forwarder.py \
 
 | Endpoint | Description |
 |---|---|
-| `GET /api/ui/firewall/rules` | List dashboard-managed firewall rules |
+| `GET /api/ui/firewall/rules` | Lt dashboard-managed firewall rules |
 | `POST /api/ui/firewall/rules` | Add a structured firewall rule |
 | `DELETE /api/ui/firewall/rules/:id` | Remove a dashboard-managed rule |
 | `GET /api/ui/firewall/rules/export` | Export active rules |
 | `GET /api/defense/commands/pending` | Agent polls for pending commands |
 | `POST /api/defense/commands/:id/result` | Agent reports execution result |
 | `GET /api/connections/ssh` | SSH session history |
-| `GET /api/connections/http-attacks` | HTTP attack log |
+ိ| `GET /api/connections/http-attacks` | HTTP attack log |
 
 ## Dashboard Pages
 
