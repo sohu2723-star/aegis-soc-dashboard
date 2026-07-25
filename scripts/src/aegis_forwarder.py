@@ -1436,14 +1436,18 @@ def _watch_pfsense_suricata(log_path: str | None = None):
             print(f"[pfSense-suricata] Connected")
             _suricata_mark_online()
 
-            # Keepalive: re-post "online" every 60 s while SSH tail is active.
-            # Without this, system.ts stale-timeout (2 min) marks Suricata as
-            # "offline" even though the tail is still running — because the
-            # forwarder only posts "online" once on connect, not periodically.
+            # Keepalive: send a no-op SSH channel request every 55s to prevent
+            # pfSense sshd from closing the idle tail connection.
+            # NOTE: Status (online/offline) is now posted exclusively by
+            # _pfsense_health_loop via `pgrep -x Suricata` so the dashboard
+            # accurately reflects whether Suricata is actually running —
+            # not just whether the SSH tail connection is alive.
             _ka_stop = threading.Event()
             def _keepalive_loop(stop_evt: threading.Event) -> None:
-                while not stop_evt.wait(60):
-                    _post_pfsense_suricata_status("online")
+                while not stop_evt.wait(55):
+                    pass  # threading.Event.wait() itself keeps the thread alive;
+                          # SSH TCP keepalive (ServerAliveInterval=10) handles
+                          # the actual packet-level keepalive on the SSH session.
             _ka_thread = threading.Thread(
                 target=_keepalive_loop, args=(_ka_stop,),
                 daemon=True, name="pfsense-suricata-ka",
@@ -1998,31 +2002,40 @@ def _remote_service_health_loop(hosts: list):
 
 
 def _pfsense_health_loop():
-    """Report pfSense Firewall as online/offline every 30s in hub mode.
-    Uses a TCP connect to port 22 (SSH) — much lighter than an HTTP GET so it
-    succeeds even when pfSense CPU is high from Suricata IDS processing.
-    HTTP GET to the web UI can time out under Suricata load, falsely showing
-    pfSense as offline while it is still routing and firewalling correctly.
+    """Report pfSense Firewall and Suricata IDS status every 30s in hub mode.
+
+    pfSense Firewall — TCP connect to port 22 (SSH handshake). Lighter than
+    HTTP GET; succeeds even when pfSense CPU is high from Suricata processing.
+
+    pfSense Suricata IDS — SSH into pfSense and run `pgrep -x Suricata` to
+    check whether the Suricata process is actually running. This is the
+    authoritative status source; the log-tail keepalive no longer posts status
+    so that stopping Suricata is correctly reflected as "offline" even while
+    the tail SSH connection is still open (tail -F waits for new data).
     """
     import socket as _socket
-    print(f"[PFSENSE HEALTH] Monitoring pfSense ({PFSENSE_IP}) every 30s via TCP:22")
+    ssh_key = os.path.expanduser(PFSENSE_SSH_KEY)
+    print(f"[PFSENSE HEALTH] Monitoring pfSense ({PFSENSE_IP}) every 30s — TCP:22 + pgrep Suricata")
     while True:
+        # ── 1. pfSense Firewall reachability (TCP port 22) ────────────────────
         try:
             conn = _socket.create_connection((PFSENSE_IP, 22), timeout=8)
             conn.close()
-            status = "online"   # TCP handshake succeeded — pfSense SSH port is up
+            fw_status = "online"
         except Exception:
-            status = "offline"
+            fw_status = "offline"
+
         ts = datetime.now().strftime("%H:%M:%S")
-        indicator = "✓" if status == "online" else "✗"
-        print(f"[{ts}] {indicator} pfSense Firewall ({PFSENSE_IP}): {status.upper()}")
+        fw_ind = "✓" if fw_status == "online" else "✗"
+        print(f"[{ts}] {fw_ind} pfSense Firewall: {fw_status.upper()}", end="")
+
         try:
             requests.post(
                 f"{AEGIS_URL}/system/status",
                 json={
                     "component":   "pfSense Firewall",
                     "layer":       "perimeter",
-                    "status":      status,
+                    "status":      fw_status,
                     "description": "Edge firewall & router — enforces pf rules, blocks attacker IPs at network boundary",
                     "metrics":     json.dumps({"agent": "hub", "ip": PFSENSE_IP}),
                 },
@@ -2031,9 +2044,53 @@ def _pfsense_health_loop():
             )
         except Exception:
             pass
-        # NOTE: pfSense Suricata IDS status is posted directly by _watch_pfsense_suricata()
-        # via _suricata_mark_online()/_suricata_mark_offline() with a 60s debounce.
-        # Do NOT post it here — it would race with the debounce timer and cause flapping.
+
+        # ── 2. Suricata IDS process check via SSH pgrep ───────────────────────
+        # FreeBSD/pfSense: `pgrep -x Suricata` returns 0 if ≥1 process matches.
+        # This correctly shows "offline" when Suricata is stopped, even while
+        # the log-tail SSH connection is still alive (tail -F waits for data).
+        if fw_status == "online":
+            try:
+                result = subprocess.run(
+                    [
+                        "ssh", "-T",
+                        "-i", ssh_key,
+                        "-o", "StrictHostKeyChecking=no",
+                        "-o", "ConnectTimeout=8",
+                        "-o", "BatchMode=yes",
+                        "-o", "IdentityAgent=none",
+                        f"{PFSENSE_SSH_USER}@{PFSENSE_IP}",
+                        "/bin/sh", "-c",
+                        "pgrep -x Suricata >/dev/null 2>&1 && echo running || echo stopped",
+                    ],
+                    capture_output=True, text=True, timeout=15,
+                )
+                sur_status = "online" if "running" in result.stdout else "offline"
+            except Exception:
+                sur_status = "offline"
+        else:
+            sur_status = "offline"   # pfSense unreachable → Suricata definitely offline
+
+        sur_ind = "✓" if sur_status == "online" else "✗"
+        print(f"  |  {sur_ind} Suricata IDS: {sur_status.upper()}")
+
+        try:
+            requests.post(
+                f"{AEGIS_URL}/system/status",
+                json={
+                    "component":   "pfSense Suricata IDS",
+                    "layer":       "sensor",
+                    "status":      sur_status,
+                    "description": "Network-level IDS on pfSense WAN — detects port scans, DDoS, SQLi, XSS, SSH brute across all zones",
+                    "metrics":     json.dumps({"agent": "hub", "ip": PFSENSE_IP,
+                                              "suricata": sur_status}),
+                },
+                headers=HEADERS,
+                timeout=30,
+            )
+        except Exception:
+            pass
+
         time.sleep(30)
 
 
