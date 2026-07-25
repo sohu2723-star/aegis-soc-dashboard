@@ -463,9 +463,13 @@ def _report_defense_result(cmd_id: int, success: bool, error: str = None):
 
 
 def _exec_defense_shell(command: str, cmd_id: int):
-    print(f"[defense] Executing: {command}")
+    # Prepend sudo for iptables/ip6tables — forwarder runs as non-root user.
+    # Remote VM path (_exec_defense_ssh_remote) already prepends sudo; this
+    # function handles the local Aegis VM execution which needs the same treatment.
+    run_cmd = f"sudo {command}" if command.lstrip().startswith(("iptables", "ip6tables")) else command
+    print(f"[defense] Executing: {run_cmd}")
     try:
-        result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(run_cmd, shell=True, capture_output=True, text=True, timeout=30)
         if result.returncode == 0:
             print(f"[defense] ✓ Success: {result.stdout.strip()}")
             _report_defense_result(cmd_id, True)
