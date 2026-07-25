@@ -1,0 +1,13 @@
+# AEGIS four-server lab local rules. SID 9900001-9900099 reserved here.
+# Supplement ET Open; connection-burst rules indicate suspicious behavior, not a proven login compromise.
+alert tcp any any -> [10.10.10.0/24,10.20.20.0/24] any (msg:"AEGIS SCAN repeated SYN probes"; flags:S,12; flow:stateless; threshold:type both,track by_src,count 15,seconds 10; classtype:attempted-recon; sid:9900001; rev:1;)
+alert icmp any any -> [10.10.10.0/24,10.20.20.0/24] any (msg:"AEGIS ICMP burst"; itype:8; threshold:type both,track by_src,count 20,seconds 10; classtype:attempted-dos; sid:9900002; rev:1;)
+alert tcp any any -> 10.10.10.10 80 (msg:"AEGIS WEB SQL injection keyword"; flow:to_server,established; http.uri; pcre:"/(union(%20|\\+)+select|%27(%20|\\+)*or(%20|\\+)+1=1)/Ui"; classtype:web-application-attack; sid:9900010; rev:1;)
+alert tcp any any -> 10.10.10.10 80 (msg:"AEGIS WEB XSS script tag"; flow:to_server,established; http.uri; pcre:"/(%3c|<)script/i"; classtype:web-application-attack; sid:9900011; rev:1;)
+alert tcp any any -> 10.10.10.10 80 (msg:"AEGIS WEB directory traversal"; flow:to_server,established; http.uri; pcre:"/(\\.\\.\\/|%2e%2e(%2f|\\/))/Ui"; classtype:web-application-attack; sid:9900012; rev:1;)
+alert tcp any any -> 10.10.10.10 22 (msg:"AEGIS SSH connection burst WEB"; flags:S,12; threshold:type both,track by_src,count 8,seconds 30; classtype:attempted-admin; sid:9900020; rev:1;)
+alert tcp any any -> 10.10.10.20 22 (msg:"AEGIS SSH connection burst DNS"; flags:S,12; threshold:type both,track by_src,count 8,seconds 30; classtype:attempted-admin; sid:9900021; rev:1;)
+alert tcp any any -> 10.20.20.10 22 (msg:"AEGIS SSH connection burst DB"; flags:S,12; threshold:type both,track by_src,count 8,seconds 30; classtype:attempted-admin; sid:9900022; rev:1;)
+alert tcp any any -> 10.20.20.20 22 (msg:"AEGIS SSH connection burst LDAP"; flags:S,12; threshold:type both,track by_src,count 8,seconds 30; classtype:attempted-admin; sid:9900023; rev:1;)
+alert tcp any any -> 10.20.20.10 3306 (msg:"AEGIS MYSQL connection burst"; flags:S,12; threshold:type both,track by_src,count 10,seconds 30; classtype:attempted-admin; sid:9900030; rev:1;)
+alert tcp any any -> 10.20.20.20 389 (msg:"AEGIS LDAP connection burst"; flags:S,12; threshold:type both,track by_src,count 10,seconds 30; classtype:attempted-admin; sid:9900040; rev:1;)

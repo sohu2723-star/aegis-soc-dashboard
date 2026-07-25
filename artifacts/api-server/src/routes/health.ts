@@ -24,13 +24,11 @@ router.get("/speedtest", (_req, res) => {
 
 router.get("/healthz", async (_req, res) => {
   let dbStatus: "ok" | "error" = "ok";
-  let dbError: string | undefined;
 
   try {
     await db.execute(sql`SELECT 1`);
-  } catch (err) {
+  } catch {
     dbStatus = "error";
-    dbError = err instanceof Error ? err.message : String(err);
   }
 
   const status = dbStatus === "ok" ? "ok" : "degraded";
@@ -38,7 +36,6 @@ router.get("/healthz", async (_req, res) => {
   res.status(dbStatus === "ok" ? 200 : 503).json({
     ...data,
     db: dbStatus,
-    ...(dbError ? { dbError } : {}),
   });
 });
 

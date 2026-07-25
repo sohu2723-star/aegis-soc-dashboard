@@ -73,14 +73,13 @@ function useHostEvents(ip: string | null) {
 const roleColors: Record<string, string> = {
   kali:     "text-red-400 border-red-400",
   ubuntu:   "text-cyan-400 border-cyan-400",
-  honeypot: "text-yellow-400 border-yellow-400",
   router:   "text-green-400 border-green-400",
   pfsense:  "text-purple-400 border-purple-400",
   unknown:  "text-gray-400 border-gray-400",
 };
 
 const roleLabels: Record<string, string> = {
-  kali: "ATTACKER", ubuntu: "DEFENDER", honeypot: "HONEYPOT", router: "ROUTER", pfsense: "PFSENSE FIREWALL", unknown: "UNKNOWN",
+  kali: "ATTACKER", ubuntu: "DEFENDER", router: "ROUTER", pfsense: "PFSENSE FIREWALL", unknown: "UNKNOWN",
 };
 
 const severityColor: Record<string, string> = {
