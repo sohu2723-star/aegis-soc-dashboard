@@ -319,3 +319,216 @@ Future work: durable forwarder spool/replay ID, Suricata tuning tests, queue dea
 AEGIS-SecureCompany သည် four-server segmented lab ကို network IDS, host evidence, cloud persistence, real-time visualization နှင့် reversible defense queue ဖြင့်ပေါင်းထားသည့် Computer Technology final project ဖြစ်သည်။ တန်ဖိုးသည် chart များထက် evidence ကို reliable flow ဖြင့်စုခြင်း၊ privileges ခွဲခြင်း၊ block/unblock result ကို audit လုပ်ခြင်းနှင့် limitation များကိုတိကျစွာရှင်းပြနိုင်ခြင်းတွင်ရှိသည်။ Presentation script ကို `docs/PRESENTATION_GUIDE.md` နှင့် developer flow ကို `docs/code-flow.md` တွင်ဆက်ဖတ်နိုင်သည်။
 
 Four-server installation, pfSense local alert rules, Web/DNS troubleshooting, sensor-to-block matrix နှင့် bounded classroom attack commands များအတွက် `lab/SYSTEM_SETUP_AND_DEMO_GUIDE.md` ကို authoritative lab runbook အဖြစ်သုံးပါ။
+
+## Appendix A — Four-Server Installation, Paths and Git Links
+
+ဤ appendix သည် လက်ရှိ active scope ဖြစ်သော Web, DNS, Customer DB နှင့် LDAP server လေးလုံးအတွက် copy-and-run setup reference ဖြစ်သည်။ FTP နှင့် Cowrie မပါဝင်ပါ။
+
+### A.1 Repository and runtime paths
+
+- Repository: `https://github.com/sohu2723-star/aegis-soc-dashboard`
+- Raw file base: `https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main`
+- Complete lab runbook: `lab/SYSTEM_SETUP_AND_DEMO_GUIDE.md`
+- Web source: `lab/company-web-server/`
+- DNS source: `lab/dns-server/`
+- LDAP source: `lab/ldap-server/`
+- Forwarder source: `scripts/src/aegis_forwarder.py`
+- Hub runtime: `/opt/aegis/scripts/src/`
+- Apache document root: `/var/www/html/`
+- BIND configuration: `/etc/bind/named.conf.local`
+- BIND zone: `/etc/bind/db.goldenmyanmar.trading.com`
+- Common MySQL configuration: `/etc/mysql/mysql.conf.d/mysqld.cnf`
+- Restricted sudo rule: `/etc/sudoers.d/aegis-defense`
+
+Server VM များတွင် repository အပြည့် clone ရန်မလိုပါ။ လိုအပ်သော raw files များကိုသာ `wget` ဖြင့်ယူပါ။ Machine-specific secrets ပါသော `/opt/aegis/scripts/src/aegis_forwarder.local.conf` ကို download ဖြင့် overwrite မလုပ်ရ။
+
+### A.2 Address and service plan
+
+| Server | IP | Service | Required connectivity |
+|---|---:|---|---|
+| Web | `10.10.10.10` | Apache/PHP TCP 80 | DNS 53; Customer DB 3306 |
+| DNS | `10.10.10.20` | BIND9 UDP/TCP 53 | All trusted lab clients → DNS |
+| Customer DB | `10.20.20.10` | MySQL TCP 3306 | Web `10.10.10.10` → DB only |
+| LDAP | `10.20.20.20` | slapd TCP 389 | Trusted lab clients → LDAP |
+| AEGIS Hub | `10.30.30.10` | Forwarder/SSH | Hub → four VMs TCP 22; Render TCP 443 |
+
+VM တိုင်းတွင် address နှင့် pfSense route ကိုအရင်စစ်ပါ။
+
+```bash
+hostname
+ip -br address
+ip route
+```
+
+### A.3 Common host preparation
+
+Server လေးလုံးစလုံးတွင်:
+
+```bash
+sudo apt update
+sudo apt install -y openssh-server fail2ban curl wget dnsutils netcat-openbsd
+sudo systemctl enable --now ssh fail2ban
+sudo systemctl is-active ssh fail2ban
+```
+
+Dashboard မှ Fail2ban start/stop/restart အတွက် unrestricted `NOPASSWD:ALL` မသုံးဘဲ exact commands များကိုသာ allow လုပ်ပါ။
+
+```bash
+printf '%s\n' \
+ 'sithu ALL=(root) NOPASSWD: /usr/bin/systemctl start fail2ban, /usr/bin/systemctl stop fail2ban, /usr/bin/systemctl restart fail2ban, /usr/bin/systemctl is-active fail2ban' \
+ | sudo tee /tmp/aegis-defense >/dev/null
+sudo visudo -cf /tmp/aegis-defense
+sudo install -o root -g root -m 0440 /tmp/aegis-defense /etc/sudoers.d/aegis-defense
+sudo visudo -c
+sudo -n /usr/bin/systemctl is-active fail2ban
+```
+
+### A.4 DNS Server setup (`10.10.10.20`)
+
+```bash
+sudo apt update
+sudo apt install -y bind9 bind9utils dnsutils fail2ban
+sudo systemctl enable --now bind9
+cd /tmp
+wget -O named.conf.local https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/lab/dns-server/named.conf.local
+wget -O db.goldenmyanmar.trading.com https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/lab/dns-server/db.goldenmyanmar.trading.com
+test -s named.conf.local && test -s db.goldenmyanmar.trading.com
+sudo cp -a /etc/bind/named.conf.local /etc/bind/named.conf.local.backup
+sudo install -o root -g bind -m 0644 named.conf.local /etc/bind/named.conf.local
+sudo install -o root -g bind -m 0644 db.goldenmyanmar.trading.com /etc/bind/db.goldenmyanmar.trading.com
+sudo named-checkconf
+sudo named-checkzone goldenmyanmar.trading.com /etc/bind/db.goldenmyanmar.trading.com
+sudo systemctl restart bind9
+sudo systemctl is-active bind9
+```
+
+```bash
+dig @127.0.0.1 goldenmyanmar.trading.com A +short
+dig @127.0.0.1 web.goldenmyanmar.trading.com A +short
+dig @127.0.0.1 db.goldenmyanmar.trading.com A +short
+dig @127.0.0.1 ldap.goldenmyanmar.trading.com A +short
+```
+
+Expected addresses အစဉ်လိုက်မှာ `10.10.10.10`, `10.10.10.10`, `10.20.20.10`, `10.20.20.20` ဖြစ်သည်။ `allow-transfer { none; };` ကို shared lab တွင် မပိတ်ရ။
+
+### A.5 Customer DB setup (`10.20.20.10`)
+
+```bash
+sudo apt update
+sudo apt install -y mysql-server fail2ban wget
+sudo systemctl enable --now mysql
+cd /tmp
+wget -O setup.sql https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/lab/company-web-server/setup.sql
+test -s setup.sql
+sudo mysqldump --all-databases > "$HOME/mysql-before-aegis-$(date +%F-%H%M).sql"
+sudo mysql < /tmp/setup.sql
+sudo mysql -e 'SHOW DATABASES;'
+```
+
+Active MySQL configuration (အများအားဖြင့် `/etc/mysql/mysql.conf.d/mysqld.cnf`) တွင် `bind-address = 10.20.20.10` ထားပြီး:
+
+```bash
+sudo mysqld --validate-config
+sudo systemctl restart mysql
+sudo systemctl is-active mysql
+sudo ss -lntp | grep ':3306'
+```
+
+pfSense/host firewall တွင် TCP 3306 ကို Web Server `10.10.10.10` မှသာ allow လုပ်ပါ။ Web VM မှ reachability စစ်ရန်:
+
+```bash
+nc -vz 10.20.20.10 3306
+```
+
+Passwords များကို command line, screenshot သို့မဟုတ် documentation ထဲ မထည့်ရ။
+
+### A.6 LDAP setup (`10.20.20.20`)
+
+```bash
+sudo apt update
+sudo apt install -y slapd ldap-utils fail2ban
+sudo systemctl enable --now slapd
+sudo systemctl is-active slapd
+sudo slapcat -n 0 | grep olcSuffix
+sudo ss -lntp | grep ':389'
+ldapsearch -x -H ldap://127.0.0.1 \
+ -b 'dc=goldenmyanmar,dc=trading,dc=com' -s base dn
+```
+
+Authoritative suffix သည် `dc=goldenmyanmar,dc=trading,dc=com` ဖြစ်ပြီး search result သည် `result: 0 Success` ဖြစ်ရမည်။ Suffix မှားလျှင် backup မရှိဘဲ populated LDAP ကို reconfigure မလုပ်ရ။
+
+### A.7 Web Server setup (`10.10.10.10`)
+
+```bash
+sudo apt update
+sudo apt install -y apache2 php php-mysqli libapache2-mod-php wget
+sudo systemctl enable --now apache2
+mkdir -p /tmp/gmportal
+cd /tmp/gmportal
+for f in index.php db.php nav.php dashboard.php customers.php accounts.php orders.php products.php transactions.php logout.php style.css; do
+  wget -q "https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/lab/company-web-server/$f" -O "$f"
+  test -s "$f" || { echo "download failed: $f"; exit 1; }
+done
+```
+
+Existing Web root ကို backup လုပ်ပြီး deploy ပါ:
+
+```bash
+sudo tar -C /var/www -czf "$HOME/web-root-before-aegis-$(date +%F-%H%M).tgz" html
+sudo rm -f /var/www/html/index.html
+sudo install -o www-data -g www-data -m 0644 /tmp/gmportal/* /var/www/html/
+sudo find /var/www/html -type d -exec chmod 0755 {} \;
+sudo apache2ctl configtest
+sudo systemctl restart apache2
+curl -I http://127.0.0.1/
+```
+
+Portal URL သည် `/` သို့မဟုတ် `/index.php` ဖြစ်ပြီး `/login.php` မရှိပါ။ Web VM ကို internal DNS သုံးခိုင်းရန်:
+
+```bash
+IFACE=$(ip route | awk '/default/{print $5; exit}')
+sudo resolvectl dns "$IFACE" 10.10.10.20
+sudo resolvectl domain "$IFACE" '~goldenmyanmar.trading.com'
+sudo resolvectl flush-caches
+getent hosts goldenmyanmar.trading.com db.goldenmyanmar.trading.com
+nc -vz 10.20.20.10 3306
+curl -I http://goldenmyanmar.trading.com/
+```
+
+DNS ကို persistent လုပ်ရန် existing `/etc/netplan/*.yaml` ထဲရှိ active interface အောက်တွင် `nameservers: addresses: [10.10.10.20]` ထည့်ပါ။ Existing static address/routes နှင့် YAML indentation ကိုထိန်းပြီး `sudo netplan try` အရင် run ကာ `sudo netplan apply` ဆက်လုပ်ပါ။
+
+### A.8 AEGIS Hub update and acceptance
+
+Hub paths:
+
+```text
+/opt/aegis/scripts/src/aegis_forwarder.py
+/opt/aegis/scripts/src/aegis_forwarder.local.conf
+/opt/aegis/scripts/src/aegis_forwarder.local.conf.example
+/opt/aegis/scripts/src/check_connectivity.sh
+```
+
+Forwarder code ကိုသာ update လုပ်ပါ:
+
+```bash
+sudo wget -O /opt/aegis/scripts/src/aegis_forwarder.py https://raw.githubusercontent.com/sohu2723-star/aegis-soc-dashboard/main/scripts/src/aegis_forwarder.py
+sudo python3 -m py_compile /opt/aegis/scripts/src/aegis_forwarder.py
+sudo systemctl restart aegis-forwarder
+sudo systemctl --no-pager --full status aegis-forwarder
+```
+
+Final acceptance:
+
+```bash
+dig @10.10.10.20 goldenmyanmar.trading.com A +short
+curl -I http://10.10.10.10/
+curl -I http://goldenmyanmar.trading.com/
+nc -vz 10.20.20.10 3306
+nc -vz 10.20.20.20 389
+sudo systemctl is-active fail2ban
+sudo visudo -c
+sudo systemctl is-active aegis-forwarder
+sudo journalctl -u aegis-forwarder -n 50 --no-pager
+```
+
+Acceptance သည် DNS/HTTP/TCP reachability တင်မဟုတ်ဘဲ application login, sensor log, authenticated ingest, dashboard event, command queue result နှင့် target-side defense state အထိ verify လုပ်မှ ပြည့်စုံသည်။

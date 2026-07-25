@@ -1,5 +1,12 @@
 # AEGIS SOC Dashboard — Lab Setup Journal
 
+### [2026-07-25] — Four-server setup added to Project Book
+**Status:** ✅ Done
+**What:** Web, DNS, Customer DB and LDAP setup commands, exact deployment paths, restricted sudo rule, Git/raw links and acceptance checks were consolidated into the project book.
+**How:** Added `docs/PROJECT_BOOK.md` Appendix A using the verified lab sequence and direct-file downloads so server VMs do not need a full Git clone.
+**Result:** One authoritative, secret-free installation reference now documents all four active servers and the AEGIS Hub update path.
+**Next:** Verify forwarder ingest, dashboard events and queued defense execution against the configured VMs.
+
 > **Current-scope notice (2026-07-25):** ဤ file သည် chronological engineering history ဖြစ်၍ အောက်ပိုင်း historical entries များတွင် စမ်းသပ်ခဲ့ပြီးနောက် ဖယ်ရှားထားသော component names ပါနိုင်သည်။ လက်ရှိ authoritative runtime scope သည် Web, DNS, Customer DB, LDAP, pfSense Suricata နှင့် four-server Fail2ban ဖြစ်သည်။ Mail, Cowrie, Incident page, encrypted-connection page နှင့် Snort တို့သည် active scope မဟုတ်ပါ။ Final narrative အတွက် `docs/PROJECT_BOOK.md` ကိုသုံးပါ။
 
 ---
