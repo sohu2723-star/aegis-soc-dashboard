@@ -41,7 +41,6 @@ export function toTriggerType(eventType: string, eventSubtype: string): string {
   // Service-specific checks must precede the generic network/SSH fallback.
   if (sub.includes("ldap"))                                 return sub.includes("enum") ? "ldap_enum" : "ldap_brute";
   if (sub.includes("mysql") || sub.includes("database") || sub.includes("db ")) return "db_attack";
-  if (sub.includes("ftp"))                                  return "ftp_brute";
   if (sub.includes("brute") && sub.includes("ssh"))        return "ssh_brute";
   if (sub.includes("port scan") || sub.includes("nmap"))   return "port_scan";
   if (sub.includes("ddos") || sub.includes("flood"))       return "ddos";

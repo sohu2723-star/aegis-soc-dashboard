@@ -36,7 +36,7 @@ log/EVE line -> forwarder parser
  -> SSE security_event/stats_update -> HTTP response
 ```
 
-Active four-server evidence includes Suricata, Fail2ban, SSH, HTTP, DDoS, DNS, MySQL and LDAP. Generic event/traffic/pfSense/mitm routes support shared network telemetry. FTP is optional Web VM service compatibility, not another server.
+Active four-server evidence includes Suricata, Fail2ban, SSH, HTTP, DDoS, DNS, MySQL and LDAP. Generic event/traffic/pfSense/mitm routes support shared network telemetry.
 
 | Evidence | Detail table |
 |---|---|

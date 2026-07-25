@@ -16,7 +16,6 @@ import {
   dbAttacksTable,
   dnsAttacksTable,
   ldapAttacksTable,
-  ftpSessionsTable,
   blockedIpsTable,
 } from "@workspace/db";
 import { broadcaster } from "../lib/broadcaster";
@@ -325,7 +324,6 @@ router.post("/ingest/fail2ban", auth, async (req, res) => {
   const subtype = jailLower.includes("ssh") ? "SSH Brute Force"
     : jailLower.includes("mysql") ? "MySQL Auth Brute Force"
     : jailLower.includes("ldap") || jailLower.includes("slapd") ? "LDAP Auth Brute Force"
-    : jailLower.includes("ftp") ? "FTP Brute Force"
     : jailLower.includes("apache") || jailLower.includes("nginx") ? "Web Brute Force"
     : "Brute Force";
 
@@ -708,65 +706,6 @@ router.post("/ingest/ldap", auth, async (req, res) => {
   if (s === "critical" || s === "high")
     await mkAlert(event.id, s as "critical"|"high", `LDAP ATTACK: ${attack_type ?? "auth brute"} from ${src_ip}`);
   res.status(201).json({ id:event.id });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// FTP Sessions — company-web-server (10.10.10.10:21)
-// Source: /var/log/vsftpd.log via _watch_remote_ftp()
-// Fields: src_ip, username, status, command, filename, filesize, failures, banned_by, log_source, matched_rule
-// status: failed | success | upload | download
-// ─────────────────────────────────────────────────────────────────────────────
-router.post("/ingest/ftp", auth, async (req, res) => {
-  const { src_ip, username, status: st, command, filename, filesize, failures, banned_by, log_source, matched_rule, signature_text } = req.body;
-  if (!src_ip) { res.status(400).json({ error: "src_ip required" }); return; }
-  if (isDefenderIp(src_ip) || isLabInternalIp(src_ip)) {
-    res.status(200).json({ ok: true, skipped: "internal_ip" }); return;
-  }
-
-  const failCount = Number(failures) || 0;
-  await db.insert(ftpSessionsTable).values({
-    sourceIp:    src_ip,
-    username:    username  ? String(username).slice(0, 64)   : null,
-    status:      st ?? "failed",
-    command:     command   ? String(command).slice(0, 32)    : null,
-    filename:    filename  ? String(filename).slice(0, 512)  : null,
-    filesize:    filesize  ? Number(filesize) : null,
-    failures:    failCount,
-    bannedBy:    banned_by ? String(banned_by).slice(0, 32)  : null,
-    logSource:   log_source   ? String(log_source).slice(0, 128)   : "/var/log/vsftpd.log",
-    matchedRule: matched_rule ? String(matched_rule).slice(0, 256)
-                              : failCount >= 3 ? `fail2ban[vsftpd]: ban after ${failCount} failures`
-                              : st === "failed" ? "vsftpd: FAIL LOGIN"
-                              : st === "upload" ? "vsftpd: OK UPLOAD (file exfiltration risk)"
-                              : "vsftpd: FTP event",
-  });
-
-  // Generate security event for attacks (failed login / file upload from attacker)
-  if (st === "failed" && (failCount === 1 || failCount % 5 === 0)) {
-    const s = failCount >= 5 ? "high" : "medium";
-    const event = await insertEvent({
-      type:"network_attack", subtype:"FTP Brute Force", severity: s,
-      sourceIp: src_ip, targetHost:"company-web-server",
-      toolUsed:"vsftpd",
-      description:`FTP brute force from ${src_ip}: ${failCount} failed login attempt(s) for user '${username ?? "?"}'`,
-      status:"detected", layer:"application",
-      signatureText: signature_text ? String(signature_text).slice(0, 2000) : null,
-    });
-    if (s === "high")
-      await mkAlert(event.id, "high", `FTP BRUTE FORCE: ${src_ip} — ${failCount} failures for '${username ?? "?"}'`);
-  } else if (st === "upload") {
-    // File upload from attacker IP is suspicious (data exfiltration / webshell plant)
-    const event = await insertEvent({
-      type:"web_attack", subtype:"FTP File Upload", severity:"high",
-      sourceIp: src_ip, targetHost:"company-web-server",
-      toolUsed:"vsftpd",
-      description:`FTP file upload from ${src_ip}: user='${username ?? "?"}' uploaded '${filename ?? "?"}' (${filesize ?? "?"}B)`,
-      status:"detected", layer:"application",
-    });
-    await mkAlert(event.id, "high", `FTP UPLOAD: ${src_ip} uploaded '${filename ?? "unknown"}' — possible webshell/exfil`);
-  }
-
-  res.status(201).json({ ok:true });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

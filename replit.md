@@ -140,7 +140,7 @@ Both workflows run in parallel via the **Project** run button.
 
 - **Network attacks**: port scan, DDoS, SYN flood, ARP spoofing, ICMP flood
 - **Web attacks**: SQLi, XSS, LFI, RFI, directory traversal, brute force, CSRF
-- **SSH/FTP attacks**: brute force, credential stuffing, unauthorized access
+- **SSH attacks**: brute force, credential stuffing, unauthorized access
 - **Other attacks** detected by pfSense Suricata, Fail2ban, and the four server log watchers
 
 ## Defense Model
@@ -194,7 +194,7 @@ wget -O /opt/aegis/scripts/src/aegis_forwarder.py \
 - `artifacts/api-server/src/lib/defense-sanitize.ts` — IP/port sanitization before shell commands
 - `lib/db/src/schema/` — Drizzle ORM schema (source of truth for DB)
 - `lib/db/src/schema/defense_engine.ts` — Defense rules, commands queue, attack counters
-- `lib/db/src/schema/connections.ts` — SSH/FTP sessions and HTTP/DB/DNS/LDAP attacks
+- `lib/db/src/schema/connections.ts` — SSH sessions and HTTP/DB/DNS/LDAP attacks
 - `lib/api-spec/openapi.yaml` — OpenAPI spec (source of truth for API contract)
 - `lib/api-client-react/` — Generated React Query hooks (from Orval)
 - `lib/api-zod/` — Generated Zod schemas (from Orval)
@@ -222,7 +222,6 @@ wget -O /opt/aegis/scripts/src/aegis_forwarder.py \
 | `POST /api/ingest/suricata` | Suricata | EVE JSON alert |
 | `POST /api/ingest/fail2ban` | Fail2ban | Ban events → auto-blocks IP |
 | `POST /api/ingest/ssh` | auth.log | SSH login success/fail |
-| `POST /api/ingest/ftp` | vsftpd/proftpd | FTP session + file exfil |
 | `POST /api/ingest/http` | ModSecurity/Nginx | Web attacks (SQLi/XSS/LFI/RFI) |
 | `POST /api/ingest/mysql` | MySQL error log | Customer DB attacks |
 | `POST /api/ingest/dns` | BIND9 | DNS attacks |
@@ -232,15 +231,14 @@ wget -O /opt/aegis/scripts/src/aegis_forwarder.py \
 
 | Endpoint | Description |
 |---|---|
-| `GET /api/ui/firewall/rules` | List dashboard-managed firewall rules |
+| `GET /api/ui/firewall/rules` | Lt dashboard-managed firewall rules |
 | `POST /api/ui/firewall/rules` | Add a structured firewall rule |
 | `DELETE /api/ui/firewall/rules/:id` | Remove a dashboard-managed rule |
 | `GET /api/ui/firewall/rules/export` | Export active rules |
 | `GET /api/defense/commands/pending` | Agent polls for pending commands |
 | `POST /api/defense/commands/:id/result` | Agent reports execution result |
 | `GET /api/connections/ssh` | SSH session history |
-| `GET /api/connections/ftp` | FTP session history |
-| `GET /api/connections/http-attacks` | HTTP attack log |
+ိ| `GET /api/connections/http-attacks` | HTTP attack log |
 
 ## Dashboard Pages
 

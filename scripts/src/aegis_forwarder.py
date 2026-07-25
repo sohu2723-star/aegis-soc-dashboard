@@ -90,13 +90,12 @@ REMOTE_HOSTS = [h for h in [
     {
         "name": "company-web-server",
         "ip":   COMPANYWEB_IP,
-        "sensors": ["fail2ban", "ssh", "http_access", "ftp"],
+        "sensors": ["fail2ban", "ssh", "http_access"],
         # services to health-check via SSH systemctl on this VM
         "health_services": [
             ("fail2ban",  "Fail2ban",        "sensor"),
             ("ssh",       "SSH Monitor",     "sensor"),
             ("apache2",   "Apache Monitor",  "sensor"),
-            ("vsftpd",    "FTP Monitor",     "sensor"),
         ],
     } if COMPANYWEB_IP else None,
     {
@@ -196,7 +195,6 @@ REMOTE_MYSQL_LOG      = _cfg("REMOTE_MYSQL_LOG", "/var/log/mysql/error.log")
 REMOTE_POSTGRES_LOG   = _cfg("REMOTE_POSTGRES_LOG", "/var/log/postgresql/postgresql-*.log")
 REMOTE_BIND_LOG       = _cfg("REMOTE_BIND_LOG", "/var/log/named/named.log")
 REMOTE_SLAPD_LOG      = _cfg("REMOTE_SLAPD_LOG", "/var/log/syslog")
-REMOTE_VSFTPD_LOG     = _cfg("REMOTE_VSFTPD_LOG", "/var/log/vsftpd.log")
 
 
 def validate_runtime_config(defense_enabled: bool = True) -> list[str]:
@@ -1909,105 +1907,6 @@ def _watch_remote_slapd(host_name: str, host_ip: str):
             })
 
 
-def _watch_remote_ftp(host_name: str, host_ip: str):
-    """Tail vsftpd.log on company-web-server via SSH and forward FTP brute force / file upload events.
-
-    vsftpd log format:
-      FAIL LOGIN: Client "192.168.10.99"
-      OK LOGIN:   Client "192.168.10.99", anon_password "user@x.com"
-      OK DOWNLOAD: Client "192.168.10.99", "/path/to/file", 1234 bytes, 5.67Kbyte/sec
-      OK UPLOAD:   Client "192.168.10.99", "/path/to/file", 1234 bytes, 5.67Kbyte/sec
-      OK DELETE:   Client "192.168.10.99", "/path/to/file"
-    """
-    log_path = REMOTE_VSFTPD_LOG
-    fail_counts: dict[str, int] = {}
-    print(f"[{host_name}] ftp thread started (log: {log_path})")
-    for line in _ssh_tail(host_name, host_ip, log_path):
-        # Extract client IP — all vsftpd lines have Client "IP"
-        m_ip = re.search(r'Client "?([\d.]+)"?', line)
-        if not m_ip:
-            continue
-        src_ip = m_ip.group(1)
-        if src_ip in _INTERNAL_IPS:
-            continue
-
-        if "FAIL LOGIN" in line:
-            fail_counts[src_ip] = fail_counts.get(src_ip, 0) + 1
-            cnt = fail_counts[src_ip]
-            if cnt == 1 or cnt % 5 == 0:
-                post("ftp", {
-                    "src_ip":       src_ip,
-                    "status":       "failed",
-                    "command":      "LOGIN",
-                    "failures":     cnt,
-                    "log_source":   log_path,
-                    "matched_rule": f"vsftpd: FAIL LOGIN — {cnt} attempt{'s' if cnt > 1 else ''} from {src_ip}",
-                    "signature_text": line.strip(),
-                })
-
-        elif "OK LOGIN" in line:
-            # Extract username if present: anon_password "user@example.com"
-            m_user = re.search(r'anon_password "([^"]+)"', line)
-            prior  = fail_counts.pop(src_ip, 0)
-            post("ftp", {
-                "src_ip":       src_ip,
-                "username":     m_user.group(1) if m_user else "anonymous",
-                "status":       "success",
-                "command":      "LOGIN",
-                "failures":     prior,
-                "log_source":   log_path,
-                "matched_rule": (
-                    f"vsftpd: OK LOGIN after {prior} failures — BREACH"
-                    if prior >= 3
-                    else "vsftpd: OK LOGIN"
-                ),
-                "signature_text": line.strip(),
-            })
-
-        elif "OK UPLOAD" in line:
-            m_file = re.search(r'"([^"]+)",\s*(\d+)\s*bytes', line)
-            fname  = m_file.group(1) if m_file else None
-            fsize  = int(m_file.group(2)) if m_file else None
-            post("ftp", {
-                "src_ip":       src_ip,
-                "status":       "upload",
-                "command":      "UPLOAD",
-                "filename":     fname,
-                "filesize":     fsize,
-                "log_source":   log_path,
-                "matched_rule": f"vsftpd: OK UPLOAD — '{fname}' ({fsize}B) — possible webshell/exfil",
-                "signature_text": line.strip(),
-            })
-
-        elif "OK DOWNLOAD" in line:
-            m_file = re.search(r'"([^"]+)",\s*(\d+)\s*bytes', line)
-            fname  = m_file.group(1) if m_file else None
-            fsize  = int(m_file.group(2)) if m_file else None
-            post("ftp", {
-                "src_ip":       src_ip,
-                "status":       "download",
-                "command":      "DOWNLOAD",
-                "filename":     fname,
-                "filesize":     fsize,
-                "log_source":   log_path,
-                "matched_rule": f"vsftpd: OK DOWNLOAD — '{fname}' ({fsize}B)",
-                "signature_text": line.strip(),
-            })
-
-        elif "OK DELETE" in line:
-            m_file = re.search(r'"([^"]+)"', line)
-            fname  = m_file.group(1) if m_file else None
-            post("ftp", {
-                "src_ip":       src_ip,
-                "status":       "upload",  # treat delete as suspicious write action
-                "command":      "DELETE",
-                "filename":     fname,
-                "log_source":   log_path,
-                "matched_rule": f"vsftpd: OK DELETE — '{fname}' — suspicious file deletion",
-                "signature_text": line.strip(),
-            })
-
-
 def _remote_heartbeat_loop(hosts: list):
     """Send online heartbeat for every remote company VM every 15s.
     Without this they time out (server marks offline after 45s / 3 missed beats).
@@ -2141,7 +2040,6 @@ def run_hub_mode():
         "fail2ban":    _watch_remote_fail2ban,
         "ssh":         _watch_remote_ssh,
         "http_access": _watch_remote_http_access,
-        "ftp":         _watch_remote_ftp,
         "mysql":       _watch_remote_mysql,
         "postgresql":  _watch_remote_postgresql,
         "bind9":       _watch_remote_bind9,

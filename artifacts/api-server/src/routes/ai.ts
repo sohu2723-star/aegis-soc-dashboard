@@ -448,7 +448,7 @@ Total events: ${recentEvents.length}
 လက်ရှိ active rules: ${activeRuleNames}
 
 Valid values:
-- triggerAttackType: ssh_brute | web_attack | ddos | port_scan | mitm | dns_attack | db_attack | ldap_brute | ldap_enum | ftp_brute | any
+- triggerAttackType: ssh_brute | web_attack | ddos | port_scan | mitm | dns_attack | db_attack | ldap_brute | ldap_enum | any
 - triggerSeverity: any | medium | high | critical
 - actionType: auto | suggest
 - defenseType: block_ip | null_route | rate_limit | port_block | pfsense_block | alert_only

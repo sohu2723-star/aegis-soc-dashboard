@@ -22,7 +22,7 @@
 
 ### 3 — Scope
 **Slide:** Web `10.10.10.10` · DNS `10.10.10.20` · DB `10.20.20.10` · LDAP `10.20.20.20`  
-**Say:** Active server လေးလုံးပဲရှိပါတယ်။ Mail, Cowrie, Incident page နဲ့ encrypted connection log မသုံးပါဘူး။ FTP ရှိရင် Web VM service option သာဖြစ်ပါတယ်။
+**Say:** Active server လေးလုံးပဲရှိပါတယ်။ Mail, Cowrie, Incident page နဲ့ encrypted connection log မသုံးပါဘူး။
 
 ### 4 — Network architecture
 **Slide:** `Attacker → R1 → pfSense/Suricata → DMZ/Internal/MGMT`  

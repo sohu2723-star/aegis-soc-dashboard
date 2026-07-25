@@ -3408,3 +3408,12 @@ sudo -n systemctl status fail2ban
 **How:** DNS apex A record ကို Web IP သို့ပြင်၍ serial တိုးခဲ့သည်; LDAP README base DN ကို LDIF နှင့်ကိုက်အောင်ပြင်ခဲ့သည်; PHP DB failures ကို non-secret HTTP 503 အဖြစ်ပြပြီး Web authentication failure marker ကို Apache log ထည့်ခဲ့သည်။ ET Open supplement local rules နှင့် safe flag explanations ထည့်ပြီး stale root lab README ကို authoritative guide pointer ဖြင့်အစားထိုးခဲ့သည်။
 **Result:** `goldenmyanmar.trading.com` direct DNS answer သည် Web ကိုညွှန်မည်၊ blank DB failure အစား diagnosable response ရမည်၊ classroom tests သည် bounded commands သာဖြစ်မည်။ Repository-only fixes ပြီးပြီး live VMs တွင် commands run/verify လုပ်ရန်ကျန်သည်; production data/credentials မထိခဲ့ပါ။
 **Next:** `lab/SYSTEM_SETUP_AND_DEMO_GUIDE.md` အစဉ်အတိုင်း DNS/Web/DB/LDAP read-only checks လုပ်ပြီး redacted output ဖြင့် failure hop ကိုအတည်ပြုပါ။
+
+---
+
+### [2026-07-25] — FTP runtime and UI removal
+**Status:** ✅ Done
+**What:** Final four-server scope တွင် FTP/vsftpd မသုံးသောကြောင့် runtime collector, API routes, auto-defense taxonomy, service control နှင့် Connections UI မှ FTP ကိုဖယ်ရှားခဲ့သည်။
+**How:** Forwarder FTP sensor/health/path/watcher ဖြုတ်၊ `/ingest/ftp` နှင့် `/connections/ftp` ဖြုတ်၊ Connections FTP tab/hook/type ဖြုတ်၊ defense-rule/AI `ftp_brute` option နှင့် vsftpd service control ဖြုတ်ပြီး current README/replit/final docs ကိုညှိခဲ့သည်။
+**Result:** Web VM မှာ မရှိသော vsftpd/log ကို watcher မစတော့ဘဲ dashboard တွင် FTP tab မပေါ်တော့ပါ။ Historical `ftp_sessions` schema/migrations ကို production data မဖျက်ရန် deprecated compatibility အဖြစ်သာထားသည်။ Secret/production data ကိုမထိခဲ့ပါ။
+**Next:** Deploy ပြီး System Status တွင် stale FTP row မပေါ်ကြောင်းနှင့် Connections tabs သည် SSH/HTTP/DB/DNS/LDAP သာရှိကြောင်းစစ်ပါ။

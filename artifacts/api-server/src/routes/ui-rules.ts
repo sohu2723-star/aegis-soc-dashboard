@@ -53,7 +53,7 @@ function maybeAdmin(req: any, res: any, next: any) {
 // The defense agent on that VM polls /api/defense/commands/pending and executes it.
 router.post("/ui/system/service-control", maybeAdmin, async (req, res) => {
   const schema = z.object({
-    service:  z.enum(["fail2ban", "apache2", "vsftpd", "bind9", "slapd", "mysql"]),
+    service:  z.enum(["fail2ban", "apache2", "bind9", "slapd", "mysql"]),
     action:   z.enum(["start", "stop", "restart"]),
     targetVm: z.enum(["company-web-server", "company-dns-server", "company-customer-db", "company-ldap-server"]),
   });
@@ -63,7 +63,7 @@ router.post("/ui/system/service-control", maybeAdmin, async (req, res) => {
   const { service, action, targetVm } = parsed.data;
   const serviceTargets: Record<string, string[]> = {
     fail2ban: ["company-web-server", "company-dns-server", "company-customer-db", "company-ldap-server"],
-    apache2: ["company-web-server"], vsftpd: ["company-web-server"],
+    apache2: ["company-web-server"],
     bind9: ["company-dns-server"], mysql: ["company-customer-db"], slapd: ["company-ldap-server"],
   };
   if (!serviceTargets[service]?.includes(targetVm)) {

@@ -39,7 +39,6 @@ AEGIS-SecureCompany သည် GNS3 company network အတွင်း Web, DNS, 
 - Mail server, Cowrie honeypot, Incident page နှင့် encrypted-connection-log page မသုံးပါ။
 - Replit ကို runtime/deployment အဖြစ်မသုံးပါ; code editing အတွက်သာဖြစ်သည်။
 - Dashboard က packet capture appliance မဟုတ်ပါ; real sensor/log evidence လိုသည်။
-- FTP compatibility သည် Web VM ပေါ် optional vsftpd service အတွက်သာဖြစ်ပြီး ပဉ္စမ server မဟုတ်ပါ။
 
 ## 2. System Architecture
 
