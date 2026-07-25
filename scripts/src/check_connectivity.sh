@@ -285,23 +285,19 @@ sub "4. SERVICE STATUS (systemctl is-active)"
 # ──────────────────────────────────────────────────────────────
 # company-web-server
 check_service "$SSH_KEY" "$SSH_USER" 10.10.10.10 apache2   "company-web-server"
-check_service "$SSH_KEY" "$SSH_USER" 10.10.10.10 suricata  "company-web-server"
 check_service "$SSH_KEY" "$SSH_USER" 10.10.10.10 fail2ban  "company-web-server"
 check_service "$SSH_KEY" "$SSH_USER" 10.10.10.10 ssh       "company-web-server"
 
 # company-dns-server
 check_service "$SSH_KEY" "$SSH_USER" 10.10.10.20 named     "company-dns-server"
-check_service "$SSH_KEY" "$SSH_USER" 10.10.10.20 suricata  "company-dns-server"
 check_service "$SSH_KEY" "$SSH_USER" 10.10.10.20 fail2ban  "company-dns-server"
 
 # company-customer-db
 check_service "$SSH_KEY" "$SSH_USER" 10.20.20.10 mysql     "company-customer-db"
-check_service "$SSH_KEY" "$SSH_USER" 10.20.20.10 suricata  "company-customer-db"
 check_service "$SSH_KEY" "$SSH_USER" 10.20.20.10 fail2ban  "company-customer-db"
 
 # company-ldap-server
 check_service "$SSH_KEY" "$SSH_USER" 10.20.20.20 slapd     "company-ldap-server"
-check_service "$SSH_KEY" "$SSH_USER" 10.20.20.20 suricata  "company-ldap-server"
 check_service "$SSH_KEY" "$SSH_USER" 10.20.20.20 fail2ban  "company-ldap-server"
 
 

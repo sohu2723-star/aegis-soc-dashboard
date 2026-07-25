@@ -32,7 +32,7 @@ Lab (AEGIS-SecureCompany):
 OUTPUT RULES (မပျက်ကွက်ရ):
 - ဘာသာ: မြန်မာဘာသာ — သဘာဝကျကျ ပြောကြားသလိုရေး — translate သလို formal မဟုတ်ဘဲ
 - Section heading: ENGLISH UPPERCASE သာ (THREAT SUMMARY:, TOP THREATS:, DEFENSE STATUS:, RECOMMENDATIONS:)
-- Technical terms — English မပြောင်းရ: attack, brute force, port scan, SQL injection, DDoS, SYN flood, exploit, honeypot, malware, phishing, firewall, IDS, Suricata, Fail2ban, pfSense, block, alert, incident
+- Technical terms — English မပြောင်းရ: attack, brute force, port scan, SQL injection, DDoS, SYN flood, exploit, firewall, IDS, Suricata, Fail2ban, pfSense, block, alert
 - IP နှင့် number — English digits သာ: 192.168.10.99, port 22, 5 ကြိမ်
 - Markdown (#, ##, **, *) လုံးဝ မသုံးရ — plain text သာ
 - CRITICAL — ထပ်ကာ မရေးရ: sentence တစ်ကြောင်းကို တစ်ကြိမ်သာ ရေး၊ idea တစ်ခုကို တစ်ကြိမ်သာ ဖော်ပြ
@@ -448,7 +448,7 @@ Total events: ${recentEvents.length}
 လက်ရှိ active rules: ${activeRuleNames}
 
 Valid values:
-- triggerAttackType: ssh_brute | web_attack | ddos | port_scan | mitm | dns_attack | tls_suspicious | mail_attack | honeypot | any
+- triggerAttackType: ssh_brute | web_attack | ddos | port_scan | mitm | dns_attack | db_attack | ldap_brute | ldap_enum | ftp_brute | any
 - triggerSeverity: any | medium | high | critical
 - actionType: auto | suggest
 - defenseType: block_ip | null_route | rate_limit | port_block | pfsense_block | alert_only

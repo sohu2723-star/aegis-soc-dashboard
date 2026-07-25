@@ -92,6 +92,17 @@ PFSENSE_SSH_USER=admin
 # Defense poll interval (seconds)
 DEFENSE_POLL_SECS=5
 
+# ── Remote log paths (Ubuntu defaults; override for your distro) ──────────────
+REMOTE_AUTH_LOG=/var/log/auth.log
+REMOTE_FAIL2BAN_LOG=/var/log/fail2ban.log
+REMOTE_APACHE_LOG=/var/log/apache2/access.log
+REMOTE_MODSEC_LOG=/var/log/apache2/modsec_audit.log
+REMOTE_MYSQL_LOG=/var/log/mysql/error.log
+REMOTE_POSTGRES_LOG=/var/log/postgresql/postgresql-*.log
+REMOTE_BIND_LOG=/var/log/named/named.log
+REMOTE_SLAPD_LOG=/var/log/syslog
+REMOTE_VSFTPD_LOG=/var/log/vsftpd.log
+
 # ── Local mode settings (--mode all, not hub) ─────────────────────────────────
 # VM_NAME controls defense command execution when running locally:
 #   ubuntu  → runs iptables commands locally

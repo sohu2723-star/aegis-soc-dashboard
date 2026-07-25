@@ -154,8 +154,6 @@ function ServiceCard({
 }
 
 export default function Defense() {
-  const [blockIp, setBlockIp] = useState("");
-  const [blockReason, setBlockReason] = useState("");
   const [aiIp, setAiIp] = useState("");
   const [aiResult, setAiResult] = useState<{ ip: string; recommendation: string; eventCount: number; attackTypes: Record<string, number> } | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
@@ -187,10 +185,8 @@ export default function Defense() {
   // Devices are matched against blocked_ips/defense_actions.targetHost by IP —
   // most ingest routes populate targetHost from the real destination IP
   // (dest_ip/target_ip), which is the same identity network_hosts.ip uses.
-  // A minority of ingest paths still fall back to a generic label (e.g.
-  // "mail-server") when no real IP is known; those actions won't match any
-  // specific device and only appear under "All Devices" — expected until every
-  // sensor forwards a concrete destination IP.
+  // Older ingest rows may use a generic target label; those actions appear only
+  // under "All Devices" until every sensor supplies a concrete destination IP.
   const deviceFilter = selectedDevice ? selectedDevice.ip : null;
 
   const { data: blocks = [] } = useBlocks(deviceFilter);
@@ -223,32 +219,6 @@ export default function Defense() {
   const activeBlocks = blocks.filter(b => b.isActive);
   const historyBlocks = blocks.filter(b => !b.isActive);
 
-  const blockMutation = useMutation({
-    mutationFn: async ({ ip, reason }: { ip: string; reason: string }) => {
-      const r = await fetch(`${BASE}/api/defense/block`, {
-        method: "POST",
-        headers: defAuthHeaders(),
-        body: JSON.stringify({ ip, reason, targetHost: deviceFilter ?? undefined }),
-      });
-      if (!r.ok) {
-        const e = await r.json();
-        throw new Error(e.error ?? "Block failed");
-      }
-      return r.json();
-    },
-    onSuccess: () => {
-      toast({ title: "IP Blocked", description: `${blockIp} has been blocked.` });
-      setBlockIp("");
-      setBlockReason("");
-      qc.invalidateQueries({ queryKey: ["defense-blocks"] });
-      qc.invalidateQueries({ queryKey: ["defense-status"] });
-      qc.invalidateQueries({ queryKey: ["defense-actions"] });
-    },
-    onError: (e: Error) => {
-      toast({ title: "Block Failed", description: e.message, variant: "destructive" });
-    },
-  });
-
   const unblockMutation = useMutation({
     mutationFn: async (ip: string) => {
       const r = await fetch(`${BASE}/api/defense/block/${encodeURIComponent(ip)}`, {
@@ -267,6 +237,30 @@ export default function Defense() {
     onError: () => {
       toast({ title: "Unblock Failed", variant: "destructive" });
     },
+  });
+
+  const fail2banControl = useMutation({
+    mutationFn: async (action: "start" | "stop" | "restart") => {
+      if (!selectedDevice) throw new Error("Select a company server first");
+      const targetByIp: Record<string, string> = {
+        "10.10.10.10": "company-web-server", "10.10.10.20": "company-dns-server",
+        "10.20.20.10": "company-customer-db", "10.20.20.20": "company-ldap-server",
+      };
+      const targetVm = targetByIp[selectedDevice.ip];
+      if (!targetVm) throw new Error("Selected device is not a controllable company server");
+      const r = await fetch(`${BASE}/api/ui/system/service-control`, {
+        method: "POST",
+        headers: defAuthHeaders(),
+        body: JSON.stringify({ service: "fail2ban", action, targetVm }),
+      });
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        throw new Error(body.error ?? "Fail2ban control failed");
+      }
+      return r.json();
+    },
+    onSuccess: (_data, action) => toast({ title: `Fail2ban ${action} queued` }),
+    onError: (error: Error) => toast({ title: "Fail2ban Control Failed", description: error.message, variant: "destructive" }),
   });
 
   const toggleAutoDefenseMutation = useMutation({
@@ -290,11 +284,6 @@ export default function Defense() {
       toast({ title: "Toggle Failed", description: e.message, variant: "destructive" });
     },
   });
-
-  const handleBlock = () => {
-    if (!blockIp || !blockReason) return;
-    blockMutation.mutate({ ip: blockIp, reason: blockReason });
-  };
 
   async function fetchRuleRecs() {
     setRuleRecsLoading(true);
@@ -370,7 +359,7 @@ export default function Defense() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-primary uppercase">Defense Center</h1>
           <p className="text-sm text-muted-foreground">
-            Auto and manual threat response controls.
+            Fail2ban and auto-defense rule controls.
             {deviceFilter && <span className="text-cyan-400 font-mono"> — scoped to {deviceFilter}</span>}
           </p>
         </div>
@@ -424,12 +413,24 @@ export default function Defense() {
           <>
             {/* Fail2ban — VM hosts only; pfSense has no fail2ban */}
             {selectedDevice?.role !== "pfsense" && (
-              <ServiceCard
-                label="Fail2Ban"
-                active={status?.fail2banActive}
-                icon={<Shield className="w-8 h-8 text-green-400" />}
-                justChanged={changedServices.has("fail2ban")}
-              />
+              <div className="space-y-2">
+                <ServiceCard
+                  label="Fail2Ban"
+                  active={status?.fail2banActive}
+                  icon={<Shield className="w-8 h-8 text-green-400" />}
+                  justChanged={changedServices.has("fail2ban")}
+                />
+                <div className="grid grid-cols-3 gap-1">
+                  {(["start", "stop", "restart"] as const).map(action => (
+                    <Button key={action} size="sm" variant="outline"
+                      disabled={fail2banControl.isPending}
+                      onClick={() => fail2banControl.mutate(action)}
+                      className="h-7 text-[10px] uppercase">
+                      {action}
+                    </Button>
+                  ))}
+                </div>
+              </div>
             )}
             {/* Suricata IDS — pfSense only; individual VMs have no Suricata */}
             {selectedDevice?.role === "pfsense" && (
@@ -506,33 +507,10 @@ export default function Defense() {
       <Card className="bg-card border-border">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-              <UserCheck className="w-4 h-4 text-primary" /> Manual Block / Unblock
+              <Bot className="w-4 h-4 text-primary" /> Automatic Blocks / Manual Unblock
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Input
-                placeholder="IP Address (e.g. 10.10.10.99 or 203.0.113.5)"
-                value={blockIp}
-                onChange={e => setBlockIp(e.target.value)}
-                className="bg-background border-border font-mono text-sm"
-              />
-              <Input
-                placeholder="Reason (e.g. Port scan detected, SSH breach)"
-                value={blockReason}
-                onChange={e => setBlockReason(e.target.value)}
-                className="bg-background border-border text-sm"
-              />
-              <Button
-                onClick={handleBlock}
-                disabled={!blockIp || !blockReason || blockMutation.isPending}
-                className="w-full bg-red-600 hover:bg-red-700 text-white font-semibold uppercase tracking-wider text-xs"
-              >
-                <Lock className="w-3.5 h-3.5 mr-2" />
-                {blockMutation.isPending ? "Blocking..." : "Block IP"}
-              </Button>
-            </div>
-
             <div className="space-y-1.5 max-h-48 overflow-y-auto">
               <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Active Blocks ({activeBlocks.length})</p>
               {activeBlocks.length === 0 ? (
@@ -550,7 +528,9 @@ export default function Defense() {
                     </div>
                     <div className="flex items-center gap-2">
                       <Badge variant="outline" className={`text-[10px] flex items-center gap-1 ${b.blockedBy === "auto" ? "border-cyan-500/50 text-cyan-400 bg-cyan-500/10" : "border-slate-500/50 text-slate-400 bg-slate-500/10"}`}>
-                        {b.blockedBy === "auto" ? (
+                        {b.blockedBy.startsWith("fail2ban:") ? (
+                          <><Shield className="w-2.5 h-2.5" />FAIL2BAN</>
+                        ) : b.blockedBy === "auto" ? (
                           <><Bot className="w-2.5 h-2.5" />AUTO</>
                         ) : (
                           <><UserCheck className="w-2.5 h-2.5" />MANUAL</>
@@ -571,7 +551,9 @@ export default function Defense() {
                   <div className="border-t border-green-500/10 bg-green-950/20 px-3 py-2 space-y-1">
                     <p className="text-[9px] uppercase tracking-widest text-green-400/60 mb-1.5">Unblock will run:</p>
                     <pre className="font-mono text-[10px] text-green-300/70 whitespace-pre-wrap break-all leading-relaxed">
-                      {`[VMs]     iptables -D INPUT -s ${b.ip} -j DROP\n[pfSense] easyrule pass WAN ${b.ip}`}
+                      {b.blockedBy.startsWith("fail2ban:")
+                        ? `[VM] fail2ban-client set ${b.blockedBy.slice("fail2ban:".length)} unbanip ${b.ip}`
+                        : `[VMs]     iptables -D INPUT -s ${b.ip} -j DROP\n[pfSense] pfctl -t EasyRuleBlockHosts -T delete ${b.ip}`}
                     </pre>
                   </div>
                 </div>
@@ -663,15 +645,6 @@ export default function Defense() {
                 >
                   <RefreshCcw className={`w-3 h-3 mr-1 ${aiLoading ? "animate-spin" : ""}`} />
                   Re-analyze
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="border-red-800 text-red-400 hover:bg-red-900/20 text-xs"
-                  onClick={() => { setBlockIp(aiResult.ip); setBlockReason("AI flagged — see AI Defense Recommendation"); }}
-                >
-                  <Lock className="w-3 h-3 mr-1" />
-                  Block this IP
                 </Button>
               </div>
             </div>

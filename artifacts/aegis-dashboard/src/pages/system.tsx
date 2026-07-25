@@ -21,7 +21,6 @@ const SERVICE_NAME: Record<string, string> = {
   "Fail2ban": "fail2ban",
   "Suricata": "suricata",
   "Snort": "snort",
-  "Cowrie Honeypot": "cowrie",
   "Apache2": "apache2",
 };
 
