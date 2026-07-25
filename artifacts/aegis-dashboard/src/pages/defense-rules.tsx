@@ -409,6 +409,7 @@ function FirewallTab() {
   const [sourcePort, setSrcPort] = useState("");
   const [destPort, setDstPort]  = useState("");
   const [iface, setIface]       = useState("");
+  const supportsPorts = protocol === "tcp" || protocol === "udp";
 
   const fwAuthHeaders = (): Record<string, string> => {
     const tok = getToken();
@@ -458,6 +459,14 @@ function FirewallTab() {
 
   function handleCreate(e: React.FormEvent) {
     e.preventDefault();
+    if ((sourcePort || destPort) && !supportsPorts) {
+      toast({
+        title: "Protocol Required",
+        description: "Select TCP or UDP before adding a source or destination port.",
+        variant: "destructive",
+      });
+      return;
+    }
     createMutation.mutate({
       chain, action,
       protocol: protocol || undefined,
@@ -507,7 +516,13 @@ function FirewallTab() {
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-xs uppercase text-muted-foreground">Protocol (optional)</Label>
-                    <Select value={protocol} onValueChange={setProtocol}>
+                    <Select value={protocol} onValueChange={value => {
+                      setProtocol(value);
+                      if (value !== "tcp" && value !== "udp") {
+                        setSrcPort("");
+                        setDstPort("");
+                      }
+                    }}>
                       <SelectTrigger className="bg-background border-border text-xs"><SelectValue placeholder="any" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="">any</SelectItem>
@@ -529,11 +544,11 @@ function FirewallTab() {
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-xs uppercase text-muted-foreground">Source Port</Label>
-                    <Input value={sourcePort} onChange={e => setSrcPort(e.target.value)} className="bg-background border-border" placeholder="e.g. 22" />
+                    <Input value={sourcePort} onChange={e => setSrcPort(e.target.value)} disabled={!supportsPorts} className="bg-background border-border" placeholder={supportsPorts ? "e.g. 22" : "Select TCP or UDP"} />
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-xs uppercase text-muted-foreground">Dest Port</Label>
-                    <Input value={destPort} onChange={e => setDstPort(e.target.value)} className="bg-background border-border" placeholder="e.g. 22" />
+                    <Input value={destPort} onChange={e => setDstPort(e.target.value)} disabled={!supportsPorts} className="bg-background border-border" placeholder={supportsPorts ? "e.g. 22" : "Select TCP or UDP"} />
                   </div>
                 </div>
                 <div className="flex justify-end pt-2">

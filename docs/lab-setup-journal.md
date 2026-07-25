@@ -3424,3 +3424,8 @@ sudo -n systemctl status fail2ban
 **How:** Forwarder FTP sensor/health/path/watcher ဖြုတ်၊ `/ingest/ftp` နှင့် `/connections/ftp` ဖြုတ်၊ Connections FTP tab/hook/type ဖြုတ်၊ defense-rule/AI `ftp_brute` option နှင့် vsftpd service control ဖြုတ်ပြီး current README/replit/final docs ကိုညှိခဲ့သည်။
 **Result:** Web VM မှာ မရှိသော vsftpd/log ကို watcher မစတော့ဘဲ dashboard တွင် FTP tab မပေါ်တော့ပါ။ Historical `ftp_sessions` schema/migrations ကို production data မဖျက်ရန် deprecated compatibility အဖြစ်သာထားသည်။ Secret/production data ကိုမထိခဲ့ပါ။
 **Next:** Deploy ပြီး System Status တွင် stale FTP row မပေါ်ကြောင်းနှင့် Connections tabs သည် SSH/HTTP/DB/DNS/LDAP သာရှိကြောင်းစစ်ပါ။
+# 2026-07-25 — Firewall port/protocol validation
+
+- Diagnosed failed defense commands containing `--sport` and `--dport` without a TCP or UDP protocol match.
+- Added API validation so invalid port rules are rejected before they are saved or queued to the four agents.
+- Updated the Defense Rules form to enable port fields only after TCP or UDP is selected.

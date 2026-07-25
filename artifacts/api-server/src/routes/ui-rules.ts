@@ -288,6 +288,9 @@ router.post("/ui/firewall/rules", maybeAdmin, async (req, res) => {
     sourcePort = sanitizeFirewallPort(d.sourcePort);
     destPort = sanitizeFirewallPort(d.destPort);
     iface = sanitizeInterface(d.iface);
+    if ((sourcePort || destPort) && protocol !== "tcp" && protocol !== "udp") {
+      throw new Error("Source and destination ports require protocol tcp or udp");
+    }
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : "Invalid firewall rule" });
     return;
