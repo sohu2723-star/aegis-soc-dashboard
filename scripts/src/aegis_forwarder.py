@@ -2073,11 +2073,15 @@ def _pfsense_health_loop():
                         "-o", "BatchMode=yes",
                         "-o", "IdentityAgent=none",
                         f"{PFSENSE_SSH_USER}@{PFSENSE_IP}",
-                        "pgrep Suricata >/dev/null 2>&1 && echo running || echo stopped",
+                        # Simple pgrep with no shell operators — exit code 0 = found, 1 = not found.
+                        # Avoids relying on pfSense shell to interpret && / || / redirects.
+                        # Try both "Suricata" (capital) and "suricata" (lowercase FreeBSD variant).
+                        "pgrep -i suricata",
                     ],
                     capture_output=True, text=True, timeout=15,
                 )
-                sur_status = "online" if "running" in result.stdout else "offline"
+                # returncode 0 → at least one matching process found → running
+                sur_status = "online" if result.returncode == 0 else "offline"
             except Exception:
                 sur_status = "offline"
         else:
