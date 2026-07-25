@@ -79,6 +79,12 @@ export function useSSE() {
       } catch { /* malformed data — skip persistence */ }
     });
 
+    es.addEventListener("defense_result", () => {
+      queryClient.invalidateQueries({ queryKey: ["defense-blocks"] });
+      queryClient.invalidateQueries({ queryKey: ["defense-actions"] });
+      queryClient.invalidateQueries({ queryKey: ["ui-cmds"] });
+    });
+
     es.addEventListener("alert", (e: MessageEvent) => {
       queryClient.invalidateQueries({ queryKey: getListAlertsQueryKey({}) });
       // Also invalidate custom alerts key used in alerts.tsx

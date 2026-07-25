@@ -22,6 +22,12 @@ import {
 const router = Router();
 
 const ADMIN_KEY = process.env.AEGIS_ADMIN_KEY ?? "";
+const FIREWALL_TARGETS = [
+  "company-web-server",
+  "company-dns-server",
+  "company-customer-db",
+  "company-ldap-server",
+] as const;
 
 /**
  * Allow write if ANY of these is true:
@@ -47,14 +53,23 @@ function maybeAdmin(req: any, res: any, next: any) {
 // The defense agent on that VM polls /api/defense/commands/pending and executes it.
 router.post("/ui/system/service-control", maybeAdmin, async (req, res) => {
   const schema = z.object({
-    service:  z.enum(["fail2ban", "suricata", "snort", "cowrie", "apache2", "vsftpd", "bind9", "slapd"]),
+    service:  z.enum(["fail2ban", "apache2", "bind9", "slapd", "mysql"]),
     action:   z.enum(["start", "stop", "restart"]),
-    targetVm: z.string().min(1).max(64),
+    targetVm: z.enum(["company-web-server", "company-dns-server", "company-customer-db", "company-ldap-server"]),
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Invalid body" }); return; }
 
   const { service, action, targetVm } = parsed.data;
+  const serviceTargets: Record<string, string[]> = {
+    fail2ban: ["company-web-server", "company-dns-server", "company-customer-db", "company-ldap-server"],
+    apache2: ["company-web-server"],
+    bind9: ["company-dns-server"], mysql: ["company-customer-db"], slapd: ["company-ldap-server"],
+  };
+  if (!serviceTargets[service]?.includes(targetVm)) {
+    res.status(400).json({ error: `${service} is not valid for ${targetVm}` });
+    return;
+  }
   const commandText = `systemctl ${action} ${service}`;
   const undoCommand = action === "stop" ? `systemctl start ${service}`
     : action === "start" ? `systemctl stop ${service}`
@@ -90,7 +105,7 @@ router.post("/ui/defense/rules", maybeAdmin, async (req, res) => {
     actionType:        z.enum(["auto","suggest"]).default("auto"),
     defenseType:       z.enum([
       "block_ip","null_route","rate_limit","port_block",
-      "dns_block","waf_rule","pfsense_block","pfsense_port_block","alert_only",
+      "dns_block","waf_rule","pfsense_block","alert_only",
     ]),
     actionParams: z.string().optional(),
     targetVm:     z.enum(["company-web-server","company-customer-db","company-dns-server","company-ldap-server","aegis","pfsense","all"]).default("company-web-server"),
@@ -296,21 +311,23 @@ router.post("/ui/firewall/rules", maybeAdmin, async (req, res) => {
   await db.insert(defenseActionsTable).values({
     type: "manual", action: "firewall_rule_add",
     targetIp: sourceIp ?? "any",
-    reason: `Firewall rule added: ${ruleText}`,
-    performedBy: d.createdBy, status: "success",
+    reason: `Firewall rule queued on ${FIREWALL_TARGETS.length} company servers: ${ruleText}`,
+    performedBy: d.createdBy, status: "queued",
   });
 
-  // Manual firewall rules are real VM actions, not just dashboard records.
-  await db.insert(defenseCommandsTable).values({
-    targetVm: "all",
+  // Create one row per real target. A single targetVm="all" row can only be
+  // claimed once, so it would apply to whichever agent polls first instead of
+  // all four servers.
+  const commands = await db.insert(defenseCommandsTable).values(FIREWALL_TARGETS.map(targetVm => ({
+    targetVm,
     commandType: "iptables",
     commandText: ruleText,
     undoCommand: ruleText.replace(" -A ", " -D "),
     targetIp: d.sourceIp ?? null,
     status: "pending",
-  });
+  }))).returning({ id: defenseCommandsTable.id, targetVm: defenseCommandsTable.targetVm });
 
-  res.status(201).json({ id: rule.id, ruleText, ...d });
+  res.status(201).json({ id: rule.id, ruleText, targets: commands });
 });
 
 router.delete("/ui/firewall/rules/:id", maybeAdmin, async (req, res) => {
@@ -327,24 +344,24 @@ router.delete("/ui/firewall/rules/:id", maybeAdmin, async (req, res) => {
     eq(defenseCommandsTable.commandText, rule.ruleText),
     eq(defenseCommandsTable.status, "pending"),
   ));
-  await db.insert(defenseCommandsTable).values({
-    targetVm: "all",
+  const commands = await db.insert(defenseCommandsTable).values(FIREWALL_TARGETS.map(targetVm => ({
+    targetVm,
     commandType: "iptables",
     commandText: rule.ruleText.replace(" -A ", " -D "),
     undoCommand: rule.ruleText,
     targetIp: rule.sourceIp ?? null,
     status: "pending",
-  });
+  }))).returning({ id: defenseCommandsTable.id, targetVm: defenseCommandsTable.targetVm });
   await db.delete(firewallRulesTable).where(eq(firewallRulesTable.id, id));
 
   await db.insert(defenseActionsTable).values({
     type: "manual", action: "firewall_rule_remove",
     targetIp: rule.sourceIp ?? "any",
-    reason: `Firewall rule removed: ${rule.ruleText}`,
-    performedBy: "admin", status: "success",
+    reason: `Firewall rule removal queued on ${FIREWALL_TARGETS.length} company servers: ${rule.ruleText}`,
+    performedBy: "admin", status: "queued",
   });
 
-  res.json({ success: true, id });
+  res.json({ queued: true, id, targets: commands });
 });
 
 router.get("/ui/firewall/rules/export", async (_req, res) => {
@@ -356,7 +373,7 @@ router.get("/ui/firewall/rules/export", async (_req, res) => {
     "#!/bin/bash",
     "# AEGIS Firewall Rules Export",
     `# Generated: ${new Date().toISOString()}`,
-    "iptables -F   # Flush existing rules",
+    "# Additive export: existing firewall rules are intentionally NOT flushed.",
     "",
     ...rules.map(r => r.ruleText),
     "",

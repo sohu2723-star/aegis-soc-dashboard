@@ -5,7 +5,7 @@
 ; ─────────────────────────────────────────────────────────────────────────────
 $TTL 604800
 @   IN  SOA  company-dns-server.goldenmyanmar.trading.com. admin.goldenmyanmar.trading.com. (
-              3         ; Serial (increment after every change)
+              4         ; Serial (increment after every change)
               604800    ; Refresh  (7 days)
               86400     ; Retry    (1 day)
               2419200   ; Expire   (28 days)
@@ -15,7 +15,7 @@ $TTL 604800
 @                       IN  NS   company-dns-server.goldenmyanmar.trading.com.
 
 ; ── SOA / DNS server itself ───────────────────────────────────────────────────
-@                       IN  A    10.10.10.20
+@                       IN  A    10.10.10.10   ; apex domain serves the website
 company-dns-server      IN  A    10.10.10.20
 
 ; ── DMZ (Public Services — VLAN 10) ──────────────────────────────────────────

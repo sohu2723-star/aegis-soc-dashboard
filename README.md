@@ -29,7 +29,7 @@ Full-stack real-time SOC (Security Operations Center) dashboard for the GNS3 AEG
                     │                   │                │
               [company-web-server]         [company-customer-db]   [aegis-forwarder]
              10.10.10.10         10.20.20.20      10.30.30.10
-            Apache, vsftpd        PostgreSQL        Hub agent
+            Apache                 PostgreSQL        Hub agent
             Suricata              Suricata          (SSH → VMs)
             Fail2ban              Fail2ban
 ```
@@ -67,7 +67,7 @@ Full-stack real-time SOC (Security Operations Center) dashboard for the GNS3 AEG
 ┌───────────────────┴─────────────────────────────────────┐
 │   aegis_forwarder.py  (hub mode — runs on AEGIS VM)     │
 │   10.30.30.10 — SSHes into company-web-server and company-customer-db     │
-│   to tail their Suricata / Fail2ban / SSH / FTP logs,   │
+│   to tail their Suricata / Fail2ban / SSH / HTTP logs,   │
 │   then POSTs events to the API server.                  │
 │   Also monitors pfSense health via HTTP ping.           │
 └─────────────────────────────────────────────────────────┘
@@ -200,7 +200,7 @@ See [docs/AEGIS_VM_SETUP.md](docs/AEGIS_VM_SETUP.md) for complete step-by-step s
 **Quick summary:**
 1. AEGIS VM (10.30.30.10) runs `aegis_forwarder.py --mode hub`
 2. Hub SSHes into company-web-server (10.10.10.10) and company-customer-db (10.20.20.20)
-3. Tails their Suricata, Fail2ban, SSH, FTP logs remotely
+3. Tails their Suricata, Fail2ban, SSH, HTTP logs remotely
 4. POSTs all events to Render API — dashboard updates live
 
 ---
@@ -215,7 +215,6 @@ All endpoints require `X-AEGIS-Key` header.
 | `POST /api/ingest/suricata` | Suricata | EVE JSON format |
 | `POST /api/ingest/fail2ban` | Fail2ban | Ban/unban events |
 | `POST /api/ingest/ssh` | auth.log | SSH login events |
-| `POST /api/ingest/ftp` | vsftpd.log | FTP session events |
 | `POST /api/ingest/http` | ModSecurity | Web attack events |
 | `POST /api/network/hosts` | Forwarder | Heartbeat / host registration |
 

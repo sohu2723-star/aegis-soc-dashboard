@@ -239,6 +239,10 @@ function RulesTab() {
                         { v: "ddos",           label: "ddos  (SYN flood / hping3)" },
                         { v: "port_scan",      label: "port_scan  (nmap)" },
                         { v: "dns_attack",     label: "dns_attack  (BIND9 / dnsspoof)" },
+                        { v: "db_attack",      label: "db_attack  (MySQL auth / SQL anomaly)" },
+                        { v: "ldap_brute",     label: "ldap_brute  (invalid bind credentials)" },
+                        { v: "ldap_enum",      label: "ldap_enum  (DN enumeration)" },
+                        { v: "mitm",           label: "mitm  (ARP spoofing)" },
                         { v: "auth_event",     label: "auth_event  (unauthorized login success)" },
                       ].map(({ v, label }) => (
                         <SelectItem key={v} value={v}>{label}</SelectItem>
@@ -423,7 +427,7 @@ function FirewallTab() {
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ui-fw"] });
-      toast({ title: "Rule Removed" });
+      toast({ title: "Rule Removal Queued", description: "Undo command was queued for all four company servers." });
     },
     onError: () => toast({ title: "Remove Failed", variant: "destructive" }),
   });
@@ -439,7 +443,7 @@ function FirewallTab() {
       qc.invalidateQueries({ queryKey: ["ui-fw"] });
       setCreateOpen(false);
       setSourceIp(""); setDestIp(""); setSrcPort(""); setDstPort(""); setIface(""); setProtocol("");
-      toast({ title: "Firewall Rule Added" });
+      toast({ title: "Firewall Rule Queued", description: "The rule was queued separately for all four company servers." });
     },
     onError: (e: Error) => toast({ title: "Create Failed", description: e.message, variant: "destructive" }),
   });

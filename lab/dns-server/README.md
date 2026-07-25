@@ -21,7 +21,6 @@ sudo tee -a /etc/bind/named.conf.local < named.conf.local
 # Verify syntax
 sudo named-checkconf
 sudo named-checkzone goldenmyanmar.trading.com /etc/bind/db.goldenmyanmar.trading.com
-sudo named-checkzone bank.local /etc/bind/db.bank.local
 
 # Restart BIND9
 sudo systemctl restart bind9
@@ -55,7 +54,7 @@ dig @10.10.10.20 goldenmyanmar.trading.com AXFR
 # Without the ACL                → all records dumped  ❌ vulnerable
 ```
 
-To demo the vulnerability: comment out `allow-transfer { none; };` in named.conf.local, restart BIND9, then run the AXFR from Kali.
+For the safe presentation, keep `allow-transfer { none; };` enabled and demonstrate that the AXFR request is refused. Do not weaken the DNS server during a shared/classroom demo.
 
 ## Netplan — Point all VMs to this DNS
 

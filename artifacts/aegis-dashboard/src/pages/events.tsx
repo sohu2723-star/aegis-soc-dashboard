@@ -31,8 +31,10 @@ interface EventCommand {
 
 const CMD_STATUS_COLORS: Record<string, string> = {
   done:      "border-green-500/40 text-green-400 bg-green-500/10",
+  executed:  "border-green-500/40 text-green-400 bg-green-500/10",
   pending:   "border-yellow-500/40 text-yellow-400 bg-yellow-500/10",
   running:   "border-blue-500/40 text-blue-400 bg-blue-500/10",
+  sent:      "border-blue-500/40 text-blue-400 bg-blue-500/10",
   failed:    "border-red-500/40 text-red-400 bg-red-500/10",
   cancelled: "border-border text-muted-foreground",
 };
