@@ -277,11 +277,18 @@ async function withStatusMutation<T>(operation: () => Promise<T>): Promise<T> {
   }
 }
 
+// Track whether the initial seed has already completed so GET requests
+// don't repeat the expensive purge+seed on every dashboard poll.
+let _seeded = false;
+
 export async function ensureSystemStatusSeeded(): Promise<void> {
+  if (_seeded) return;
   await withStatusMutation(() => seedSystemStatusUnlocked());
+  _seeded = true;
 }
 
 router.get("/system/status", async (_req, res) => {
+  // Seed only once at startup. Subsequent GETs skip the expensive purge+seed.
   await ensureSystemStatusSeeded();
 
   // Only return global rows (no hostIp) + rows whose hostIp is a registered host
@@ -306,11 +313,13 @@ router.get("/system/status", async (_req, res) => {
 
   // If a VM forwarder goes silent (crash/reboot/shutdown), its sensor rows stay
   // "online" in the DB forever.  Treat any VM-reported row whose lastCheck is
-  // older than 3 minutes as offline so the dashboard reflects reality.
-  // Global rows (no hostIp) get a longer 2-minute grace period — they are
+  // older than 5 minutes as offline so the dashboard reflects reality.
+  // 5 min gives 5× the 60s keepalive interval before flipping — tolerates SSH
+  // idle gaps and brief network blips without constant online/offline flapping.
+  // Global rows (no hostIp) get a 3-minute grace period — they are
   // updated by startSelfHeartbeat() every 30s, so stale means server is down.
-  const STALE_VM_MS     = 3 * 60 * 1000;  // 3 min  — VM sensors
-  const STALE_GLOBAL_MS = 2 * 60 * 1000;  // 2 min  — global rows (AEGIS API Server etc.)
+  const STALE_VM_MS     = 5 * 60 * 1000;  // 5 min  — VM sensors (pfSense Suricata, etc.)
+  const STALE_GLOBAL_MS = 3 * 60 * 1000;  // 3 min  — global rows (AEGIS API Server etc.)
   const now = Date.now();
   res.json(statuses.map(s => {
     const ageMs = now - s.lastCheck.getTime();
@@ -426,8 +435,8 @@ export function startSelfHeartbeat(): void {
 // Runs every 30 s alongside the heartbeat. If a sensor's lastCheck crossed
 // the stale threshold since the last check, broadcast service_status_change
 // so the frontend sees it go OFFLINE instantly — no waiting for next poll.
-const STALE_VM_MS     = 3 * 60 * 1000;
-const STALE_GLOBAL_MS = 2 * 60 * 1000;
+const STALE_VM_MS     = 5 * 60 * 1000;
+const STALE_GLOBAL_MS = 3 * 60 * 1000;
 const _lastKnownStatus = new Map<number, string>();
 
 async function _broadcastStaleChanges() {

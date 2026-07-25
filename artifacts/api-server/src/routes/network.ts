@@ -64,15 +64,15 @@ async function markStaleHostsOffline() {
   }
 }
 
-// Run on interval (background) — also runs inline on each GET so Render
-// cold-start / sleep gaps don't leave hosts stuck as "online" forever.
+// Run on interval (background). Previously this also ran inline on every GET,
+// but that added 400-700ms latency to every dashboard poll. The 30s background
+// interval is fast enough — hosts only need to flip offline within ~45s anyway.
 setInterval(markStaleHostsOffline, 30_000);
+// Also run once at startup so cold-start gaps don't leave stale "online" entries.
+void markStaleHostsOffline();
 
 // ─── GET all hosts ─────────────────────────────────────────────────────────────
 router.get("/network/hosts", async (_req, res) => {
-  // Inline stale check: if the background interval missed ticks (Render sleep),
-  // this ensures hosts go offline the moment the dashboard next polls.
-  await markStaleHostsOffline();
   const [hosts, pfsenseRows] = await Promise.all([
     db.select().from(networkHostsTable).orderBy(desc(networkHostsTable.lastSeen)),
     db.select().from(systemStatusTable),
@@ -82,8 +82,10 @@ router.get("/network/hosts", async (_req, res) => {
   );
   const pfsenseLastSeen = pfsenseStatus?.lastCheck ?? new Date(0);
   const pfsenseAge = Date.now() - pfsenseLastSeen.getTime();
+  // 4-minute grace period: pfSense Suricata keepalives fire every 60s, so allow
+  // 3 missed keepalives (SSH idle gaps) before declaring it offline.
   const pfsenseResolvedStatus =
-    pfsenseStatus?.status === "online" && pfsenseAge > 2 * 60 * 1000
+    pfsenseStatus?.status === "online" && pfsenseAge > 4 * 60 * 1000
       ? "offline"
       : pfsenseStatus?.status ?? "unknown";
   const hasPersistedPfsense = hosts.some(h => h.ip === PFSENSE_IP);
