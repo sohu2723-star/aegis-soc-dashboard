@@ -1999,14 +1999,18 @@ def _remote_service_health_loop(hosts: list):
 
 def _pfsense_health_loop():
     """Report pfSense Firewall as online/offline every 30s in hub mode.
-    Tries HTTP to pfSense management IP — if reachable → online, else → offline.
-    No API key needed; just connectivity from AEGIS VM to pfSense OPT2 interface.
+    Uses a TCP connect to port 22 (SSH) — much lighter than an HTTP GET so it
+    succeeds even when pfSense CPU is high from Suricata IDS processing.
+    HTTP GET to the web UI can time out under Suricata load, falsely showing
+    pfSense as offline while it is still routing and firewalling correctly.
     """
-    print(f"[PFSENSE HEALTH] Monitoring pfSense ({PFSENSE_IP}) every 30s")
+    import socket as _socket
+    print(f"[PFSENSE HEALTH] Monitoring pfSense ({PFSENSE_IP}) every 30s via TCP:22")
     while True:
         try:
-            r = requests.get(f"http://{PFSENSE_IP}", timeout=5)
-            status = "online"   # pfSense web UI responded (even 200/302/403 = reachable)
+            conn = _socket.create_connection((PFSENSE_IP, 22), timeout=8)
+            conn.close()
+            status = "online"   # TCP handshake succeeded — pfSense SSH port is up
         except Exception:
             status = "offline"
         ts = datetime.now().strftime("%H:%M:%S")
