@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Shield, ShieldOff, Lock, Unlock, Bot, UserCheck, AlertTriangle, RefreshCcw, Sparkles, Zap, Plus, Check, Ban } from "lucide-react";
+import { Shield, ShieldOff, Lock, Unlock, Bot, UserCheck, AlertTriangle, RefreshCcw, Sparkles, Zap, Plus, Check, Ban, Flame } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { HostLabel } from "@/lib/host-utils";
@@ -558,15 +558,28 @@ export default function Defense() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Badge variant="outline" className={`text-[10px] flex items-center gap-1 ${b.blockedBy === "auto" ? "border-cyan-500/50 text-cyan-400 bg-cyan-500/10" : "border-slate-500/50 text-slate-400 bg-slate-500/10"}`}>
-                        {b.blockedBy.startsWith("fail2ban:") ? (
-                          <><Shield className="w-2.5 h-2.5" />FAIL2BAN</>
-                        ) : b.blockedBy === "auto" ? (
-                          <><Bot className="w-2.5 h-2.5" />AUTO</>
-                        ) : (
-                          <><UserCheck className="w-2.5 h-2.5" />MANUAL</>
-                        )}
-                      </Badge>
+                      {/* ── Ban-source badge: 4 distinct types ── */}
+                      {b.blockedBy.startsWith("fail2ban:") ? (
+                        <Badge variant="outline" className="text-[10px] flex items-center gap-1 border-green-500/50 text-green-400 bg-green-500/10">
+                          <Shield className="w-2.5 h-2.5" />
+                          Fail2ban · {b.blockedBy.slice("fail2ban:".length)}
+                        </Badge>
+                      ) : b.blockedBy === "auto" ? (
+                        <Badge variant="outline" className="text-[10px] flex items-center gap-1 border-cyan-500/50 text-cyan-400 bg-cyan-500/10">
+                          <Bot className="w-2.5 h-2.5" />
+                          Auto Defense Rule
+                        </Badge>
+                      ) : b.blockedBy === "firewall" ? (
+                        <Badge variant="outline" className="text-[10px] flex items-center gap-1 border-purple-500/50 text-purple-400 bg-purple-500/10">
+                          <Flame className="w-2.5 h-2.5" />
+                          Firewall Rule
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-[10px] flex items-center gap-1 border-amber-500/50 text-amber-400 bg-amber-500/10">
+                          <UserCheck className="w-2.5 h-2.5" />
+                          Admin Manual
+                        </Badge>
+                      )}
                       <Button
                         size="sm"
                         variant="outline"
@@ -579,8 +592,17 @@ export default function Defense() {
                     </div>
                   </div>
                   {/* Unblock commands preview */}
-                  <div className="border-t border-green-500/10 bg-green-950/20 px-3 py-2 space-y-1">
-                    <p className="text-[9px] uppercase tracking-widest text-green-400/60 mb-1.5">Unblock will run:</p>
+                  <div className="border-t border-border/30 bg-muted/20 px-3 py-2 space-y-1">
+                    <p className="text-[9px] uppercase tracking-widest text-muted-foreground mb-1.5">
+                      Banned by:&nbsp;
+                      <span className="text-foreground/70">
+                        {b.blockedBy.startsWith("fail2ban:") ? `Fail2ban (jail: ${b.blockedBy.slice("fail2ban:".length)}) — VM iptables f2b chain`
+                         : b.blockedBy === "auto"     ? "Auto Defense Rule — AEGIS iptables INPUT + pfSense"
+                         : b.blockedBy === "firewall" ? "Firewall Rule — pfSense EasyRuleBlockHosts"
+                         : "Admin — AEGIS iptables INPUT + pfSense"}
+                      </span>
+                    </p>
+                    <p className="text-[9px] uppercase tracking-widest text-green-400/60 mb-1">Unblock will run:</p>
                     <pre className="font-mono text-[10px] text-green-300/70 whitespace-pre-wrap break-all leading-relaxed">
                       {b.blockedBy.startsWith("fail2ban:")
                         ? `[VM] fail2ban-client set ${b.blockedBy.slice("fail2ban:".length)} unbanip ${b.ip}`
