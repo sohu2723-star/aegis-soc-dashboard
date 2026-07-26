@@ -255,7 +255,7 @@ function RulesTab() {
                   <Select value={triggerSeverity} onValueChange={setTriggerSeverity}>
                     <SelectTrigger className="bg-background border-border text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {["any","critical","high","medium","low"].map(v => (
+                      {["critical","high","medium","low"].map(v => (
                         <SelectItem key={v} value={v}>{v}</SelectItem>
                       ))}
                     </SelectContent>
@@ -526,7 +526,7 @@ function FirewallTab() {
                       <SelectTrigger className="bg-background border-border text-xs"><SelectValue placeholder="any" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="">any</SelectItem>
-                        {["tcp","udp","icmp","all"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                        {["tcp","udp","icmp"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
