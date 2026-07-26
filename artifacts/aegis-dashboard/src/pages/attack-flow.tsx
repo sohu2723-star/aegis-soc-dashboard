@@ -168,6 +168,7 @@ interface LogEntry {
   id: string;
   eventId?: number;
   ts: string;
+  tsMs: number;          // epoch ms — used for 24 h auto-cleanup
   evType: string;
   severity: string;
   srcIp: string;
@@ -190,6 +191,8 @@ export default function AttackFlowPage() {
   const [tgToasts, setTgToasts]     = useState<{ id: string; sev: string; ts: string }[]>([]);
   // Dynamic attacker IP — updated live from incoming security_event sourceIp
   const [attackerIp, setAttackerIp] = useState<string>("* / any");
+  // Data flow diagram toggle
+  const [showDataFlow, setShowDataFlow] = useState(false);
 
   const rafRef      = useRef<number | null>(null);
   const prevNowRef  = useRef<number>(0);
@@ -210,6 +213,7 @@ export default function AttackFlowPage() {
           id: `event-${row.id}`,
           eventId: row.id,
           ts: row.createdAt,
+          tsMs: Date.parse(row.createdAt) || Date.now(),
           evType: row.type ?? "unknown",
           severity: row.severity ?? "medium",
           srcIp: row.sourceIp ?? "?",
@@ -310,6 +314,16 @@ export default function AttackFlowPage() {
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
   }, [animate]);
 
+  // ── 24 h auto-cleanup of log entries ─────────────────────────────────────
+  useEffect(() => {
+    const prune = () => {
+      const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+      setLog(prev => prev.filter(e => e.tsMs >= cutoff));
+    };
+    const timer = setInterval(prune, 5 * 60 * 1000); // every 5 min
+    return () => clearInterval(timer);
+  }, []);
+
   // ── SSE connection ───────────────────────────────────────────────────────
   useEffect(() => {
     let es: EventSource;
@@ -333,7 +347,7 @@ export default function AttackFlowPage() {
 
           const sev = ev.severity ?? "medium";
            setLog(prev => [{
-             id: pkt.id, eventId: ev.id, ts: now(),
+             id: pkt.id, eventId: ev.id, ts: now(), tsMs: Date.now(),
             evType: ev.type ?? "unknown",
             severity: sev,
             srcIp: ev.sourceIp ?? "?",
@@ -353,7 +367,7 @@ export default function AttackFlowPage() {
 
           if (ev.status !== "executed") {
             setLog(prev => [{
-              id: `defq-${ev.commandId ?? Date.now()}`, ts: now(),
+              id: `defq-${ev.commandId ?? Date.now()}`, ts: now(), tsMs: Date.now(),
               evType: ev.action ?? "defense_queued", severity: "info",
               srcIp: ev.targetIp ?? "?", target: ev.targetHost ?? ev.targetVm ?? "?",
               desc: `Defense queued${ev.ruleName ? ` by ${ev.ruleName}` : ""}`,
@@ -382,7 +396,7 @@ export default function AttackFlowPage() {
           setTimeout(() => setAlertNodes(prev => { const n = new Set(prev); n.delete("pfsense"); return n; }), 2000);
 
           setLog(prev => [{
-            id: `def-${Date.now()}`, ts: now(),
+            id: `def-${Date.now()}`, ts: now(), tsMs: Date.now(),
             evType: ev.action ?? "block",
             severity: "info",
             srcIp: ev.targetIp ?? "?",
@@ -406,7 +420,7 @@ export default function AttackFlowPage() {
             setStats(s => ({ ...s, blocked: s.blocked + 1 }));
           }
           setLog(prev => [{
-            id: `defr-${ev.commandId ?? Date.now()}`, ts: ev.timestamp ?? now(),
+            id: `defr-${ev.commandId ?? Date.now()}`, ts: ev.timestamp ?? now(), tsMs: Date.now(),
             evType: executed ? "defense_executed" : "defense_failed",
             severity: executed ? "info" : "high", srcIp: ev.targetIp ?? "?",
             target: ev.commandType ?? "?",
@@ -436,7 +450,7 @@ export default function AttackFlowPage() {
               return next;
             }
             return [{
-              id: toastId, ts: now(),
+              id: toastId, ts: now(), tsMs: Date.now(),
               evType: "telegram_alert",
               severity: sev,
               srcIp: "AEGIS", target: "Telegram",
@@ -850,16 +864,39 @@ export default function AttackFlowPage() {
         </div>
       </div>
 
-      {/* ── Event log panel ──────────────────────────────────────────────── */}
+      {/* ── Right panel: Live Feed / Data Flow tabs ──────────────────────── */}
       <div className="w-72 shrink-0 border-l border-border flex flex-col bg-card/30">
-        <div className="px-3 py-2.5 border-b border-border flex items-center justify-between shrink-0">
-          <span className="text-[11px] font-mono font-bold text-primary tracking-widest uppercase">
-            Live Feed
-          </span>
-          <span className="text-[9px] font-mono text-muted-foreground">{log.length} events</span>
+
+        {/* Tab header */}
+        <div className="px-2 py-1.5 border-b border-border flex items-center gap-1 shrink-0">
+          <button
+            onClick={() => setShowDataFlow(false)}
+            className={`flex-1 text-[10px] font-mono font-bold py-1 px-2 rounded transition-colors ${
+              !showDataFlow
+                ? "bg-primary/20 text-primary border border-primary/30"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            ⚡ LIVE FEED
+          </button>
+          <button
+            onClick={() => setShowDataFlow(true)}
+            className={`flex-1 text-[10px] font-mono font-bold py-1 px-2 rounded transition-colors ${
+              showDataFlow
+                ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/30"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            🔄 DATA FLOW
+          </button>
+          {!showDataFlow && (
+            <span className="text-[9px] font-mono text-muted-foreground pl-1 shrink-0">{log.length}</span>
+          )}
         </div>
 
-        {log.length === 0 ? (
+        {showDataFlow ? (
+          <DataFlowDiagram />
+        ) : log.length === 0 ? (
           <div className="flex-1 flex items-center justify-center">
             <p className="text-[11px] font-mono text-muted-foreground text-center px-4">
               No events yet — monitoring active.
@@ -921,10 +958,11 @@ export default function AttackFlowPage() {
                         dns_attack:     "DNS Attack",
                         ldap_attack:    "LDAP Attack",
                         auth_event:     "Auth Event",
+                        api_attack:     "API Attack",
                       } as Record<string,string>)[e.evType] ?? e.evType.replace(/_/g," ").replace(/\b\w/g,(c:string)=>c.toUpperCase())}</span>
                   </div>
                   <div className="text-white/40 truncate">
-                    {e.srcIp} <span className="opacity-50">→</span> {e.target}
+                    <RdnsLabel ip={e.srcIp} /> <span className="opacity-50">→</span> {e.target}
                   </div>
                   {e.ruleName && (
                     <div className="text-[9px] font-bold truncate" style={{ color: "#4ade80" }}>
@@ -942,6 +980,204 @@ export default function AttackFlowPage() {
             })}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ── Reverse DNS label — fetches PTR record and shows hostname ─────────────────
+const _rdnsMem = new Map<string, string>();
+
+function RdnsLabel({ ip }: { ip: string }) {
+  const [hostname, setHostname] = useState<string>(() => _rdnsMem.get(ip) ?? "");
+  useEffect(() => {
+    if (!ip || ip === "?" || ip === "AEGIS" || ip === "aegis") return;
+    if (_rdnsMem.has(ip)) { setHostname(_rdnsMem.get(ip)!); return; }
+    fetch(`${BASE}/api/rdns/${encodeURIComponent(ip)}`)
+      .then(r => r.json())
+      .then((d: { hostname: string }) => {
+        const h = d.hostname && d.hostname !== ip ? d.hostname : "";
+        _rdnsMem.set(ip, h);
+        setHostname(h);
+      })
+      .catch(() => { _rdnsMem.set(ip, ""); });
+  }, [ip]);
+
+  return (
+    <span className="font-mono text-cyan-400" title={hostname ? `${hostname} (${ip})` : ip}>
+      {hostname || ip}
+    </span>
+  );
+}
+
+// ── Data Flow Diagram — explains the full sensor → dashboard pipeline ─────────
+// Steps: VM Sensor → Forwarder → API Server → PostgreSQL → SSE Stream → Dashboard
+
+const FLOW_STEPS = [
+  {
+    icon: "🖥",
+    title: "VM Sensor",
+    color: "#22c55e",
+    lines: ["fail2ban", "ssh watcher", "BIND9 / slapd"],
+    desc: "Company VMs တွင် log တွေကို real-time monitor လုပ်သည်",
+  },
+  {
+    icon: "⬡",
+    title: "Forwarder Hub",
+    color: "#06b6d4",
+    lines: ["SSH agent", "10.30.30.10", "log tailer"],
+    desc: "VM log တွေကို SSH မှတဆင့် ဖတ်ပြီး API သို့ POST လုပ်သည်",
+  },
+  {
+    icon: "⚡",
+    title: "API Server",
+    color: "#818cf8",
+    lines: ["Express 5", "Node.js 20", "/ingest/*"],
+    desc: "Event validate + DB save + auto-defense rule evaluate",
+  },
+  {
+    icon: "🗄",
+    title: "PostgreSQL",
+    color: "#f59e0b",
+    lines: ["Supabase", "Drizzle ORM", "security_events"],
+    desc: "Event persistence — query, filter, 24h report မှ ဖတ်သည်",
+  },
+  {
+    icon: "📡",
+    title: "SSE Stream",
+    color: "#a78bfa",
+    lines: ["/api/events", "/stream", "text/event-stream"],
+    desc: "DB save ပြီးနောက် broadcaster မှတဆင့် dashboard ကို push",
+  },
+  {
+    icon: "📊",
+    title: "Dashboard",
+    color: "#06b6d4",
+    lines: ["React + Vite", "EventSource", "Threat Map"],
+    desc: "SSE event receive → packet animation → live feed update",
+  },
+] as const;
+
+function DataFlowDiagram() {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setTick(v => (v + 1) % (FLOW_STEPS.length * 18)), 120);
+    return () => clearInterval(t);
+  }, []);
+
+  // animated dot: which step it's currently inside and its progress 0–1
+  const dotsPerStep = 18;
+  const stepIdx  = Math.floor(tick / dotsPerStep);
+  const progress = (tick % dotsPerStep) / dotsPerStep;
+
+  return (
+    <div className="flex-1 overflow-y-auto p-3 space-y-0">
+      {/* Title */}
+      <div className="text-center mb-3">
+        <p className="text-[10px] font-mono font-bold text-cyan-400 tracking-widest uppercase">
+          Attack → Detection → Alert
+        </p>
+        <p className="text-[9px] text-muted-foreground mt-0.5">
+          Data flow ဆင့်ဆင့် — animated
+        </p>
+      </div>
+
+      {FLOW_STEPS.map((step, i) => {
+        const isActive  = stepIdx === i;
+        const isDone    = stepIdx > i;
+        const dotX      = isActive ? `${Math.round(progress * 100)}%` : isDone ? "100%" : "0%";
+        return (
+          <div key={step.title}>
+            {/* Step card */}
+            <div
+              className="rounded-lg p-2.5 border transition-all duration-300"
+              style={{
+                borderColor: isActive ? step.color : "rgba(255,255,255,0.08)",
+                background:  isActive ? `${step.color}12` : "rgba(255,255,255,0.02)",
+                boxShadow:   isActive ? `0 0 10px ${step.color}30` : "none",
+              }}
+            >
+              <div className="flex items-start gap-2">
+                <span className="text-base shrink-0 mt-0.5">{step.icon}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <span
+                      className="text-[10px] font-mono font-bold"
+                      style={{ color: isActive ? step.color : "rgba(255,255,255,0.5)" }}
+                    >
+                      {step.title}
+                    </span>
+                    {isActive && (
+                      <span
+                        className="text-[8px] px-1 rounded font-bold animate-pulse"
+                        style={{ background: `${step.color}25`, color: step.color, border: `1px solid ${step.color}40` }}
+                      >
+                        ACTIVE
+                      </span>
+                    )}
+                    {isDone && (
+                      <span className="text-[8px] text-green-400">✓</span>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-1 mb-1.5">
+                    {step.lines.map(l => (
+                      <span
+                        key={l}
+                        className="text-[8px] px-1 rounded font-mono"
+                        style={{
+                          background: "rgba(255,255,255,0.06)",
+                          color: "rgba(255,255,255,0.45)",
+                          border: "1px solid rgba(255,255,255,0.1)",
+                        }}
+                      >
+                        {l}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="text-[9px] text-muted-foreground/70 leading-relaxed">{step.desc}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Arrow / animated connector between steps */}
+            {i < FLOW_STEPS.length - 1 && (
+              <div className="relative mx-4 my-1 h-4 flex items-center">
+                {/* Track */}
+                <div className="w-full h-px" style={{ background: "rgba(255,255,255,0.07)" }} />
+                {/* Animated dot */}
+                {isActive && (
+                  <div
+                    className="absolute top-1/2 -translate-y-1/2 w-2 h-2 rounded-full transition-none"
+                    style={{
+                      left: dotX,
+                      background: step.color,
+                      boxShadow: `0 0 6px ${step.color}`,
+                    }}
+                  />
+                )}
+                {/* Arrow head */}
+                <span className="absolute right-0 text-[10px]" style={{ color: "rgba(255,255,255,0.2)", lineHeight: 1 }}>▶</span>
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {/* Severity legend */}
+      <div className="mt-4 pt-3 border-t border-border/50">
+        <p className="text-[9px] font-mono text-muted-foreground/60 mb-2 uppercase tracking-widest">Severity → Alert threshold</p>
+        {[
+          { sev: "Critical", col: "#ef4444", desc: "Telegram + DB + active alert" },
+          { sev: "High",     col: "#f97316", desc: "Telegram + DB + active alert" },
+          { sev: "Medium",   col: "#f59e0b", desc: "DB + active alert (no Telegram)" },
+          { sev: "Low",      col: "#22c55e", desc: "DB only — event log မြင်ရသည်" },
+        ].map(s => (
+          <div key={s.sev} className="flex items-center gap-2 py-0.5">
+            <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: s.col }} />
+            <span className="text-[9px] font-mono shrink-0" style={{ color: s.col, width: 44 }}>{s.sev}</span>
+            <span className="text-[8.5px] text-muted-foreground/50 truncate">{s.desc}</span>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -1118,6 +1354,7 @@ function toLogEntry(entry: StoredLiveFeedEntry): LogEntry {
     id: entry.id,
     eventId: entry.eventId,
     ts: new Date(entry.createdAt).toLocaleTimeString("en-US", { hour12: false }),
+    tsMs: Date.parse(entry.createdAt) || Date.now(),
     evType: entry.evType,
     severity: entry.severity,
     srcIp: entry.srcIp,

@@ -1,4 +1,5 @@
 import { Router } from "express";
+import dns from "node:dns/promises";
 import { db, networkHostsTable } from "@workspace/db";
 import { securityEventsTable, systemStatusTable } from "@workspace/db";
 import { eq, desc, or, lt, and, gte, asc } from "drizzle-orm";
@@ -320,6 +321,31 @@ router.get("/network/traffic", async (_req, res) => {
   }
 
   res.json(Object.values(buckets));
+});
+
+// ── Reverse DNS lookup with 10-min cache ──────────────────────────────────────
+const _rdnsCache = new Map<string, { hostname: string; ts: number }>();
+const RDNS_TTL_MS = 10 * 60 * 1000;
+
+router.get("/rdns/:ip", async (req, res) => {
+  const ip = req.params.ip?.trim();
+  if (!ip) { res.status(400).json({ error: "ip required" }); return; }
+
+  const cached = _rdnsCache.get(ip);
+  if (cached && Date.now() - cached.ts < RDNS_TTL_MS) {
+    res.json({ ip, hostname: cached.hostname });
+    return;
+  }
+
+  try {
+    const [hostname] = await dns.reverse(ip);
+    _rdnsCache.set(ip, { hostname, ts: Date.now() });
+    res.json({ ip, hostname });
+  } catch {
+    // No PTR record — return ip as hostname
+    _rdnsCache.set(ip, { hostname: ip, ts: Date.now() });
+    res.json({ ip, hostname: ip });
+  }
 });
 
 export default router;

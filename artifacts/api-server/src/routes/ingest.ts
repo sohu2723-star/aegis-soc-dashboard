@@ -41,9 +41,39 @@ if (!INGEST_KEY) {
   );
 }
 
+// ── Aegis API brute-force detection ──────────────────────────────────────────
+// Track consecutive invalid X-AEGIS-Key attempts per source IP.
+// After AUTH_ALERT_THRESHOLD failures in AUTH_WINDOW_MS, fire an API attack alert.
+const _apiAuthFailures = new Map<string, { count: number; firstSeen: number }>();
+const AUTH_ALERT_THRESHOLD = 5;
+const AUTH_WINDOW_MS       = 5 * 60 * 1000; // 5 min
+
 function auth(req: any, res: any, next: any) {
   const key = req.headers["x-aegis-key"];
   if (!key || key !== INGEST_KEY) {
+    const ip =
+      (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim() ??
+      req.socket?.remoteAddress ??
+      "unknown";
+    const now = Date.now();
+    const rec = _apiAuthFailures.get(ip) ?? { count: 0, firstSeen: now };
+    if (now - rec.firstSeen > AUTH_WINDOW_MS) { rec.count = 0; rec.firstSeen = now; }
+    rec.count++;
+    _apiAuthFailures.set(ip, rec);
+
+    if (rec.count === AUTH_ALERT_THRESHOLD) {
+      // Fire async — do not block the 401 response
+      setImmediate(() => {
+        insertEvent({
+          type: "api_attack", subtype: "API Key Brute Force", severity: "high",
+          sourceIp: ip, targetHost: "aegis-api-server",
+          toolUsed: "http",
+          description: `AEGIS API brute force: ${ip} — ${rec.count} invalid X-AEGIS-Key attempts in ${Math.round(AUTH_WINDOW_MS / 60000)} min window`,
+          status: "detected", layer: "perimeter",
+        }).catch(() => {});
+      });
+    }
+
     res.status(401).json({ error: "Invalid or missing X-AEGIS-Key header" });
     return;
   }
