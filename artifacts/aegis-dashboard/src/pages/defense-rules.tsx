@@ -501,7 +501,7 @@ function FirewallTab() {
                     <Select value={chain} onValueChange={setChain}>
                       <SelectTrigger className="bg-background border-border text-xs"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        {["INPUT","OUTPUT","FORWARD"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                        {["INPUT","OUTPUT"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
@@ -510,7 +510,7 @@ function FirewallTab() {
                     <Select value={action} onValueChange={setAction}>
                       <SelectTrigger className="bg-background border-border text-xs"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        {["DROP","ACCEPT","REJECT","LOG"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                        {["DROP","ACCEPT","LOG"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
