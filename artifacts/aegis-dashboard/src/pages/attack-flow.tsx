@@ -196,8 +196,10 @@ export default function AttackFlowPage() {
   // Increments each time a real SSE security_event arrives — drives DataFlowDiagram
   const [lastEventTs, setLastEventTs] = useState(0);
 
-  const rafRef      = useRef<number | null>(null);
-  const prevNowRef  = useRef<number>(0);
+  const rafRef           = useRef<number | null>(null);
+  const prevNowRef       = useRef<number>(0);
+  const audioCtxRef      = useRef<AudioContext | null>(null);
+  const prevPktSegsRef   = useRef<Map<string, number>>(new Map());
 
   // The database is authoritative. Hydrate recent events so changing browser,
   // clearing localStorage, or opening the map after an SSE disconnect does not
@@ -237,6 +239,68 @@ export default function AttackFlowPage() {
       .catch(() => { /* SSE and local cache remain available during API downtime */ });
     return () => { cancelled = true; };
   }, []);
+
+  // ── Audio: play a short tone when a packet arrives at a node ────────────
+  const playNodeSound = useCallback((nodeKey: NodeKey, severity: string, evType: string, isTg?: boolean) => {
+    try {
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      }
+      const ctx = audioCtxRef.current;
+      if (ctx.state === "suspended") ctx.resume();
+
+      // Frequency by attack type — each service has its own tone
+      let freq = 480;
+      if (isTg)                              freq = 880;  // Telegram: high chirp
+      else if (evType.includes("ssh"))       freq = 330;  // SSH: low
+      else if (evType.includes("web"))       freq = 550;  // Web: mid
+      else if (evType.includes("dns"))       freq = 440;  // DNS: A4
+      else if (evType.includes("db"))        freq = 220;  // DB: deep
+      else if (evType.includes("ldap"))      freq = 380;  // LDAP: low-mid
+      else if (evType.includes("ddos") || evType.includes("port")) freq = 260;
+
+      // Volume by severity
+      const vol = severity === "critical" ? 0.18 : severity === "high" ? 0.12 : 0.07;
+
+      const osc  = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = freq;
+      osc.type = "sine";
+      gain.gain.setValueAtTime(vol, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.22);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.22);
+    } catch { /* AudioContext not available */ }
+  }, []);
+
+  // ── Detect node arrivals: compare packet segment against previous render ──
+  useEffect(() => {
+    const prev = prevPktSegsRef.current;
+    for (const p of packets) {
+      if (p.blocked || p.isTg === true) continue;
+      const prevSeg = prev.get(p.id);
+      if (prevSeg !== undefined && p.seg > prevSeg) {
+        // Packet advanced — it just arrived at p.path[p.seg]
+        const arrivedAt = p.path[p.seg];
+        if (arrivedAt) playNodeSound(arrivedAt, p.severity, p.evType, p.isTg);
+      }
+      prev.set(p.id, p.seg);
+    }
+    // Telegram packets: play sound when they reach telegram node
+    for (const p of packets) {
+      if (!p.isTg) continue;
+      const prevSeg = prev.get(p.id);
+      if (prevSeg !== undefined && p.seg > prevSeg && p.path[p.seg] === "telegram") {
+        playNodeSound("telegram", p.severity, "telegram", true);
+      }
+      prev.set(p.id, p.seg);
+    }
+    // Prune removed packets
+    const liveIds = new Set(packets.map(p => p.id));
+    for (const id of prev.keys()) if (!liveIds.has(id)) prev.delete(id);
+  }, [packets, playNodeSound]);
 
   const addPacket = useCallback((ev: {
     id?: string;

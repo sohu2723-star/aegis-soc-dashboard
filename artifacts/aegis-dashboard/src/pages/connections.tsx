@@ -118,7 +118,7 @@ function RuleBadge({ rule }: { rule: string | null }) {
 type TabId = "ssh" | "http" | "db" | "dns" | "ldap";
 const TABS: { id: TabId; label: string; icon: React.ReactNode; host: string }[] = [
   { id: "ssh",  label: "SSH Sessions",  icon: <Terminal  className="w-3.5 h-3.5" />, host: "All VMs · /var/log/auth.log" },
-  { id: "http", label: "HTTP Attacks",  icon: <Globe     className="w-3.5 h-3.5" />, host: "company-web-server · modsec_audit.log" },
+  { id: "http", label: "Web Attacks",   icon: <Globe     className="w-3.5 h-3.5" />, host: "company-web-server · modsec_audit.log / Suricata" },
   { id: "db",   label: "DB Attacks",    icon: <Database  className="w-3.5 h-3.5" />, host: "company-customer-db (10.20.20.10:3306) · /var/log/mysql/error.log" },
   { id: "dns",  label: "DNS Attacks",   icon: <Server    className="w-3.5 h-3.5" />, host: "company-dns-server (10.10.10.20:53) · /var/log/named/named.log" },
   { id: "ldap", label: "LDAP Attacks",  icon: <Shield    className="w-3.5 h-3.5" />, host: "company-ldap-server (10.20.20.20:389) · /var/log/syslog (slapd)" },
@@ -210,10 +210,10 @@ function HttpTab({ selectedIp }: { selectedIp: string | null }) {
       </TableHeader>
       <TableBody>
         {isLoading ? (
-          <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Loading HTTP attacks…</TableCell></TableRow>
+          <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Loading web attacks…</TableCell></TableRow>
         ) : data.length === 0 ? (
           <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-            {selectedIp ? `No HTTP attacks from ${selectedIp}.` : "No HTTP attacks recorded yet."}
+            {selectedIp ? `No web attacks from ${selectedIp}.` : "No web attacks recorded yet."}
           </TableCell></TableRow>
         ) : data.map(a => (
           <TableRow key={a.id} className={`border-border hover:bg-muted/10 ${a.blocked ? "bg-green-950/10" : ""}`}>

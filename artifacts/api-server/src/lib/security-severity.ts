@@ -7,19 +7,22 @@
  */
 export type SecuritySeverity = "critical" | "high" | "medium" | "low";
 
+// Only explicit "unknown" labels from sensors trigger the critical override.
+// Empty / null subtypes mean the sensor simply didn't supply a label — that
+// is NOT the same as the sensor saying "I don't know what this is", so we
+// do not force critical for absent values.
 const UNKNOWN_ATTACK_VALUES = new Set([
-  "",
   "unknown",
-  "unknown attack",
   "unclassified",
   "unspecified",
-  "other",
   "n/a",
   "na",
 ]);
 
 export function isUnknownAttack(value: unknown): boolean {
-  return UNKNOWN_ATTACK_VALUES.has(String(value ?? "").trim().toLowerCase());
+  const s = String(value ?? "").trim().toLowerCase();
+  // Empty string = field absent — not an explicit "unknown" label
+  return s !== "" && UNKNOWN_ATTACK_VALUES.has(s);
 }
 
 function mappedSeverity(value: unknown): SecuritySeverity {

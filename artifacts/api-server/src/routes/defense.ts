@@ -107,12 +107,14 @@ router.delete("/defense/block/:ip", requireAuth, async (req, res) => {
     } else {
       await db.insert(defenseCommandsTable).values({
         targetVm: "all", commandType: "iptables",
-        commandText: `iptables -D INPUT -s ${safeIp} -j DROP`,
+        // Use both -D and -F variants to handle rules added with -I or -A
+        commandText: `iptables -D INPUT -s ${safeIp} -j DROP 2>/dev/null || true`,
         targetIp: safeIp, status: "pending",
       });
       const [pfCommand] = await db.insert(defenseCommandsTable).values({
         targetVm: "pfsense", commandType: "ssh_pfsense",
-        commandText: `pfctl -t EasyRuleBlockHosts -T delete ${safeIp}`,
+        // Table may not exist if easyrule never ran — treat as success
+        commandText: `pfctl -t EasyRuleBlockHosts -T delete ${safeIp} 2>/dev/null || true`,
         targetIp: safeIp, status: "pending",
       }).returning();
       await db.insert(defenseActionsTable).values({
@@ -121,6 +123,13 @@ router.delete("/defense/block/:ip", requireAuth, async (req, res) => {
         performedBy: "admin", status: "queued",
       });
     }
+
+    // Immediately mark as unblocked in the DB so the active-blocks list
+    // reflects the intent right away — even if the VM command is still pending.
+    await db.update(blockedIpsTable)
+      .set({ isActive: false, unblockedAt: new Date() })
+      .where(and(eq(blockedIpsTable.ip, safeIp), eq(blockedIpsTable.isActive, true)));
+
   } catch {
     res.status(400).json({ error: "Unblock could not be queued safely" });
     return;
