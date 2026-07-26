@@ -444,66 +444,131 @@ router.post("/ai/recommend-rules", async (_req, res) => {
 
     const [recentEvents, currentRules] = await Promise.all([
       db.select({
-        type: securityEventsTable.type,
-        subtype: securityEventsTable.subtype,
-        severity: securityEventsTable.severity,
-        sourceIp: securityEventsTable.sourceIp,
-        targetHost: securityEventsTable.targetHost,
-        toolUsed: securityEventsTable.toolUsed,
+        type:        securityEventsTable.type,
+        subtype:     securityEventsTable.subtype,
+        severity:    securityEventsTable.severity,
+        sourceIp:    securityEventsTable.sourceIp,
+        targetHost:  securityEventsTable.targetHost,
+        toolUsed:    securityEventsTable.toolUsed,
+        description: securityEventsTable.description,
       })
         .from(securityEventsTable)
         .where(gte(securityEventsTable.createdAt, since24h))
         .orderBy(desc(securityEventsTable.createdAt))
-        .limit(300),
+        .limit(400),
       db.select({
-        name: sql<string>`name`,
+        name:             sql<string>`name`,
         triggerAttackType: sql<string>`trigger_attack_type`,
-        isActive: sql<boolean>`is_active`,
-        actionType: sql<string>`action_type`,
-        defenseType: sql<string>`defense_type`,
+        defenseType:      sql<string>`defense_type`,
+        targetVm:         sql<string>`target_vm`,
+        isActive:         sql<boolean>`is_active`,
       }).from(sql`defense_rules`),
     ]);
 
-    // Aggregate attack patterns
-    const byType: Record<string, number> = {};
-    const bySeverity: Record<string, number> = {};
-    const byTarget: Record<string, number> = {};
+    // ── Aggregate attack patterns ───────────────────────────────────────────
+    const byType:    Record<string, number> = {};
+    const bySubtype: Record<string, number> = {};
+    const bySeverity:Record<string, number> = {};
+    const byTarget:  Record<string, number> = {};
+    const byTool:    Record<string, number> = {};
+    // Per-IP: { ip → { type → count } }
+    const ipAttackMap: Record<string, Record<string, number>> = {};
+    // Per-IP target set
+    const ipTargetMap: Record<string, Set<string>> = {};
+
     for (const e of recentEvents) {
-      byType[e.type] = (byType[e.type] ?? 0) + 1;
+      byType[e.type]       = (byType[e.type]       ?? 0) + 1;
+      bySubtype[e.subtype] = (bySubtype[e.subtype] ?? 0) + 1;
       bySeverity[e.severity] = (bySeverity[e.severity] ?? 0) + 1;
       byTarget[e.targetHost] = (byTarget[e.targetHost] ?? 0) + 1;
+      if (e.toolUsed) byTool[e.toolUsed] = (byTool[e.toolUsed] ?? 0) + 1;
+
+      if (!ipAttackMap[e.sourceIp]) ipAttackMap[e.sourceIp] = {};
+      ipAttackMap[e.sourceIp][e.type] = (ipAttackMap[e.sourceIp][e.type] ?? 0) + 1;
+
+      if (!ipTargetMap[e.sourceIp]) ipTargetMap[e.sourceIp] = new Set();
+      ipTargetMap[e.sourceIp].add(e.targetHost);
     }
 
-    const activeRuleNames = currentRules.filter(r => r.isActive).map(r => r.name).join(", ") || "none";
-    const attackSummary = Object.entries(byType).sort(([,a],[,b])=>b-a).map(([t,n])=>`${t}: ${n}`).join(", ") || "none";
-    const severityBreakdown = Object.entries(bySeverity).map(([s,n])=>`${s}: ${n}`).join(", ");
-    const topTargets = Object.entries(byTarget).sort(([,a],[,b])=>b-a).slice(0,3).map(([h,n])=>`${h}(${n})`).join(", ");
+    const topAttackerEntries = Object.entries(ipAttackMap)
+      .map(([ip, types]) => ({ ip, total: Object.values(types).reduce((a,b)=>a+b,0), types }))
+      .sort((a,b) => b.total - a.total)
+      .slice(0, 8);
+
+    const attackerDetail = topAttackerEntries.map(({ ip, total, types }) => {
+      const typeStr   = Object.entries(types).sort(([,a],[,b])=>b-a).map(([t,n])=>`${t}(${n})`).join("+");
+      const targetStr = [...(ipTargetMap[ip] ?? [])].slice(0, 3).join(", ");
+      return `  ${ip}: ${total} events [${typeStr}] → targets: ${targetStr}`;
+    }).join("\n") || "  (no attacker IPs)";
+
+    const attackSummary   = Object.entries(byType).sort(([,a],[,b])=>b-a).map(([t,n])=>`${t}:${n}`).join(", ") || "none";
+    const subtypeSummary  = Object.entries(bySubtype).sort(([,a],[,b])=>b-a).slice(0,10).map(([t,n])=>`${t}:${n}`).join(", ") || "none";
+    const severityBreakdown = Object.entries(bySeverity).map(([s,n])=>`${s}:${n}`).join(", ");
+    const topTargets      = Object.entries(byTarget).sort(([,a],[,b])=>b-a).slice(0,5).map(([h,n])=>`${h}(${n})`).join(", ");
+    const topTools        = Object.entries(byTool).sort(([,a],[,b])=>b-a).slice(0,5).map(([t,n])=>`${t}(${n})`).join(", ") || "none";
+
+    // Sample recent event descriptions for context
+    const sampleDescs = recentEvents
+      .filter(e => e.description)
+      .slice(0, 15)
+      .map((e, i) => `  ${i+1}. [${e.type}/${e.subtype}] ${e.sourceIp}→${e.targetHost}: ${(e.description ?? "").slice(0, 100)}`)
+      .join("\n");
+
+    // What attack types already have active rules covering them
+    const coveredTypes = new Set(currentRules.filter(r => r.isActive).map(r => r.triggerAttackType));
+    const uncoveredTypes = Object.keys(byType).filter(t => !coveredTypes.has(t) && !coveredTypes.has("any"));
+    const activeRuleSummary = currentRules.filter(r => r.isActive)
+      .map(r => `${r.name} [${r.triggerAttackType} → ${r.defenseType} @ ${r.targetVm}]`).join(", ") || "none";
 
     const userPrompt = `
-လက်ရှိ attack pattern (နောက်ဆုံး 24 နာရီ):
-Attack types: ${attackSummary}
-Severity: ${severityBreakdown}
-Top targets: ${topTargets}
+AEGIS SOC — LIVE ATTACK DATA (last 24h), generated at ${new Date().toISOString()}
 Total events: ${recentEvents.length}
 
-လက်ရှိ active rules: ${activeRuleNames}
+ATTACK TYPE BREAKDOWN:
+${attackSummary}
 
-Valid values:
+SUBTYPE BREAKDOWN (specific attack methods):
+${subtypeSummary}
+
+SEVERITY: ${severityBreakdown}
+TOP TARGETED SERVERS: ${topTargets}
+TOOLS/METHODS USED: ${topTools}
+
+TOP ATTACKER IPs (with attack breakdown per IP):
+${attackerDetail}
+
+SAMPLE RECENT EVENT DESCRIPTIONS:
+${sampleDescs || "  (no events)"}
+
+EXISTING ACTIVE RULES (DO NOT duplicate these):
+${activeRuleSummary}
+
+GAPS — attack types with NO active rule yet:
+${uncoveredTypes.length > 0 ? uncoveredTypes.join(", ") : "all major types covered"}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TASK: Analyze the actual attack data above and recommend 4-6 defense rules that:
+1. Target the REAL attack types/subtypes actually seen in the data above
+2. Prioritize uncovered gaps first
+3. Are specific to which server is being attacked (use the top targeted servers)
+4. Reference actual attacker IPs or tools where relevant in reasoning
+5. DO NOT repeat existing active rules
+
+Valid field values:
 - triggerAttackType: ssh_brute | web_attack | ddos | port_scan | mitm | dns_attack | db_attack | ldap_brute | ldap_enum | any
 - triggerSeverity: any | medium | high | critical
 - actionType: auto | suggest
 - defenseType: block_ip | null_route | rate_limit | port_block | pfsense_block | alert_only
-- targetVm: company-web-server | company-customer-db | company-dns-server | company-ldap-server | aegis | pfsense | all  (ubuntu မသုံးရ — ဤ values များသာ ခွင့်ပြုသည်)
+- targetVm: company-web-server | company-customer-db | company-dns-server | company-ldap-server | pfsense | all
 
-Attack data ကို ကြည့်ပြီး defense rules 3-5 ခု recommend ပေးပါ။
-တစ်ခုချင်းစီကို ဒီ JSON format အတိုင်း ဖော်ပြပါ:
+Return ONLY valid JSON, no extra text:
 
 {
   "recommendations": [
     {
-      "name": "rule name",
-      "description": "Burmese description of what this rule does",
-      "reasoning": "Burmese explanation of WHY this rule is needed based on attack data",
+      "name": "short rule name",
+      "description": "what this rule does (English)",
+      "reasoning": "why this rule — reference specific attack data seen above",
       "triggerAttackType": "...",
       "triggerSeverity": "...",
       "triggerThreshold": 3,
@@ -515,11 +580,14 @@ Attack data ကို ကြည့်ပြီး defense rules 3-5 ခု recom
     }
   ]
 }
-
-JSON ONLY ပြန်ပါ — ရှင်းလင်းချက် plain text မထည့်ပါနှင့်
 `.trim();
 
-    const raw = await askGroq({ system: SOC_SYSTEM, user: userPrompt, maxTokens: 2000 });
+    const raw = await askGroq({
+      system: SOC_SYSTEM,
+      user: userPrompt,
+      maxTokens: 2500,
+      temperature: 0.7,  // higher variety — rules change with each call
+    });
 
     // Extract JSON — handle plain JSON, ```json blocks, or ```  blocks
     let jsonStr: string | null = null;
