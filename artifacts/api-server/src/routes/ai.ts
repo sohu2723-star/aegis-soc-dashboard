@@ -372,15 +372,37 @@ router.get("/ai/analyze-event/:id", async (req, res) => {
     const ipHistory = await db.select({ count: count() }).from(securityEventsTable)
       .where(eq(securityEventsTable.sourceIp, event.sourceIp));
 
+    // Type-specific context block — gives the AI the right service knowledge
+    const typeContext: Record<string, string> = {
+      web_attack:     "Service: Apache/ModSecurity on company-web-server (10.10.10.10). Tools: sqlmap, nikto, burpsuite, gobuster. Relevant logs: /var/log/apache2/modsec_audit.log, /var/log/apache2/access.log. Defenses: ModSecurity rules, Fail2ban apache-auth jail, pfSense web block.",
+      ssh_brute:      "Service: OpenSSH on the target VM. Tools: hydra, medusa, ncrack, Metasploit ssh_login. Relevant logs: /var/log/auth.log. Defenses: Fail2ban sshd jail (ban after 5 failures), iptables -A INPUT -s <IP> -p tcp --dport 22 -j DROP.",
+      db_attack:      "Service: MySQL on company-customer-db (10.20.20.10:3306). Tools: sqlmap --dbms=mysql, hydra -s 3306 mysql, Metasploit mysql_login. Relevant logs: /var/log/mysql/error.log. Defenses: Fail2ban mysqld-auth jail, iptables port 3306 block, MySQL bind-address restriction.",
+      dns_attack:     "Service: BIND9 on company-dns-server (10.10.10.20:53). Tools: dnsenum, dig AXFR, dnsrecon, dnsspoof. Relevant logs: /var/log/named/named.log. Defenses: BIND9 allow-transfer ACL, disable recursion for external IPs, Fail2ban named jail.",
+      ldap_attack:    "Service: OpenLDAP slapd on company-ldap-server (10.20.20.20:389). Tools: ldapsearch, nmap --script ldap-*, Hydra LDAP module. Relevant logs: /var/log/syslog (slapd). Defenses: Fail2ban slapd jail, disable anonymous bind, restrict allowed IPs in slapd.conf.",
+      ldap_brute:     "Service: OpenLDAP slapd on company-ldap-server (10.20.20.20:389). Tools: Hydra LDAP module, ldapbrute. Relevant logs: /var/log/syslog (slapd err=49 invalid credentials). Defenses: Fail2ban slapd jail, account lockout policy, strong bind DN passwords.",
+      ddos:           "Service: Network layer — pfSense WAN interface / target VM. Tools: hping3, LOIC, Metasploit auxiliary/dos. Attack vectors: SYN flood, UDP flood, ICMP flood, HTTP flood. Defenses: pfSense traffic shaper, iptables -A INPUT -p tcp --syn -m limit --limit 1/s -j ACCEPT, Suricata threshold rules.",
+      port_scan:      "Reconnaissance phase — attacker mapping open ports before attack. Tools: nmap (-sS, -sV, -O, -A), masscan, zmap. Relevant logs: pfSense syslog, Suricata ET SCAN signatures. Defenses: pfSense block scan source IP, iptables recent module, Suricata drop rule for SID 2000537 (ET SCAN).",
+      mitm:           "Attack: ARP cache poisoning / MitM on LAN segment. Tools: arpspoof, ettercap, bettercap. Relevant logs: arpwatch, pfSense ARP table. Defenses: Enable Dynamic ARP Inspection (DAI) on switch, static ARP entries for gateway, arpwatch alert.",
+      network_attack: "General network/perimeter attack detected by Suricata or pfSense. Check signature details for specific attack vector. Defenses: review pfSense firewall rules, Suricata alert category, block source IP.",
+    };
+
+    const typeCtx = typeContext[event.type] ?? typeContext["network_attack"];
+
     const userPrompt = `Event #${event.id}: ${event.type}/${event.subtype} [${event.severity.toUpperCase()}]
 Source: ${event.sourceIp} → Target: ${event.targetHost}
 Tool: ${event.toolUsed ?? "unknown"} | ${event.description ?? ""}
+${event.signatureText ? `Signature/Rule: ${event.signatureText.slice(0, 200)}` : ""}
 ဒီ IP မှ event ${Number(ipHistory[0]?.count ?? 0)} ခု ရှိပြီ
 
-မြန်မာဘာသာဖြင့် 3-4 ကြောင်းသာ ဖြင့် ရေးပါ:
-(1) ဘာဖြစ်နေသလဲ (2) ဘာကြောင့် ဒီ severity (3) ချက်ချင်း လုပ်ရမည့် command 1 ခု — တိုတိုနဲ့ ထိထိမိမိ`.trim();
+Attack context: ${typeCtx}
 
-    const explanation = await askGroq({ system: SOC_SYSTEM, user: userPrompt, maxTokens: 800 });
+မြန်မာဘာသာဖြင့် 4 ကြောင်းဖြင့် ရေးပါ — section heading မပါ၊ paragraph တစ်ခုထဲ:
+(1) ဘာ attack ဖြစ်နေသလဲ — ဘာ service ကို ဘာ tool နဲ့ ထိနေသလဲ
+(2) ဘာကြောင့် ဒီ severity level — ဘာ risk ရှိသလဲ
+(3) ချက်ချင်း run ရမည့် command တိကျစွာ — IP, port, service name ပါပါစေ
+(4) နောက်ထပ် ဘာ log / indicator ကြည့်ရမလဲ`.trim();
+
+    const explanation = await askGroq({ system: SOC_SYSTEM, user: userPrompt, maxTokens: 900 });
     res.json({ id, explanation, generatedAt: new Date().toISOString() });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

@@ -99,6 +99,53 @@ function classifyWebSignature(signature: string, category: string): string | nul
   return null;
 }
 
+/**
+ * Classify a Suricata signature + category into a specific AEGIS event type.
+ * Returns a granular type so the dashboard can label attacks correctly instead
+ * of lumping everything under "network_attack".
+ */
+function classifyAttackTypeFromSuricata(signature: string, category: string): string {
+  const t = `${signature} ${category}`.toLowerCase();
+  // Web / application layer
+  if (t.includes("sql") || t.includes("sqli") || t.includes("xss") || t.includes("lfi") ||
+      t.includes("rfi") || t.includes("csrf") || t.includes("traversal") ||
+      t.includes("web application") || t.includes("http") || t.includes("php") ||
+      t.includes("wordpress") || t.includes("cgi") || t.includes("shellcode")) return "web_attack";
+  // SSH brute-force / credential stuffing
+  if (t.includes("ssh") || t.includes("brute force") || t.includes("bruteforce") ||
+      t.includes("credential")) return "ssh_brute";
+  // DNS
+  if (t.includes("dns") || t.includes("domain") || t.includes("resolver")) return "dns_attack";
+  // Database
+  if (t.includes("mysql") || t.includes("mssql") || t.includes("postgres") ||
+      t.includes("oracle") || t.includes("database") || t.includes("sql server")) return "db_attack";
+  // LDAP
+  if (t.includes("ldap") || t.includes("slapd") || t.includes("directory")) return "ldap_attack";
+  // DDoS / flood
+  if (t.includes("flood") || t.includes("dos") || t.includes("ddos") ||
+      t.includes("syn ") || t.includes("udp storm") || t.includes("icmp")) return "ddos";
+  // Port scan / reconnaissance
+  if (t.includes("scan") || t.includes("nmap") || t.includes("recon") ||
+      t.includes("probing") || t.includes("port sweep")) return "port_scan";
+  // MITM / ARP
+  if (t.includes("arp") || t.includes("mitm") || t.includes("spoofing") ||
+      t.includes("man-in-the-middle")) return "mitm";
+  // Default — genuine unclassified network/perimeter alert
+  return "network_attack";
+}
+
+/**
+ * Map a Fail2ban jail name to a specific AEGIS event type.
+ */
+function classifyFail2banType(jail: string): string {
+  const j = jail.toLowerCase();
+  if (j.includes("ssh") || j.includes("sshd")) return "ssh_brute";
+  if (j.includes("mysql") || j.includes("mariadb")) return "db_attack";
+  if (j.includes("ldap") || j.includes("slapd")) return "ldap_attack";
+  if (j.includes("apache") || j.includes("nginx") || j.includes("http") || j.includes("web")) return "web_attack";
+  return "network_attack";
+}
+
 async function insertEvent(values: typeof securityEventsTable.$inferInsert) {
   const [row] = await db.insert(securityEventsTable).values(values).returning();
   const [event] = await db.select().from(securityEventsTable).where(eq(securityEventsTable.id, row.id));
@@ -308,7 +355,7 @@ router.post("/ingest/suricata", auth, async (req, res) => {
   }
 
   const event = await insertEvent({
-    type: "network_attack",
+    type: classifyAttackTypeFromSuricata(subtype, alertCategory ?? ""),
     subtype,
     severity: s,
     sourceIp: src_ip ?? "unknown",
@@ -381,7 +428,7 @@ router.post("/ingest/fail2ban", auth, async (req, res) => {
       ].filter(Boolean).join("\n");
 
   const event = await insertEvent({
-    type:"network_attack", subtype, severity:"high",
+    type: classifyFail2banType(jailName), subtype, severity:"high",
     sourceIp: ip ?? "unknown",
     targetHost: target_ip ?? "company-web-server",
     toolUsed:"fail2ban", description:`Fail2ban banned ${ip} from [${jail ?? "sshd"}] after ${failures ?? "?"} failures. Auto-block applied.`,
@@ -454,7 +501,7 @@ router.post("/ingest/ssh", auth, async (req, res) => {
     if (failCount === 1 || failCount % 5 === 0) {
       const severity = failCount >= 5 ? "high" : "medium";
       const event = await insertEvent({
-        type:"network_attack", subtype:"SSH Brute Force",
+        type:"ssh_brute", subtype:"SSH Brute Force",
         severity,
         sourceIp: src_ip ?? "unknown", targetHost,
         toolUsed:"ssh",
@@ -595,7 +642,7 @@ router.post("/ingest/ddos", auth, async (req, res) => {
   const desc = `DDoS ${attack_vector ?? "flood"} from ${src_ip}: ${pps ?? "?"} pps / ${mbps ?? "?"}Mbps → ${target_ip ?? "target"}${target_port ? `:${target_port}` : ""}`;
 
   const event = await insertEvent({
-    type:"network_attack", subtype: attack_vector ? `DDoS ${attack_vector}` : "DDoS Flood",
+    type:"ddos", subtype: attack_vector ? `DDoS ${attack_vector}` : "DDoS Flood",
     severity: s, sourceIp: src_ip ?? "unknown",
     targetHost: target_ip ?? "internal-network",
     toolUsed:"hping3", description: desc,
@@ -746,7 +793,7 @@ router.post("/ingest/mitm", auth, async (req, res) => {
   const { src_ip, victim_ip, gateway_ip, attack_type, iface } = req.body;
 
   const event = await insertEvent({
-    type:"network_attack", subtype: attack_type ?? "ARP Spoofing", severity:"high",
+    type:"mitm", subtype: attack_type ?? "ARP Spoofing", severity:"high",
     sourceIp: src_ip ?? "unknown", targetHost: victim_ip ?? "lan-segment",
     toolUsed:"arpspoof",
     description:`MITM ${attack_type ?? "ARP spoof"} on ${iface ?? "eth0"}: ${src_ip} posing as gateway ${gateway_ip ?? "?"} to victim ${victim_ip ?? "?"}`,
@@ -765,17 +812,29 @@ router.post("/ingest/pfsense", auth, async (req, res) => {
 
   const isBlock = action === "block" || action === "reject";
   const subtype = action ? `pfSense ${action}` : "Unknown Attack";
+  // Classify pfSense events by destination port when available
+  const pfType = (() => {
+    if (!dest_port) return "network_attack";
+    const p = String(dest_port);
+    if (p === "22" || p === "2222") return "ssh_brute";
+    if (p === "80" || p === "443" || p === "8080" || p === "8443") return "web_attack";
+    if (p === "53") return "dns_attack";
+    if (p === "3306" || p === "5432" || p === "1433") return "db_attack";
+    if (p === "389" || p === "636") return "ldap_attack";
+    return "network_attack";
+  })();
+
   const s = sev(
     !action
       ? "critical"
       : isBlock && (dest_port === "22" || dest_port === "3389")
         ? "high"
         : "medium",
-    { type: "network_attack", subtype },
+    { type: pfType, subtype },
   );
 
   const event = await insertEvent({
-    type:"network_attack", subtype, severity: s,
+    type: pfType, subtype, severity: s,
     sourceIp: src_ip ?? "unknown", targetHost: dest_ip ?? "internal-network",
     toolUsed:"pfsense",
     description:`pfSense: ${action ?? "log"} | ${proto ?? "TCP"} | ${src_ip}:${src_port ?? "?"} → ${dest_ip}:${dest_port ?? "?"} | Rule:${rule_number ?? "N/A"} | ${message ?? ""}`,

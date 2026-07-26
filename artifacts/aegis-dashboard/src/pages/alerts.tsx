@@ -107,7 +107,7 @@ export default function Alerts() {
               Scoped to: {selectedDevice.hostname} ({selectedDevice.ip})
             </p>
           ) : (
-            <p className="text-sm text-muted-foreground">Real-time notifications from real lab devices requiring immediate attention.</p>
+            <p className="text-sm text-muted-foreground">Real-time notifications from monitored devices requiring immediate attention.</p>
           )}
         </div>
         {/* Filter toggle */}

@@ -957,9 +957,15 @@ export default function AttackFlowPage() {
                     <span className="text-white/75 truncate">{({
                         network_attack: "Network Attack",
                         web_attack:     "Web Attack",
+                        ssh_brute:      "SSH Brute Force",
                         db_attack:      "DB Attack",
                         dns_attack:     "DNS Attack",
                         ldap_attack:    "LDAP Attack",
+                        ldap_brute:     "LDAP Brute Force",
+                        ldap_enum:      "LDAP Enumeration",
+                        ddos:           "DDoS",
+                        port_scan:      "Port Scan",
+                        mitm:           "MitM / ARP Spoof",
                         auth_event:     "Auth Event",
                         api_attack:     "API Attack",
                       } as Record<string,string>)[e.evType] ?? e.evType.replace(/_/g," ").replace(/\b\w/g,(c:string)=>c.toUpperCase())}</span>

@@ -84,10 +84,17 @@ const SEV_COLORS: Record<string, string> = {
 const ATTACK_TYPE_LABELS: Record<string, string> = {
   network_attack: "Network Attack",
   web_attack:     "Web Attack",
+  ssh_brute:      "SSH Brute Force",
   db_attack:      "DB Attack",
   dns_attack:     "DNS Attack",
   ldap_attack:    "LDAP Attack",
+  ldap_brute:     "LDAP Brute Force",
+  ldap_enum:      "LDAP Enumeration",
+  ddos:           "DDoS",
+  port_scan:      "Port Scan",
+  mitm:           "MitM / ARP Spoof",
   auth_event:     "Auth Event",
+  api_attack:     "API Attack",
 };
 function attackTypeLabel(type: string): string {
   return ATTACK_TYPE_LABELS[type] ?? type.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
