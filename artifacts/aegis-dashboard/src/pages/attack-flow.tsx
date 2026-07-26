@@ -193,6 +193,8 @@ export default function AttackFlowPage() {
   const [attackerIp, setAttackerIp] = useState<string>("* / any");
   // Data flow diagram toggle
   const [showDataFlow, setShowDataFlow] = useState(false);
+  // Increments each time a real SSE security_event arrives — drives DataFlowDiagram
+  const [lastEventTs, setLastEventTs] = useState(0);
 
   const rafRef      = useRef<number | null>(null);
   const prevNowRef  = useRef<number>(0);
@@ -337,6 +339,7 @@ export default function AttackFlowPage() {
           const ev = JSON.parse(e.data);
           const pkt = addPacket(ev);
           setStats(s => ({ ...s, attacks: s.attacks + 1 }));
+          setLastEventTs(ts => ts + 1);
 
           // Update live attacker IP on the node
           if (ev.sourceIp) setAttackerIp(ev.sourceIp);
@@ -895,7 +898,7 @@ export default function AttackFlowPage() {
         </div>
 
         {showDataFlow ? (
-          <DataFlowDiagram />
+          <DataFlowDiagram lastEventTs={lastEventTs} />
         ) : log.length === 0 ? (
           <div className="flex-1 flex items-center justify-center">
             <p className="text-[11px] font-mono text-muted-foreground text-center px-4">
@@ -1058,17 +1061,124 @@ const FLOW_STEPS = [
   },
 ] as const;
 
-function DataFlowDiagram() {
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => setTick(v => (v + 1) % (FLOW_STEPS.length * 18)), 120);
-    return () => clearInterval(t);
-  }, []);
+// ── SVG icons for each DataFlow step (no emoji) ──────────────────────────────
+function FlowStepSvg({ index, color, active }: { index: number; color: string; active: boolean }) {
+  const op = active ? 1 : 0.45;
+  const s = color;
+  switch (index) {
+    // 0 – VM Sensor: monitor screen
+    case 0:
+      return (
+        <svg width="18" height="18" viewBox="0 0 20 20" fill="none" style={{ opacity: op, flexShrink: 0 }}>
+          <rect x="1" y="2" width="18" height="12" rx="2" stroke={s} strokeWidth="1.6" />
+          <line x1="6" y1="14" x2="5" y2="18" stroke={s} strokeWidth="1.5" strokeLinecap="round" />
+          <line x1="14" y1="14" x2="15" y2="18" stroke={s} strokeWidth="1.5" strokeLinecap="round" />
+          <line x1="4" y1="18" x2="16" y2="18" stroke={s} strokeWidth="1.5" strokeLinecap="round" />
+          <line x1="1" y1="11" x2="19" y2="11" stroke={s} strokeWidth="1.2" />
+          <circle cx="10" cy="6" r="2" fill={s} opacity="0.5" />
+        </svg>
+      );
+    // 1 – Forwarder Hub: relay hub
+    case 1:
+      return (
+        <svg width="18" height="18" viewBox="0 0 20 20" fill="none" style={{ opacity: op, flexShrink: 0 }}>
+          <circle cx="10" cy="10" r="3" fill={s} opacity="0.3" />
+          <circle cx="10" cy="10" r="3" stroke={s} strokeWidth="1.6" />
+          <line x1="10" y1="7" x2="10" y2="1" stroke={s} strokeWidth="1.5" strokeLinecap="round" />
+          <line x1="10" y1="13" x2="10" y2="19" stroke={s} strokeWidth="1.5" strokeLinecap="round" />
+          <line x1="7" y1="10" x2="1" y2="10" stroke={s} strokeWidth="1.5" strokeLinecap="round" />
+          <line x1="13" y1="10" x2="19" y2="10" stroke={s} strokeWidth="1.5" strokeLinecap="round" />
+          <circle cx="10" cy="1" r="1.5" fill={s} />
+          <circle cx="10" cy="19" r="1.5" fill={s} />
+          <circle cx="1" cy="10" r="1.5" fill={s} />
+          <circle cx="19" cy="10" r="1.5" fill={s} />
+        </svg>
+      );
+    // 2 – API Server: lightning bolt
+    case 2:
+      return (
+        <svg width="18" height="18" viewBox="0 0 20 20" fill="none" style={{ opacity: op, flexShrink: 0 }}>
+          <path d="M12 1 L5 11 H10 L8 19 L15 9 H10 Z" stroke={s} strokeWidth="1.6" strokeLinejoin="round" fill={s} fillOpacity="0.15" />
+        </svg>
+      );
+    // 3 – PostgreSQL: database cylinder
+    case 3:
+      return (
+        <svg width="18" height="18" viewBox="0 0 20 20" fill="none" style={{ opacity: op, flexShrink: 0 }}>
+          <ellipse cx="10" cy="4"  rx="8" ry="2.5" stroke={s} strokeWidth="1.5" />
+          <ellipse cx="10" cy="10" rx="8" ry="2.5" stroke={s} strokeWidth="1.5" />
+          <ellipse cx="10" cy="16" rx="8" ry="2.5" stroke={s} strokeWidth="1.5" />
+          <line x1="2"  y1="4"  x2="2"  y2="16" stroke={s} strokeWidth="1.5" />
+          <line x1="18" y1="4"  x2="18" y2="16" stroke={s} strokeWidth="1.5" />
+        </svg>
+      );
+    // 4 – SSE Stream: broadcast waves
+    case 4:
+      return (
+        <svg width="18" height="18" viewBox="0 0 20 20" fill="none" style={{ opacity: op, flexShrink: 0 }}>
+          <circle cx="10" cy="13" r="2" fill={s} />
+          <path d="M6 10 Q10 5 14 10" stroke={s} strokeWidth="1.6" strokeLinecap="round" fill="none" />
+          <path d="M3 7 Q10 0 17 7"  stroke={s} strokeWidth="1.6" strokeLinecap="round" fill="none" />
+          <line x1="10" y1="15" x2="10" y2="19" stroke={s} strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      );
+    // 5 – Dashboard: bar chart on screen
+    default:
+      return (
+        <svg width="18" height="18" viewBox="0 0 20 20" fill="none" style={{ opacity: op, flexShrink: 0 }}>
+          <rect x="1" y="2" width="18" height="13" rx="2" stroke={s} strokeWidth="1.5" />
+          <rect x="3"  y="10" width="2.5" height="4" fill={s} opacity="0.55" />
+          <rect x="7"  y="7"  width="2.5" height="7" fill={s} opacity="0.55" />
+          <rect x="11" y="9"  width="2.5" height="5" fill={s} opacity="0.55" />
+          <rect x="15" y="5"  width="2.5" height="9" fill={s} opacity="0.55" />
+          <line x1="7"  y1="15" x2="6"  y2="18" stroke={s} strokeWidth="1.3" strokeLinecap="round" />
+          <line x1="13" y1="15" x2="14" y2="18" stroke={s} strokeWidth="1.3" strokeLinecap="round" />
+          <line x1="4"  y1="18" x2="16" y2="18" stroke={s} strokeWidth="1.3" strokeLinecap="round" />
+        </svg>
+      );
+  }
+}
 
-  // animated dot: which step it's currently inside and its progress 0–1
-  const dotsPerStep = 18;
-  const stepIdx  = Math.floor(tick / dotsPerStep);
-  const progress = (tick % dotsPerStep) / dotsPerStep;
+// ── DataFlowDiagram — event-driven: lights up each stage as a real event flows ─
+// lastEventTs increments each time a real SSE security_event arrives.
+function DataFlowDiagram({ lastEventTs }: { lastEventTs: number }) {
+  // activeStep = which pipeline stage is currently highlighted (-1 = idle)
+  const [activeStep, setActiveStep] = useState(-1);
+  // dotProgress = 0–1 progress of connector dot between stages
+  const [dotProgress, setDotProgress] = useState(0);
+  const animRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  // Kick off sequential stage animation whenever a new event arrives
+  useEffect(() => {
+    if (lastEventTs === 0) return; // skip initial mount
+
+    // Clear any in-flight timers from previous event
+    for (const t of animRef.current) clearTimeout(t);
+    animRef.current = [];
+
+    const STAGE_MS = 650; // ms each stage stays lit
+    const timers: ReturnType<typeof setTimeout>[] = [];
+
+    FLOW_STEPS.forEach((_, i) => {
+      timers.push(setTimeout(() => {
+        setActiveStep(i);
+        setDotProgress(0);
+        // Animate connector dot from 0→1 while this stage is active
+        const DOT_TICKS = 20;
+        for (let tick = 1; tick <= DOT_TICKS; tick++) {
+          timers.push(setTimeout(() => setDotProgress(tick / DOT_TICKS), (tick / DOT_TICKS) * (STAGE_MS - 60)));
+        }
+      }, i * STAGE_MS));
+    });
+
+    // Return to idle after all stages complete
+    timers.push(setTimeout(() => { setActiveStep(-1); setDotProgress(0); }, FLOW_STEPS.length * STAGE_MS + 200));
+
+    animRef.current = timers;
+    return () => { for (const t of animRef.current) clearTimeout(t); };
+  }, [lastEventTs]);
+
+  const isIdle = activeStep === -1;
 
   return (
     <div className="flex-1 overflow-y-auto p-3 space-y-0">
@@ -1077,46 +1187,57 @@ function DataFlowDiagram() {
         <p className="text-[10px] font-mono font-bold text-cyan-400 tracking-widest uppercase">
           Attack → Detection → Alert
         </p>
-        <p className="text-[9px] text-muted-foreground mt-0.5">
-          Data flow ဆင့်ဆင့် — animated
+        <p className="text-[9px] text-muted-foreground mt-0.5 flex items-center justify-center gap-1.5">
+          {isIdle ? (
+            <>
+              <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/40 inline-block" />
+              Waiting for events…
+            </>
+          ) : (
+            <>
+              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse inline-block" />
+              Live event flowing
+            </>
+          )}
         </p>
       </div>
 
       {FLOW_STEPS.map((step, i) => {
-        const isActive  = stepIdx === i;
-        const isDone    = stepIdx > i;
-        const dotX      = isActive ? `${Math.round(progress * 100)}%` : isDone ? "100%" : "0%";
+        const isActive = activeStep === i;
+        const isDone   = activeStep > i;
         return (
           <div key={step.title}>
             {/* Step card */}
             <div
-              className="rounded-lg p-2.5 border transition-all duration-300"
+              className="rounded-lg p-2.5 border transition-all duration-200"
               style={{
-                borderColor: isActive ? step.color : "rgba(255,255,255,0.08)",
-                background:  isActive ? `${step.color}12` : "rgba(255,255,255,0.02)",
-                boxShadow:   isActive ? `0 0 10px ${step.color}30` : "none",
+                borderColor: isActive ? step.color : isDone ? `${step.color}40` : "rgba(255,255,255,0.08)",
+                background:  isActive ? `${step.color}14` : "rgba(255,255,255,0.02)",
+                boxShadow:   isActive ? `0 0 12px ${step.color}35` : "none",
               }}
             >
               <div className="flex items-start gap-2">
-                <span className="text-base shrink-0 mt-0.5">{step.icon}</span>
+                <FlowStepSvg index={i} color={step.color} active={isActive || isDone} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5 mb-1">
                     <span
-                      className="text-[10px] font-mono font-bold"
-                      style={{ color: isActive ? step.color : "rgba(255,255,255,0.5)" }}
+                      className="text-[10px] font-mono font-bold transition-colors duration-200"
+                      style={{ color: isActive ? step.color : isDone ? `${step.color}99` : "rgba(255,255,255,0.5)" }}
                     >
                       {step.title}
                     </span>
                     {isActive && (
                       <span
                         className="text-[8px] px-1 rounded font-bold animate-pulse"
-                        style={{ background: `${step.color}25`, color: step.color, border: `1px solid ${step.color}40` }}
+                        style={{ background: `${step.color}25`, color: step.color, border: `1px solid ${step.color}50` }}
                       >
                         ACTIVE
                       </span>
                     )}
                     {isDone && (
-                      <span className="text-[8px] text-green-400">✓</span>
+                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                        <path d="M2 5 L4 7 L8 3" stroke="#22c55e" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
                     )}
                   </div>
                   <div className="flex flex-wrap gap-1 mb-1.5">
@@ -1125,9 +1246,9 @@ function DataFlowDiagram() {
                         key={l}
                         className="text-[8px] px-1 rounded font-mono"
                         style={{
-                          background: "rgba(255,255,255,0.06)",
-                          color: "rgba(255,255,255,0.45)",
-                          border: "1px solid rgba(255,255,255,0.1)",
+                          background: isActive ? `${step.color}18` : "rgba(255,255,255,0.06)",
+                          color: isActive ? step.color : "rgba(255,255,255,0.4)",
+                          border: `1px solid ${isActive ? step.color + "40" : "rgba(255,255,255,0.1)"}`,
                         }}
                       >
                         {l}
@@ -1139,24 +1260,27 @@ function DataFlowDiagram() {
               </div>
             </div>
 
-            {/* Arrow / animated connector between steps */}
+            {/* Connector between steps with animated dot */}
             {i < FLOW_STEPS.length - 1 && (
               <div className="relative mx-4 my-1 h-4 flex items-center">
-                {/* Track */}
                 <div className="w-full h-px" style={{ background: "rgba(255,255,255,0.07)" }} />
-                {/* Animated dot */}
                 {isActive && (
                   <div
-                    className="absolute top-1/2 -translate-y-1/2 w-2 h-2 rounded-full transition-none"
+                    className="absolute top-1/2 -translate-y-1/2 w-2 h-2 rounded-full"
                     style={{
-                      left: dotX,
+                      left: `${Math.round(dotProgress * 96)}%`,
                       background: step.color,
-                      boxShadow: `0 0 6px ${step.color}`,
+                      boxShadow: `0 0 6px ${step.color}, 0 0 12px ${step.color}80`,
                     }}
                   />
                 )}
-                {/* Arrow head */}
-                <span className="absolute right-0 text-[10px]" style={{ color: "rgba(255,255,255,0.2)", lineHeight: 1 }}>▶</span>
+                <svg
+                  className="absolute right-0"
+                  width="8" height="8" viewBox="0 0 8 8"
+                  style={{ opacity: isDone || isActive ? 0.5 : 0.2 }}
+                >
+                  <path d="M1 1 L7 4 L1 7" fill="none" stroke="white" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
               </div>
             )}
           </div>
