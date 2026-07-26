@@ -121,12 +121,17 @@ function classifyAttackTypeFromSuricata(signature: string, category: string): st
       t.includes("oracle") || t.includes("database") || t.includes("sql server")) return "db_attack";
   // LDAP
   if (t.includes("ldap") || t.includes("slapd") || t.includes("directory")) return "ldap_attack";
+  // Port scan / reconnaissance — check BEFORE ddos because Suricata nmap rules often
+  // include "SYN" in the signature text (e.g. "ET SCAN Nmap -sS SYN Scan"), which would
+  // otherwise be caught by the "syn " ddos check below and misclassified as a flood.
+  if (t.includes("nmap") || t.includes("port sweep") || t.includes("port scan") ||
+      t.includes("portscan") || t.includes("probing") ||
+      (t.includes("scan") && !t.includes("sql")) ||
+      t.includes("recon") || t.includes("masscan") || t.includes("zmap")) return "port_scan";
   // DDoS / flood
-  if (t.includes("flood") || t.includes("dos") || t.includes("ddos") ||
-      t.includes("syn ") || t.includes("udp storm") || t.includes("icmp")) return "ddos";
-  // Port scan / reconnaissance
-  if (t.includes("scan") || t.includes("nmap") || t.includes("recon") ||
-      t.includes("probing") || t.includes("port sweep")) return "port_scan";
+  if (t.includes("flood") || t.includes(" dos ") || t.includes("ddos") ||
+      t.includes("syn flood") || t.includes("syn-flood") || t.includes("udp storm") ||
+      t.includes("icmp flood") || t.includes(" dos:") || t.includes("denial of service")) return "ddos";
   // MITM / ARP
   if (t.includes("arp") || t.includes("mitm") || t.includes("spoofing") ||
       t.includes("man-in-the-middle")) return "mitm";
