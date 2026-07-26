@@ -242,7 +242,6 @@ function RulesTab() {
                         { v: "db_attack",      label: "db_attack  (MySQL auth / SQL anomaly)" },
                         { v: "ldap_brute",     label: "ldap_brute  (invalid bind credentials)" },
                         { v: "ldap_enum",      label: "ldap_enum  (DN enumeration)" },
-                        { v: "mitm",           label: "mitm  (ARP spoofing)" },
                         { v: "auth_event",     label: "auth_event  (unauthorized login success)" },
                       ].map(({ v, label }) => (
                         <SelectItem key={v} value={v}>{label}</SelectItem>
