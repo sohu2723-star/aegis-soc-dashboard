@@ -110,6 +110,82 @@ export function isLabInternalIp(ip: string | null | undefined): boolean {
   return false;
 }
 
+// ─── Target host canonical name resolution ───────────────────────────────────
+
+/**
+ * Maps known lab VM IPs to their AEGIS canonical server names.
+ * Keeps the DB targetHost consistent regardless of whether the forwarder
+ * sends a raw IP or an already-resolved name.
+ */
+const IP_TO_CANONICAL: Record<string, string> = {
+  "10.10.10.10": "company-web-server",
+  "10.10.10.20": "company-dns-server",
+  "10.20.20.10": "company-customer-db",
+  "10.20.20.20": "company-ldap-server",
+  "10.30.30.10": "aegis-company-admin",
+  "10.30.30.1":  "pfSense",
+  "10.0.23.2":   "pfSense (WAN)",
+  "10.0.23.1":   "R1 (ether3)",
+  "192.168.122.2": "R1 (Internet)",
+};
+
+// Names that are already canonical — pass through without modification.
+const CANONICAL_NAMES = new Set([
+  "company-web-server",
+  "company-dns-server",
+  "company-customer-db",
+  "company-ldap-server",
+  "aegis-company-admin",
+  "aegis-api-server",
+  "internal-network",
+  "lan-segment",
+  "pfSense",
+]);
+
+/**
+ * Resolve a raw IP or label to an AEGIS canonical server name.
+ *
+ * Used by every ingest endpoint so the DB always stores canonical names,
+ * not raw IPs. This is the root-cause fix for all events showing the wrong
+ * target server (e.g. everything mapped to "company-web-server").
+ *
+ * Priority:
+ *   1. Exact IP → canonical name
+ *   2. Already a canonical name → pass through
+ *   3. Pattern match (e.g. contains "dns", "ldap") → map to canonical
+ *   4. Looks like a URL → return as-is (don't resolve HTTP attack URLs)
+ *   5. Fallback to provided default
+ */
+export function resolveTargetHost(
+  raw: string | null | undefined,
+  fallback: string,
+): string {
+  if (!raw) return fallback;
+  const s = raw.trim();
+  if (!s) return fallback;
+
+  // 1. Exact IP match
+  if (IP_TO_CANONICAL[s]) return IP_TO_CANONICAL[s];
+
+  // 2. Already canonical
+  if (CANONICAL_NAMES.has(s)) return s;
+
+  // 3. Pattern match for partial/prefix labels sent by the forwarder
+  const lower = s.toLowerCase();
+  if (lower.includes("company-web") || lower === "bank-web" || lower.includes("apache") || lower.includes("dvwa")) return "company-web-server";
+  if (lower.includes("company-dns") || lower.includes("dns-server") || lower.includes("bind9") || lower.includes("named")) return "company-dns-server";
+  if (lower.includes("company-customer") || lower.includes("customer-db") || lower.includes("mysql") || lower.includes("mariadb")) return "company-customer-db";
+  if (lower.includes("company-ldap") || lower.includes("ldap-server") || lower.includes("slapd") || lower.includes("openldap")) return "company-ldap-server";
+  if (lower.includes("aegis") || lower.includes("forwarder") || lower.includes("admin") || lower === "10.30.30.10") return "aegis-company-admin";
+
+  // 4. Looks like a URL (HTTP attack targetHost) — keep as-is
+  if (s.startsWith("http://") || s.startsWith("https://") || s.startsWith("/")) return s;
+
+  // 5. Return raw value if non-empty, else fallback
+  return s || fallback;
+}
+
+// ─── Suricata protocol noise filter ──────────────────────────────────────────
 /**
  * Suricata generates internal protocol-anomaly events that are NOT real attack
  * signatures. These fire on TCP stream-tracking, malformed packets, and

@@ -37,6 +37,10 @@ export function useSSE() {
 
     es.addEventListener("connected", () => {});
 
+    // Debounce rapid security_event bursts (e.g. port scans sending 20+ events/s).
+    // React Query refetch fires at most once per 1.5 s per key instead of on every event.
+    let eventsDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
     es.addEventListener("security_event", (event: MessageEvent) => {
       // Keep the live feed independent from the currently mounted page.
       // The store is pruned to the last 24 hours by appendLiveFeed/readLiveFeed.
@@ -57,8 +61,14 @@ export function useSSE() {
           signatureText: data.signatureText ?? undefined,
         });
       } catch { /* malformed data — skip persistence */ }
-      queryClient.invalidateQueries({ queryKey: getGetRecentEventsQueryKey() });
-      queryClient.invalidateQueries({ queryKey: getListEventsQueryKey({}) });
+      // Debounce: only refetch after 1.5 s of quiet — avoids a cascade of
+      // network requests when a port scan floods 20+ events per second.
+      if (eventsDebounceTimer) clearTimeout(eventsDebounceTimer);
+      eventsDebounceTimer = setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: getGetRecentEventsQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getListEventsQueryKey({}) });
+        eventsDebounceTimer = null;
+      }, 1500);
     });
 
     es.addEventListener("defense_action", (event: MessageEvent) => {

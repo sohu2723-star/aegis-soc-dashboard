@@ -22,7 +22,7 @@ import { broadcaster } from "../lib/broadcaster";
 import { evaluateEvent } from "../lib/auto-defense";
 import { sendTelegramMessage, telegramAvailable } from "../lib/telegram";
 import { getSetting } from "../lib/app-settings";
-import { isDefenderIp, isLabInternalIp, isSuricataProtocolNoiseSid } from "../lib/ip-classifier";
+import { isDefenderIp, isLabInternalIp, isSuricataProtocolNoiseSid, resolveTargetHost } from "../lib/ip-classifier";
 import { and, eq } from "drizzle-orm";
 import { recordTrafficStats } from "./network";
 import { logger } from "../lib/logger";
@@ -39,6 +39,64 @@ if (!INGEST_KEY) {
     "Set a strong random secret (e.g. openssl rand -hex 32). " +
     "VMs send this via X-AEGIS-Key header."
   );
+}
+
+// ── Rate limiter — prevent high-volume floods from crashing the server ────────
+// Tracks last-insert time per (sourceIp, eventType) key.
+// Port scans, DDoS floods, and other high-rate events are throttled so the DB
+// and SSE broadcaster do not get overwhelmed.
+const _rateLimitMap = new Map<string, number>();
+
+/**
+ * Returns true if this event should be dropped to protect against flooding.
+ * Rules:
+ *   - port_scan: 1 event per (src, target) per 20 s
+ *   - ddos:      1 event per src per 15 s
+ *   - suricata with same SID+src: 1 per 10 s
+ *   - network_attack (generic): 1 per (src, target) per 8 s
+ */
+function shouldRateLimit(type: string, sourceIp: string, targetHost: string, sid?: number | null): boolean {
+  let key: string;
+  let windowMs: number;
+  if (type === "port_scan") {
+    key = `portscan:${sourceIp}:${targetHost}`;
+    windowMs = 20_000;
+  } else if (type === "ddos") {
+    key = `ddos:${sourceIp}`;
+    windowMs = 15_000;
+  } else if (type === "network_attack" && sid) {
+    key = `suricata:${sid}:${sourceIp}`;
+    windowMs = 10_000;
+  } else if (type === "network_attack") {
+    key = `netattack:${sourceIp}:${targetHost}`;
+    windowMs = 8_000;
+  } else {
+    return false;
+  }
+  const now = Date.now();
+  const last = _rateLimitMap.get(key) ?? 0;
+  if (now - last < windowMs) return true;
+  _rateLimitMap.set(key, now);
+  // Prune map when it grows large (memory safety)
+  if (_rateLimitMap.size > 10_000) {
+    const cutoff = now - 60_000;
+    for (const [k, v] of _rateLimitMap) if (v < cutoff) _rateLimitMap.delete(k);
+  }
+  return false;
+}
+
+// ── stats_update debounce — avoid hammering the dashboard on every event ─────
+// During a port scan burst, insertEvent() fires 20+ times/s and each call
+// broadcasts stats_update, which makes every connected dashboard refetch
+// /api/dashboard/summary every few ms. Debounce to at most once per 2 s.
+let _statsDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+function debouncedStatsUpdate() {
+  if (_statsDebounceTimer) return;
+  _statsDebounceTimer = setTimeout(() => {
+    broadcaster.broadcast("stats_update", { timestamp: new Date().toISOString() });
+    _statsDebounceTimer = null;
+  }, 2000);
 }
 
 // ── Aegis API brute-force detection ──────────────────────────────────────────
@@ -159,7 +217,8 @@ async function insertEvent(values: typeof securityEventsTable.$inferInsert) {
   const [event] = await db.select().from(securityEventsTable).where(eq(securityEventsTable.id, row.id));
   const serialized = { ...event, createdAt: event.createdAt.toISOString() };
   broadcaster.broadcast("security_event", serialized);
-  broadcaster.broadcast("stats_update", { timestamp: new Date().toISOString() });
+  // Debounced — avoids flooding the dashboard during port scan / DDoS bursts.
+  debouncedStatsUpdate();
   await evaluateEvent({
     id:          event.id,
     type:        event.type,
@@ -362,12 +421,21 @@ router.post("/ingest/suricata", auth, async (req, res) => {
     }
   }
 
+  const suricataType = classifyAttackTypeFromSuricata(subtype, alertCategory ?? "");
+  const suricataTarget = resolveTargetHost(dest_ip, "internal-network");
+
+  // Rate-limit high-volume Suricata events (port scans, repeated SID floods)
+  if (shouldRateLimit(suricataType, src_ip ?? "unknown", suricataTarget, signatureId)) {
+    res.status(200).json({ ok: true, skipped: "rate_limited" });
+    return;
+  }
+
   const event = await insertEvent({
-    type: classifyAttackTypeFromSuricata(subtype, alertCategory ?? ""),
+    type: suricataType,
     subtype,
     severity: s,
     sourceIp: src_ip ?? "unknown",
-    targetHost: dest_ip ?? "internal-network",
+    targetHost: suricataTarget,
     toolUsed: "suricata",
     description: `Suricata ${event_type ?? "alert"}: ${a.signature ?? "Unknown"} | ${a.category ?? ""} | ${proto ?? "TCP"}`,
     status: "detected",
@@ -378,7 +446,7 @@ router.post("/ingest/suricata", auth, async (req, res) => {
     alertCategory,
     signatureText,
   });
-  if (s === "critical" || s === "high") await mkAlert(event.id, s, `SURICATA: ${a.signature} (SID:${signatureId ?? "?"}) — ${src_ip} → ${dest_ip}`);
+  if (s === "critical" || s === "high") await mkAlert(event.id, s, `SURICATA: ${a.signature} (SID:${signatureId ?? "?"}) — ${src_ip} → ${suricataTarget}`);
   res.status(201).json({ id: event.id });
 });
 
@@ -414,12 +482,13 @@ router.post("/ingest/fail2ban", auth, async (req, res) => {
 
   // Fail2ban has already enforced this ban on the target server. Reflect the
   // observed state independently of whether a second auto-defense rule matches.
+  const resolvedFail2banTarget = resolveTargetHost(target_ip, "company-web-server");
   const existingBlock = await db.select({ id: blockedIpsTable.id }).from(blockedIpsTable)
     .where(and(eq(blockedIpsTable.ip, ip), eq(blockedIpsTable.isActive, true)));
   if (existingBlock.length === 0) {
     await db.insert(blockedIpsTable).values({
       ip, reason: `Fail2ban jail ${jailName}`, blockedBy: `fail2ban:${jailName}`,
-      targetHost: target_ip ?? "company-web-server", isActive: true,
+      targetHost: resolvedFail2banTarget, isActive: true,
     });
   }
 
@@ -438,7 +507,7 @@ router.post("/ingest/fail2ban", auth, async (req, res) => {
   const event = await insertEvent({
     type: classifyFail2banType(jailName), subtype, severity:"high",
     sourceIp: ip ?? "unknown",
-    targetHost: target_ip ?? "company-web-server",
+    targetHost: resolvedFail2banTarget,
     toolUsed:"fail2ban", description:`Fail2ban banned ${ip} from [${jail ?? "sshd"}] after ${failures ?? "?"} failures. Auto-block applied.`,
     status:"blocked", layer:"perimeter",
     signatureText,
@@ -467,7 +536,7 @@ router.post("/ingest/ssh", auth, async (req, res) => {
   // prior_failures = how many failed attempts from this IP before this success event
   // 0 = clean login (authorized); ≥3 = brute-force success (breach)
   const priorFails   = prior_failures != null ? Number(prior_failures) : failCount;
-  const targetHost   = dest_ip ?? "company-web-server";
+  const targetHost   = resolveTargetHost(dest_ip, "company-web-server");
 
   const { log_source, matched_rule } = req.body;
   await db.insert(sshSessionsTable).values({
@@ -544,7 +613,7 @@ router.post("/ingest/http_access", auth, async (req, res) => {
 
   const priorFails = Number(prior_failures) || 0;
   const isSuccess  = Boolean(is_success);
-  const host       = targetHost ?? dest_ip ?? "company-web-server";
+  const host       = resolveTargetHost(targetHost ?? dest_ip, "company-web-server");
   const sigText    = signature_text ? String(signature_text).slice(0, 2000) : null;
 
   if (isSuccess) {
@@ -647,16 +716,23 @@ router.post("/ingest/ddos", auth, async (req, res) => {
   const { src_ip, attack_vector, pps, mbps, target_ip, target_port, protocol, blocked } = req.body;
 
   const s = (pps ?? 0) > 10000 || (mbps ?? 0) > 1000 ? "critical" : "high";
-  const desc = `DDoS ${attack_vector ?? "flood"} from ${src_ip}: ${pps ?? "?"} pps / ${mbps ?? "?"}Mbps → ${target_ip ?? "target"}${target_port ? `:${target_port}` : ""}`;
+  const ddosTarget = resolveTargetHost(target_ip, "internal-network");
+  const desc = `DDoS ${attack_vector ?? "flood"} from ${src_ip}: ${pps ?? "?"} pps / ${mbps ?? "?"}Mbps → ${ddosTarget}${target_port ? `:${target_port}` : ""}`;
+
+  // Rate-limit DDoS flood events — forwarder can send them every few seconds
+  if (shouldRateLimit("ddos", src_ip ?? "unknown", ddosTarget)) {
+    res.status(200).json({ ok: true, skipped: "rate_limited" });
+    return;
+  }
 
   const event = await insertEvent({
     type:"ddos", subtype: attack_vector ? `DDoS ${attack_vector}` : "DDoS Flood",
     severity: s, sourceIp: src_ip ?? "unknown",
-    targetHost: target_ip ?? "internal-network",
+    targetHost: ddosTarget,
     toolUsed:"hping3", description: desc,
     status: blocked ? "blocked":"detected", layer:"perimeter",
   });
-  await mkAlert(event.id, s, `DDOS ${attack_vector ?? "flood"}: ${src_ip} → ${target_ip} | ${pps ?? "?"}pps`);
+  await mkAlert(event.id, s, `DDOS ${attack_vector ?? "flood"}: ${src_ip} → ${ddosTarget} | ${pps ?? "?"}pps`);
   res.status(201).json({ id:event.id });
 });
 
@@ -673,7 +749,7 @@ router.post("/ingest/dns", auth, async (req, res) => {
   const isZone    = attack_type === "dns_zone_transfer";
   const isRefused = attack_type === "dns_query_refused";
   const s = isPoison ? "critical" : isZone ? "high" : "medium";
-  const targetHost = target_resolver ?? target_ip ?? "company-dns-server";
+  const targetHost = resolveTargetHost(target_resolver ?? target_ip, "company-dns-server");
 
   // Write to dedicated dns_attacks table (for Connection Logs → DNS tab)
   await db.insert(dnsAttacksTable).values({
@@ -740,7 +816,7 @@ router.post("/ingest/mysql", auth, async (req, res) => {
 
   const event = await insertEvent({
     type:"db_attack", subtype: `MySQL ${attack_type ?? "DB Auth Brute Force"}`, severity: s,
-    sourceIp: src_ip, targetHost: target_ip ?? "company-customer-db",
+    sourceIp: src_ip, targetHost: resolveTargetHost(target_ip, "company-customer-db"),
     toolUsed:"mysql",
     description:`MySQL ${attack_type ?? "auth failure"}: user='${username ?? "?"}' from ${src_ip} → ${target_ip ?? "10.20.20.10"}:3306`,
     status: blocked ? "blocked" : "detected", layer:"data",
@@ -782,7 +858,7 @@ router.post("/ingest/ldap", auth, async (req, res) => {
 
   const event = await insertEvent({
     type:"ldap_attack", subtype: `LDAP ${attack_type ?? "Auth Brute Force"}`, severity: s,
-    sourceIp: src_ip, targetHost: target_ip ?? "company-ldap-server",
+    sourceIp: src_ip, targetHost: resolveTargetHost(target_ip, "company-ldap-server"),
     toolUsed:"slapd",
     description:`LDAP ${attack_type ?? "auth failure"} from ${src_ip}: dn="${dn ?? "?"}" err=${errNum ?? "?"}`,
     status:"detected", layer:"data",

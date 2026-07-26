@@ -1,5 +1,21 @@
 # AEGIS SOC Dashboard — Lab Setup Journal
 
+### [2026-07-26] — targetHost canonical fix + performance + rate limiting
+**Status:** ✅ Done
+**What:** All ingest endpoints မှ targetHost ကို correct canonical server name ဖြင့် DB မှာ သိမ်းနိုင်အောင် fix လုပ်ခဲ့သည်။ High-volume attack flood ကြောင့် server crash ဖြစ်နိုင်သည့် ပြဿနာကိုလည်း fix ခဲ့သည်။
+**How:**
+- `ip-classifier.ts` မှာ `resolveTargetHost(raw, fallback)` function သစ်ထည့်ခဲ့သည် — IP (10.10.10.20) → canonical name (company-dns-server) map လုပ်သည်; pattern match (dns/ldap/mysql keywords) ပါ support ပြုသည်
+- `ingest.ts` တွင် fail2ban, ssh, http_access, suricata, mysql, ldap, dns, ddos endpoints အားလုံးမှာ `resolveTargetHost()` သုံးပြီး hardcoded `"company-web-server"` defaults ကို replace လုပ်ခဲ့သည်
+- `shouldRateLimit()` function ထည့်ခဲ့သည် — port_scan (20s), ddos (15s), repeated Suricata SID (10s) တွေကို throttle ဖြင့် drop လုပ်သည်; DB + SSE broadcaster ကို flood ဖြစ်မဖြစ်အောင် ကာကွယ်သည်
+- `debouncedStatsUpdate()` — stats_update SSE broadcast ကို 2s debounce ဖြင့် throttle ဆွဲထားသည်; မတိုင်မီ event တိုင်းမှာ dashboard summary refetch ဖြစ်ကြောင်း ဖြေရှင်းသည်
+- `use-sse.ts` မှာ security_event invalidation ကို 1.5s debounce ဖြင့် throttle ဆွဲသည်; port scan burst မှာ React Query refetch cascade ဖြစ်မဖြစ်အောင် ဖြေရှင်းသည်
+**Result:**
+- DNS server ကို attack ဝင်လာလျှင် targetHost "company-dns-server" ပေါ်မည်; LDAP → "company-ldap-server"; MySQL → "company-customer-db"; Web → "company-web-server"
+- Port scan flood / DDoS burst မှာ rate limiter ကြောင့် server down မဖြစ်တော့
+- Dashboard smooth ဖြစ်မည် (debounced refetch)
+- Active Alerts မှာ toolUsed (sensor name) ပြပြီး alerts route မှ JOIN ဖြင့် securityEventsTable မှ targetHost/toolUsed ဆွဲသည်
+**Next:** Render deploy ပြုလုပ်ပြီး live lab မှ ingest events test ပြုလုပ်ပါ
+
 ### [2026-07-25] — Four-server setup added to Project Book
 **Status:** ✅ Done
 **What:** Web, DNS, Customer DB and LDAP setup commands, exact deployment paths, restricted sudo rule, Git/raw links and acceptance checks were consolidated into the project book.
