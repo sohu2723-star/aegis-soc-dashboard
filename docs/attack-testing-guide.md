@@ -32,22 +32,28 @@ ip a show eth0 | grep "inet "
 
 # Kali မှာ lab route ရှိမရှိ စစ်
 ip route | grep "10.0.0.0"
+# ip route        : kernel routing table ကို ပြ
+# grep "10.0.0.0" : 10.x.x.x route line ကိုသာ filter — output ရှိရင် route ရှိပြီ
 
 # မရှိရင် ထည့်
 sudo ip route add 10.0.0.0/8 via 192.168.10.1
-#   10.0.0.0/8   → 10.x.x.x ကြားဆက်ကြောင်း
-#   via 192.168.10.1 → Router ether2 (gateway) ကတဆင့်
+# add           : routing table မှာ entry အသစ် ထည့်
+# 10.0.0.0/8    : destination network (10.x.x.x အားလုံး)
+# via 192.168.10.1 : ဒီ gateway ကတဆင့် forward မည် (Router ether2)
 
 # Connectivity check
 ping -c2 10.10.10.10   # company-web-server
 ping -c2 10.10.10.20   # company-dns-server
 ping -c2 10.20.20.10   # company-customer-db
 ping -c2 10.20.20.20   # company-ldap-server
+# -c2 : count=2 — ICMP echo request 2 ကြိမ်ပဲပို့ပြီး ရပ် (မပြတ်ပဲ run နေမည့်အစား)
 
 # Password file တွေ create
 printf 'WrongPass-01\nWrongPass-02\nWrongPass-03\nWrongPass-04\nWrongPass-05\n' > /tmp/lab-ssh.txt
 printf 'WrongDB-01\nWrongDB-02\nWrongDB-03\nWrongDB-04\nWrongDB-05\n'         > /tmp/lab-db.txt
 printf 'WrongLDAP-01\nWrongLDAP-02\nWrongLDAP-03\nWrongLDAP-04\nWrongLDAP-05\n' > /tmp/lab-ldap.txt
+# printf '...\n' : echo နှင့်ဆင်တူ — \n = newline (password တစ်ခုစီ line တစ်ကြောင်းဆင်း)
+# >              : output ကို file ထဲ redirect (overwrite) — file မရှိရင် create လုပ်
 ```
 
 ---
@@ -64,28 +70,35 @@ sudo nmap -sS -T3 -p 21,22,23,25,53,80,110,139,443,445,3306,389 10.10.10.10
 
 # NULL scan — flag အားလုံး 0 — firewall bypass စမ်း
 sudo nmap -sN -p 22,80,443 10.10.10.10
-#        ↑
-#        └── -sN : NULL scan — TCP flag တစ်ခုမှ set မလုပ်ဘဲ packet ပို့
+#        ↑   ↑
+#        │   └── -p 22,80,443 : SSH / HTTP / HTTPS port သုံးခုကိုသာ စစ်
+#        └────── -sN : NULL scan — TCP flag တစ်ခုမှ set မလုပ်ဘဲ packet ပို့
 
 # FIN scan
 sudo nmap -sF -p 22,80,443 10.10.10.10
-#        ↑
-#        └── -sF : FIN scan — FIN flag ပဲပို့ (connection close request)
+#        ↑   ↑
+#        │   └── -p 22,80,443 : စစ်မည့် port များ
+#        └────── -sF : FIN scan — FIN flag ပဲပို့ (connection close request)
 
 # XMAS scan — FIN+PSH+URG တစ်ချိန်တည်း
 sudo nmap -sX -p 22,80,443 10.10.10.10
-#        ↑
-#        └── -sX : XMAS scan — flag သုံးခု တစ်ပြိုင်နက် light up (xmas tree နှင့်တူ)
+#        ↑   ↑
+#        │   └── -p 22,80,443 : စစ်မည့် port များ
+#        └────── -sX : XMAS scan — FIN+PSH+URG flag သုံးခု တစ်ပြိုင်နက် light up (xmas tree နှင့်တူ)
 
 # Version detection scan — service name + version ရှာ
 sudo nmap -sV -T3 -p 3306,22 10.20.20.10
-#        ↑
-#        └── -sV : Service Version detection — port ဖွင့်ထားသော service ၏ version စစ်
+#        ↑   ↑    ↑
+#        │   │    └── -p 3306,22 : MySQL port နှင့် SSH port စစ်
+#        │   └─────── -T3        : Timing template 3 = Normal (0=slowest, 5=fastest)
+#        └─────────── -sV        : Service Version detection — service ၏ version စစ်
 
 # DNS server scan
 sudo nmap -sS -T3 -p 53,22 10.10.10.20
-#                    ↑
-#                    └── port 53 : DNS standard port (TCP/UDP) — zone transfer request ကို TCP ကသုံး
+#        ↑   ↑    ↑
+#        │   │    └── -p 53,22 : DNS port + SSH port စစ်
+#        │   └─────── -T3      : Normal timing
+#        └─────────── -sS      : SYN scan (stealth) — handshake မပြီးဘဲ SYN ပဲပို့
 
 # LDAP server scan
 sudo nmap -sV -T3 -p 389,636,22 10.20.20.20
@@ -112,15 +125,30 @@ hydra -l labtest -P /tmp/lab-ssh.txt -t 1 -W 3 -f ssh://10.10.10.10
 
 # company-dns-server SSH brute
 hydra -l labtest -P /tmp/lab-ssh.txt -t 1 -W 3 -f ssh://10.10.10.20
-# ↑ web-server နှင့် flag အတူတူ — target IP ကိုသာ 10.10.10.20 (DNS server) ပြောင်း
+# -l labtest        : username တစ်ယောက်တည်း (lowercase -l = single login)
+# -P /tmp/lab-ssh.txt : password list file (uppercase -P = file)
+# -t 1              : parallel task 1 ခုပဲ (SSH မှာ တပြိုင်နက် များများ မပို့ရ)
+# -W 3              : wait 3s between each attempt (fail2ban trigger မဖြစ်အောင်)
+# -f                : first match တွေ့ရင် ရပ်
+# ssh://10.10.10.20 : target = DNS server SSH
 
 # company-customer-db SSH brute
 hydra -l labtest -P /tmp/lab-ssh.txt -t 1 -W 3 -f ssh://10.20.20.10
-# ↑ target IP 10.20.20.10 (MySQL DB server) — SSH port 22 ကို brute
+# -l labtest        : username တစ်ယောက်တည်း
+# -P /tmp/lab-ssh.txt : password list file
+# -t 1              : parallel task 1 ခုပဲ
+# -W 3              : 3 စက္ကန့် ကြားနား
+# -f                : တွေ့ရင် ရပ်
+# ssh://10.20.20.10 : target = MySQL DB server SSH
 
 # company-ldap-server SSH brute
 hydra -l labtest -P /tmp/lab-ssh.txt -t 1 -W 3 -f ssh://10.20.20.20
-# ↑ target IP 10.20.20.20 (LDAP server) — SSH service ကို brute
+# -l labtest        : username တစ်ယောက်တည်း
+# -P /tmp/lab-ssh.txt : password list file
+# -t 1              : parallel task 1 ခုပဲ
+# -W 3              : 3 စက္ကန့် ကြားနား
+# -f                : တွေ့ရင် ရပ်
+# ssh://10.20.20.20 : target = LDAP server SSH
 ```
 
 **Dashboard မှာ မြင်ရမည်:** SSH Sessions tab + Active Alerts → HIGH + Defense Center → auto-block
@@ -140,13 +168,18 @@ sudo hping3 -S -p 80 -c 30 -i u100000 10.10.10.10
 
 # ICMP flood (ping flood)
 sudo hping3 --icmp -c 30 -i u100000 10.10.10.10
-#           ↑
-#           └── --icmp : ICMP mode (ping packet အနေနဲ့ ပို့)
+#           ↑      ↑     ↑
+#           │      │     └── -i u100000 : interval 100,000 microsecond = 100ms ကြားနား
+#           │      └──────── -c 30      : packet 30 ခုပဲပို့ပြီး ရပ်
+#           └───────────────  --icmp    : ICMP mode (ping packet အနေနဲ့ ပို့)
 
 # UDP flood — DNS port
 sudo hping3 --udp -p 53 -c 30 -i u100000 10.10.10.20
-#           ↑
-#           └── --udp : UDP mode
+#           ↑     ↑     ↑     ↑
+#           │     │     │     └── -i u100000 : 100ms ကြားနား
+#           │     │     └──────── -c 30      : packet 30 ခုပဲ
+#           │     └────────────── -p 53      : destination port 53 (DNS)
+#           └──────────────────── --udp      : UDP mode (DNS က UDP သုံး)
 ```
 
 **Dashboard မှာ မြင်ရမည်:** Security Events → `ddos`
@@ -171,15 +204,21 @@ curl -si --max-time 5 --get \
 curl -si --max-time 5 --get \
   --data-urlencode "id=1' OR '1'='1" \
   http://10.10.10.10/login
-# ↑ payload: OR '1'='1 → condition အမြဲ true ဖြစ်အောင် — login bypass technique
-#   /login endpoint ကို target — credential မပါဘဲ authenticate ဝင်ကြိုး
+# -si             : -s (silent — progress bar မပြ) + -i (response header ပါ ပြ)
+# --max-time 5    : 5 စက္ကန့် အတွင်း response မရရင် timeout
+# --get           : HTTP GET method သုံး
+# --data-urlencode: value ကို URL-encode လုပ်ပြီး query string မှာ ထည့် (quote, space တွေ safe ဖြစ်)
+# payload         : OR '1'='1 → WHERE condition အမြဲ true — login bypass technique
 
 # XSS (Cross-Site Scripting)
 curl -si --max-time 5 --get \
   --data-urlencode "q=<script>alert('aegis-test')</script>" \
   http://10.10.10.10/
-# ↑ payload: <script>alert()</script> → browser မှာ execute ဖြစ်ရင် XSS အတည် 
-#   q= parameter ကတဆင့် inject — server က sanitize မလုပ်ရင် Suricata ဖမ်းမည်
+# -si             : silent + include headers
+# --max-time 5    : 5s timeout
+# --get           : GET request
+# --data-urlencode: <script> tag တွေကို URL-encode လုပ်ပြီး q= parameter မှာ ထည့်
+# payload         : <script>alert()</script> → server က sanitize မလုပ်ရင် browser execute ဖြစ်မည်
 
 # Nikto web vulnerability scan
 nikto -h http://10.10.10.10 -maxtime 1m -Pause 1
@@ -201,11 +240,22 @@ nikto -h http://10.10.10.10 -maxtime 1m -Pause 1
 ```bash
 # company-dns-server မှာ SSH ဝင်ပြီး run
 ssh labtest@10.10.10.20
+# ssh labtest@... : labtest user အနေနဲ့ IP address ထဲ SSH ဝင်
+#   format: user@host
 
 sudo mkdir -p /var/log/named
-sudo chown bind:bind /var/log/named   # bind user ကို log folder ပိုင်ဆိုင်ခွင့်ပေး
+# mkdir          : directory အသစ် create
+# -p             : parent directory မရှိသေးရင် အလိုအလျောက် create (error မထွက်)
+# /var/log/named : BIND9 log ထားမည့် folder
+
+sudo chown bind:bind /var/log/named
+# chown          : change owner — file/folder ပိုင်ရှင် ပြောင်း
+# bind:bind      : user=bind, group=bind (BIND9 process ကသာ ရေးနိုင်မည်)
 
 sudo tee -a /etc/bind/named.conf.local <<'EOF'
+# tee            : stdin ကို file ထဲ ရေးသည် (sudo နဲ့ redirect ၊ > သုံး၍မရသောအခါ)
+# -a             : append mode — file ရှိပြီးသား content ကို မဖျက်ဘဲ နောက်ကပ်ထည့်
+# <<'EOF'        : heredoc — EOF ဆုံးတဲ့အထိ multi-line input ဖြစ်မည်
 logging {
     channel q_log {
         file "/var/log/named/named.log" versions 3 size 10m;
@@ -221,8 +271,16 @@ logging {
 EOF
 
 sudo systemctl restart bind9
+# systemctl      : systemd service manager
+# restart        : service ကို stop ပြီး start (config ပြောင်းပြီးရင် apply ဖို့)
+# bind9          : DNS server service name
+
 sudo tail -f /var/log/named/named.log   # log ထွက်မလာ စစ်
+# tail           : file ၏ နောက်ဆုံး lines ပြ
+# -f             : follow mode — file ကို live streaming ပြ (Ctrl+C ဖြင့် ရပ်)
+
 exit
+# DNS VM မှ logout ပြီး Kali ပြန်ဆင်း
 ```
 
 ### Kali မှာ run
@@ -230,31 +288,41 @@ exit
 ```bash
 # Zone Transfer (AXFR) — HIGH severity alert
 dig AXFR goldenmyanmar.trading.com @10.10.10.20
-#   ↑                               ↑
-#   │                               └── @IP : ဒီ DNS server ကိုတိုက်ရိုက် query (system DNS မဟုတ်)
-#   └── AXFR : Authoritative Zone Transfer — zone record အားလုံး download ရန် request
+# dig  : DNS lookup tool
+# AXFR : Authoritative Zone Transfer request — zone ထဲ record အားလုံး download ရန်
+# @10.10.10.20 : system DNS မသုံးဘဲ ဒီ DNS server ကိုတိုက်ရိုက် query
+
+dig AXFR @10.10.10.20 goldenmyanmar.trading.com
+# ↑ အထက်နှင့် result တူသော်လည်း @server ကို domain မတိုင်ခင် ထားသည့် syntax အစားထိုး
 
 # nmap DNS zone transfer script
 sudo nmap -p 53 --script dns-zone-transfer \
   --script-args dns-zone-transfer.domain=goldenmyanmar.trading.com \
   10.10.10.20
-#  ↑             ↑
-#  │             └── --script-args : script ထဲ pass မည့် argument
-#  └── --script dns-zone-transfer  : NSE script ရွေး (zone transfer စမ်း)
+# -p 53          : port 53 (DNS) ကိုသာ စစ်
+# --script       : NSE (Nmap Scripting Engine) script ကို run
+# dns-zone-transfer : zone transfer ကို script ဖြင့် စမ်းသပ်
+# --script-args  : script ထဲသို့ argument ပေး (domain name)
 
 # DNS flood — 25 queries in 60s → flood detect trigger
 for i in $(seq 1 25); do
+# for i in      : loop variable i
+# $(seq 1 25)   : sequence 1 မှ 25 ထိ generate (1,2,3,...,25)
   dig +time=1 +tries=1 @10.10.10.20 goldenmyanmar.trading.com A >/dev/null
-  # +time=1  : DNS response timeout 1 second
-  # +tries=1 : retry 1 ကြိမ်ပဲ
-  # A        : IPv4 address record
-  # >/dev/null : output မပြဘဲ ပစ်ချ
+  # +time=1    : DNS response timeout 1 second
+  # +tries=1   : retry 1 ကြိမ်ပဲ (default 3)
+  # A          : A record (IPv4 address) မျိုး query
+  # >/dev/null : stdout ကို /dev/null (ဗလာ) ထဲ ပစ် — screen ပေါ် မပြ
   sleep 0.2
+  # sleep 0.2  : loop တစ်ကြိမ်ပြီးတိုင်း 0.2 စက္ကန့် နားမည်
 done
 
 # DNS refused query flood — 10 nonexistent domains
 for i in $(seq 1 10); do
+# $(seq 1 10) : 1 မှ 10 ထိ sequence
   dig +time=1 +tries=1 @10.10.10.20 nonexistent${i}.goldenmyanmar.trading.com
+  # nonexistent${i} : မရှိတဲ့ subdomain — server က NXDOMAIN / refused ပြန်မည်
+  # ${i}            : loop variable တန်ဖိုး (1,2,...,10) ထည့်သွင်း
   sleep 0.5
 done
 ```
@@ -270,16 +338,25 @@ done
 ```bash
 # company-customer-db မှာ SSH ဝင်ပြီး run
 ssh labtest@10.20.20.10
+# format: user@host — labtest user အနေနဲ့ DB server ထဲ SSH ဝင်
 
 sudo tee -a /etc/mysql/mysql.conf.d/mysqld.cnf <<'EOF'
+# tee            : stdin ကို file ထဲ ရေး (sudo redirect လုပ်ဖို့)
+# -a             : append — ရှိပြီးသား config ကို မဖျက်ဘဲ နောက်ကပ်ထည့်
+# <<'EOF'        : heredoc — EOF ပေါ်ရောက်တဲ့အထိ multi-line input
 log_error            = /var/log/mysql/error.log
 log_error_verbosity  = 3
-# log_error_verbosity 3 = errors + warnings + notes (auth failure ပါ ထွက်မည်)
+# log_error_verbosity : 1=errors only, 2=+warnings, 3=+notes (auth failure ပါ ထွက်မည်)
 EOF
 
 sudo systemctl restart mysql
+# systemctl restart : service ကို stop ပြီး start — config အသစ် apply ဖို့
+
 sudo tail -f /var/log/mysql/error.log   # "Access denied" line ပေါ်မလာ စစ်
+# tail -f : file ကို live follow — log အသစ် ထွက်တိုင်း screen ပြ
+
 exit
+# MySQL VM မှ logout ပြီး Kali ပြန်ဆင်း
 ```
 
 ### Kali မှာ run
@@ -287,22 +364,26 @@ exit
 ```bash
 # MySQL brute force (hydra)
 hydra -l gmuser -P /tmp/lab-db.txt -t 1 -W 3 -f mysql://10.20.20.10
-#     ↑          ↑                             ↑
-#     │          │                             └── mysql:// : MySQL protocol
-#     │          └────────────────────────────── -P : password list file
-#     └────────────────────────────────────────── -l : MySQL username (gmuser)
+# -l gmuser         : MySQL username တစ်ယောက်တည်း (lowercase -l)
+# -P /tmp/lab-db.txt: password list file (uppercase -P = file)
+# -t 1              : parallel connection 1 ခုပဲ
+# -W 3              : attempt ကြား 3 စက္ကန့် ကြားနား
+# -f                : credential တွေ့ရင် ရပ်
+# mysql://          : MySQL protocol (port 3306) သုံး
 
 # nmap MySQL port scan
 sudo nmap -sV -T3 -p 3306 10.20.20.10
-#                    ↑
-#                    └── 3306 : MySQL default port
+# -sV  : service version detection
+# -T3  : Normal timing
+# -p 3306 : MySQL default port ကိုသာ စစ်
 
 # Direct mysql client test (connection error ပေါ်ရမည်)
 mysql -h 10.20.20.10 -u gmuser -pWrongDB-01 goldenmyanmardb 2>&1
-#     ↑               ↑         ↑
-#     │               │         └── -p : password (붙여서 -pPassword123)
-#     │               └──────────── -u : username
-#     └──────────────────────────── -h : host IP
+# -h             : host IP (remote MySQL server)
+# -u             : MySQL username
+# -p             : password — flag နှင့် value ကြား space မပါ (-pPASSWORD)
+# goldenmyanmardb: connect မည့် database name
+# 2>&1           : stderr (error output) ကို stdout ထဲ merge — terminal မှာ error ပြသဖို့
 ```
 
 **Dashboard မှာ မြင်ရမည်:** Connection Logs → DB tab → `Auth Brute`
@@ -316,22 +397,31 @@ mysql -h 10.20.20.10 -u gmuser -pWrongDB-01 goldenmyanmardb 2>&1
 ```bash
 # company-ldap-server မှာ SSH ဝင်ပြီး run
 ssh labtest@10.20.20.20
+# format: user@host — LDAP server ထဲ SSH ဝင်
 
 sudo ldapmodify -Y EXTERNAL -H ldapi:/// <<'EOF'
-#               ↑            ↑
-#               │            └── -H ldapi:/// : local Unix socket (TCP မဟုတ်)
-#               └── -Y EXTERNAL : SASL EXTERNAL mechanism = root ကတဆင့် local auth
+# ldapmodify     : LDAP directory ထဲ entry ကို modify လုပ်သော tool
+# -Y EXTERNAL    : SASL EXTERNAL mechanism — root ကတဆင့် local socket auth (password မလို)
+# -H ldapi:///   : LDAP URI — ldapi:// = local Unix socket (/var/run/slapd/ldapi), TCP မဟုတ်
+# <<'EOF'        : heredoc — LDIF format ဖြင့် multi-line input
 dn: cn=config
 changetype: modify
 replace: olcLogLevel
 olcLogLevel: 256
-# 256 = connections log (ACCEPT/BIND/RESULT lines ထွက်မည်)
+# 256 = connections log level (ACCEPT/BIND/RESULT lines ထွက်မည်)
 # 1   = trace, 256+1 = connections + trace
 EOF
 
 sudo systemctl restart rsyslog
-sudo tail -f /var/log/syslog | grep slapd   # slapd entries ပေါ်မလာ စစ်
+# rsyslog        : system log daemon — slapd log ကို /var/log/syslog ထဲ ရေးသူ
+# restart        : config ပြောင်းပြီးနောက် apply ဖို့ reload
+
+sudo tail -f /var/log/syslog | grep slapd
+# tail -f        : /var/log/syslog ကို live follow
+# | grep slapd   : slapd ဆိုင်ရာ line တွေကိုသာ filter — auth attempt ကြည့်ဖို့
+
 exit
+# LDAP VM မှ logout ပြီး Kali ပြန်ဆင်း
 ```
 
 ### Kali မှာ run
@@ -343,8 +433,12 @@ hydra \
   -P /tmp/lab-ldap.txt \
   -t 1 -W 3 -f \
   ldap://10.20.20.20
-# ldap:// : LDAP protocol (port 389)
-# -l      : bind DN အပြည့်အစုံ (LDAP username format)
+# -l "cn=admin,..." : bind DN အပြည့်အစုံ — LDAP username က email မဟုတ်ဘဲ DN format
+# -P /tmp/lab-ldap.txt : password list file (uppercase -P)
+# -t 1              : parallel task 1 ခုပဲ
+# -W 3              : attempt ကြား 3 စက္ကန့် ကြားနား
+# -f                : valid credential တွေ့ရင် ရပ်
+# ldap://10.20.20.20 : LDAP protocol, port 389, LDAP server target
 
 # ldapsearch wrong password — err=49 (Invalid credentials)
 ldapsearch -H ldap://10.20.20.20 \
