@@ -117,7 +117,7 @@ function RulesTab() {
   const [name, setName]                         = useState("");
   const [description, setDescription]           = useState("");
   const [triggerAttackType, setTriggerAttack]   = useState("any");
-  const [triggerSeverity, setTriggerSeverity]   = useState("any");
+  const [triggerSeverity, setTriggerSeverity]   = useState("high");
   const [triggerThreshold, setTriggerThreshold] = useState(3);
   const [triggerWindow, setTriggerWindow]       = useState(60);
   const [actionType, setActionType]             = useState("auto");
