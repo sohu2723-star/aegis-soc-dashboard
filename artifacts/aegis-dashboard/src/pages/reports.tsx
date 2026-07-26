@@ -318,12 +318,29 @@ export default function Reports() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  // Auto-load AI briefing on mount + auto-refresh every 5 minutes (real-time)
-  // Language is always English
+  // Auto-load AI briefing on mount + auto-refresh every 5 minutes
   useEffect(() => {
     loadAiBriefing();
     const timer = setInterval(() => loadAiBriefing(), 5 * 60 * 1000);
     return () => clearInterval(timer);
+  }, []);
+
+  // Real-time: re-analyze whenever a critical/high SSE alert fires
+  // use-sse.ts dispatches window "aegis:alert" for critical+high events
+  useEffect(() => {
+    let debounce: ReturnType<typeof setTimeout> | null = null;
+    const handler = (e: Event) => {
+      const sev = (e as CustomEvent).detail?.severity;
+      if (sev !== "critical" && sev !== "high") return;
+      // Debounce: if multiple events fire in quick succession, wait 3s then refresh once
+      if (debounce) clearTimeout(debounce);
+      debounce = setTimeout(() => loadAiBriefing(), 3000);
+    };
+    window.addEventListener("aegis:alert", handler);
+    return () => {
+      window.removeEventListener("aegis:alert", handler);
+      if (debounce) clearTimeout(debounce);
+    };
   }, []);
 
   const { data: reports, isLoading } = useListReports({ query: { queryKey: getListReportsQueryKey() } });

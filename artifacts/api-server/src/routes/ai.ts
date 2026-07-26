@@ -168,18 +168,37 @@ router.get("/ai/threat-analysis", async (req, res) => {
           .join("; ")
       : "none";
 
+    // Per-service breakdown — how many events hit each server
+    const byTarget: Record<string, number> = {};
+    for (const e of recentEvents) {
+      const t = e.targetHost ?? "unknown";
+      byTarget[t] = (byTarget[t] ?? 0) + 1;
+    }
+    const serviceBreakdown = Object.entries(byTarget)
+      .sort(([,a],[,b]) => b - a)
+      .map(([h,n]) => `${h}: ${n}`)
+      .join(", ") || "none";
+
+    // Last 10 events with full detail — gives AI concrete examples to reference
+    const recentEventDetails = recentEvents.slice(0, 10).map((e, i) =>
+      `${i+1}. [${e.severity.toUpperCase()}] ${e.type}/${e.subtype} | ${e.sourceIp} → ${e.targetHost} | ${e.toolUsed ?? "?"} | ${(e.description ?? "").slice(0, 120)}`
+    ).join("\n") || "none";
+
     const dataBlock = `
-Security data — last 24 hours
+AEGIS SOC — LIVE SECURITY DATA (last 24 hours as of ${new Date().toISOString()})
 
 Total events: ${recentEvents.length}
-Severity breakdown: ${severityBreakdown || "none"}
+Severity breakdown: ${severityBreakdown || "none — no attacks detected"}
 Attack types: ${attackTypes || "none"}
 Top attacker IPs: ${topAttackers || "none"}
-Targeted hosts: ${topTargets || "none"}
+Per-service hit count: ${serviceBreakdown}
 Open incidents: ${openIncidents.length}
 Unacknowledged alerts: ${unackedAlerts[0]?.count ?? 0}
-Fail2ban IP bans (last 24h): ${fail2banSummary}
-Defense actions (manual/auto): ${defenseActSummary || "none"}
+Fail2ban IP bans: ${fail2banSummary}
+Defense actions: ${defenseActSummary || "none"}
+
+MOST RECENT 10 EVENTS (newest first):
+${recentEventDetails}
 `.trim();
 
     // ── English mode: single-step, direct ────────────────────────────────────

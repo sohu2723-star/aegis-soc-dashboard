@@ -120,19 +120,33 @@ router.get("/reports/:id/download", async (req, res) => {
   const [report] = await db.select().from(reportsTable).where(eq(reportsTable.id, id));
   if (!report) { res.status(404).json({ error: "Report not found" }); return; }
 
-  const recentEvents = await db.select().from(securityEventsTable)
-    .orderBy(desc(securityEventsTable.createdAt)).limit(50);
+  // ── Determine report time window ────────────────────────────────────────────
+  const windowHoursMap: Record<string, number> = { daily: 24, weekly: 168, incident: 24, custom: 24 };
+  const windowHours = windowHoursMap[report.type] ?? 24;
+  const windowSince = new Date(new Date(report.generatedAt).getTime() - windowHours * 3_600_000);
 
-  // ── Severity counts across recent events ───────────────────────────────────
+  // Full window for severity/type counts
+  const windowEvents = await db.select().from(securityEventsTable)
+    .where(gte(securityEventsTable.createdAt, windowSince))
+    .orderBy(desc(securityEventsTable.createdAt))
+    .limit(500);
+
+  // Last 100 for the events table (most recent first)
+  const recentEvents = windowEvents.slice(0, 100);
+
+  // ── Severity counts from the full time window ───────────────────────────────
   const sevCounts = { critical: 0, high: 0, medium: 0, low: 0 };
-  for (const e of recentEvents) {
+  const typeCounts: Record<string, number> = {};
+  for (const e of windowEvents) {
     const s = e.severity as keyof typeof sevCounts;
     if (s in sevCounts) sevCounts[s]++;
+    typeCounts[e.type] = (typeCounts[e.type] ?? 0) + 1;
   }
+  const totalWindowEvents = windowEvents.length;
 
   // ── Top attacker IPs ────────────────────────────────────────────────────────
   const ipCounts: Record<string, number> = {};
-  for (const e of recentEvents) ipCounts[e.sourceIp] = (ipCounts[e.sourceIp] ?? 0) + 1;
+  for (const e of windowEvents) ipCounts[e.sourceIp] = (ipCounts[e.sourceIp] ?? 0) + 1;
   const topAttackers = Object.entries(ipCounts).sort(([,a],[,b]) => b - a).slice(0, 5);
 
   const generatedAt = new Date(report.generatedAt);
@@ -366,7 +380,7 @@ router.get("/reports/:id/download", async (req, res) => {
   <!-- Stats -->
   <div class="stats-grid">
     <div class="stat-card accent">
-      <div class="stat-num c-primary">${report.eventsCount}</div>
+      <div class="stat-num c-primary">${totalWindowEvents}</div>
       <div class="stat-label">Total Events</div>
     </div>
     <div class="stat-card">
@@ -385,7 +399,37 @@ router.get("/reports/:id/download", async (req, res) => {
       <div class="stat-num c-green">${sevCounts.low}</div>
       <div class="stat-label">Low</div>
     </div>
+    <div class="stat-card">
+      <div class="stat-num c-muted">${windowHours}h</div>
+      <div class="stat-label">Window</div>
+    </div>
   </div>
+
+  <!-- Attack type breakdown -->
+  ${Object.keys(typeCounts).length > 0 ? `
+  <div class="section">
+    <div class="section-title">Attack Type Breakdown</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px">
+      ${Object.entries(typeCounts).sort(([,a],[,b])=>b-a).map(([type, n]) => {
+        const pct = totalWindowEvents > 0 ? Math.round((n / totalWindowEvents) * 100) : 0;
+        const colorMap: Record<string,string> = {
+          web_attack:"#f87171", ssh_brute:"#fb923c", db_attack:"#fbbf24",
+          dns_attack:"#22d3ee", ldap_attack:"#a78bfa", ddos:"#ef4444",
+          port_scan:"#818cf8", mitm:"#f59e0b", network_attack:"#7d8590",
+          auth_event:"#4ade80", api_attack:"#06b6d4",
+        };
+        const col = colorMap[type] ?? "#7d8590";
+        return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px">
+          <div style="font-size:10px;font-family:'Courier New',monospace;color:${col};font-weight:700;margin-bottom:6px">${type}</div>
+          <div style="font-size:22px;font-weight:700;color:var(--text);font-variant-numeric:tabular-nums">${n}</div>
+          <div style="height:4px;background:var(--border);border-radius:2px;margin-top:8px">
+            <div style="height:4px;background:${col};border-radius:2px;width:${pct}%"></div>
+          </div>
+          <div style="font-size:9px;color:var(--muted);margin-top:4px">${pct}% of window</div>
+        </div>`;
+      }).join("")}
+    </div>
+  </div>` : ""}
 
   <!-- AI Summary — parsed into styled sections by ## headings -->
   <div class="section">
@@ -440,7 +484,7 @@ router.get("/reports/:id/download", async (req, res) => {
 
   <!-- Events table -->
   <div class="section">
-    <div class="section-title">Security Events Log — Last ${recentEvents.length} Events</div>
+    <div class="section-title">Security Events Log — ${recentEvents.length} Events (${windowHours}h window)</div>
     ${recentEvents.length > 0 ? `
     <div class="table-wrap">
     <table>
@@ -449,7 +493,7 @@ router.get("/reports/:id/download", async (req, res) => {
           <th>Timestamp</th>
           <th>Severity</th>
           <th>Type</th>
-          <th>Subtype</th>
+          <th>Subtype / Description</th>
           <th>Source IP</th>
           <th>Target</th>
           <th>Tool</th>
@@ -460,15 +504,22 @@ router.get("/reports/:id/download", async (req, res) => {
         ${recentEvents.map(e => {
           const ts = new Date(e.createdAt).toISOString().slice(0,19).replace("T"," ");
           const statusCls = e.status === "blocked" ? "status-blocked" : e.status === "detected" ? "status-detected" : "status-other";
+          const desc = (e.description ?? "").slice(0, 90);
+          const escapedDesc = desc.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+          const escapedSub  = (e.subtype ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+          const escapedType = (e.type ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
           return `
         <tr>
-          <td class="mono" style="font-size:11px;color:var(--muted)">${ts}</td>
+          <td class="mono" style="font-size:11px;color:var(--muted);white-space:nowrap">${ts}</td>
           <td><span class="sev-badge sev-${e.severity}">${e.severity}</span></td>
-          <td><span class="type-tag">${e.type}</span></td>
-          <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.subtype}</td>
-          <td class="mono" style="color:var(--primary)">${e.sourceIp}</td>
-          <td class="mono" style="color:var(--muted)">${e.targetHost}</td>
-          <td style="color:var(--muted);font-size:11px">${e.toolUsed ?? "—"}</td>
+          <td><span class="type-tag">${escapedType}</span></td>
+          <td style="max-width:220px">
+            <div style="font-weight:600;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapedSub}</div>
+            ${escapedDesc ? `<div style="font-size:10px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapedDesc}</div>` : ""}
+          </td>
+          <td class="mono" style="color:var(--primary);white-space:nowrap">${e.sourceIp}</td>
+          <td class="mono" style="color:var(--muted);white-space:nowrap">${e.targetHost}</td>
+          <td style="color:var(--muted);font-size:11px;white-space:nowrap">${e.toolUsed ?? "—"}</td>
           <td><span class="status-tag ${statusCls}">${e.status}</span></td>
         </tr>`;
         }).join("")}
