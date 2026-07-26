@@ -61,7 +61,10 @@ function auth(req: any, res: any, next: any) {
     rec.count++;
     _apiAuthFailures.set(ip, rec);
 
-    if (rec.count === AUTH_ALERT_THRESHOLD) {
+    // Only fire the brute-force alert for genuine external IPs.
+    // 127.0.0.1 / loopback comes from Render health-checks, local curl tests,
+    // and same-host services — NOT an attacker. Defender subnets are also skipped.
+    if (rec.count === AUTH_ALERT_THRESHOLD && !isDefenderIp(ip) && !isLabInternalIp(ip)) {
       // Fire async — do not block the 401 response
       setImmediate(() => {
         insertEvent({
