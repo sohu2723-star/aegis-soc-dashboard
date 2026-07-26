@@ -172,7 +172,10 @@ router.delete("/ui/defense/rules/:id", maybeAdmin, async (req, res) => {
 
 // Enhanced history — LEFT JOIN defense_rules (rule name) + security_events (attack info)
 // so the dashboard can show the full Attack → Rule → Command chain.
-router.get("/ui/defense/commands/history", async (_req, res) => {
+router.get("/ui/defense/commands/history", async (req, res) => {
+  const limit  = Math.min(Number(req.query.limit)  || 50, 200);
+  const offset = Number(req.query.offset) || 0;
+
   const commands = await db
     .select({
       id:          defenseCommandsTable.id,
@@ -199,7 +202,8 @@ router.get("/ui/defense/commands/history", async (_req, res) => {
     .leftJoin(defenseRulesTable,    eq(defenseCommandsTable.ruleId,  defenseRulesTable.id))
     .leftJoin(securityEventsTable,  eq(defenseCommandsTable.eventId, securityEventsTable.id))
     .orderBy(desc(defenseCommandsTable.createdAt))
-    .limit(100);
+    .limit(limit)
+    .offset(offset);
 
   res.json(commands.map(c => ({
     ...c,

@@ -77,12 +77,15 @@ function useDefenseStatus(device: string | null) {
   });
 }
 
-function useDefenseActions(device: string | null) {
+const ACTIONS_PAGE = 50;
+
+function useDefenseActions(device: string | null, limit: number) {
   return useQuery<DefenseAction[]>({
-    queryKey: ["defense-actions", device],
+    queryKey: ["defense-actions", device, limit],
     queryFn: async () => {
-      const qs = device ? `?device=${encodeURIComponent(device)}` : "";
-      const r = await fetch(`${BASE}/api/defense/actions${qs}`);
+      const qs = new URLSearchParams({ limit: String(limit) });
+      if (device) qs.set("device", device);
+      const r = await fetch(`${BASE}/api/defense/actions?${qs}`);
       return r.json();
     },
     refetchInterval: 8000,
@@ -193,9 +196,13 @@ export default function Defense() {
   // under "All Devices" until every sensor supplies a concrete destination IP.
   const deviceFilter = selectedDevice ? selectedDevice.ip : null;
 
+  const [actionPage, setActionPage] = useState(1);
+  const actionLimit = ACTIONS_PAGE * actionPage;
+
   const { data: blocks = [] } = useBlocks(deviceFilter);
   const { data: status } = useDefenseStatus(deviceFilter);
-  const { data: actions = [] } = useDefenseActions(deviceFilter);
+  const { data: actions = [] } = useDefenseActions(deviceFilter, actionLimit);
+  const hasMoreActions = actions.length === actionLimit;
 
   // Track which services just changed state for visual flash
   const prevStatusRef = useRef<{ fail2ban?: boolean; suricata?: boolean }>({});
@@ -838,51 +845,63 @@ export default function Defense() {
               <p className="text-xs mt-1">Actions appear when IPs are blocked or unblocked.</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border text-xs text-muted-foreground uppercase tracking-wider">
-                    <th className="text-left py-2 px-3">Time</th>
-                    <th className="text-left py-2 px-3">Action</th>
-                    <th className="text-left py-2 px-3">Target IP</th>
-                    <th className="text-left py-2 px-3">Reason</th>
-                    <th className="text-left py-2 px-3">By</th>
-                    <th className="text-left py-2 px-3">Type</th>
-                    <th className="text-left py-2 px-3">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {actions.map(a => (
-                    <tr key={a.id} className="border-b border-border/50 hover:bg-primary/5 transition-colors">
-                      <td className="py-2 px-3 text-xs text-muted-foreground font-mono">
-                        {format(new Date(a.createdAt), "MM/dd HH:mm:ss")}
-                      </td>
-                      <td className={`py-2 px-3 flex items-center gap-1.5 font-mono text-xs font-bold ${actionColors[a.action] ?? "text-gray-400"}`}>
-                        {actionIcons[a.action]}
-                        {a.action.toUpperCase()}
-                      </td>
-                      <td className="py-2 px-3 font-mono text-xs text-cyan-400">{a.targetIp}</td>
-                      <td className="py-2 px-3 text-xs text-muted-foreground max-w-xs truncate">{a.reason}</td>
-                      <td className="py-2 px-3 text-xs">
-                        {a.performedBy === "admin"
-                          ? <span className="flex items-center gap-1 text-blue-400"><UserCheck className="w-3 h-3" />Admin</span>
-                          : <span className="flex items-center gap-1 text-cyan-400"><Bot className="w-3 h-3" />Auto</span>}
-                      </td>
-                      <td className="py-2 px-3">
-                        <Badge variant="outline" className={`text-xs ${a.type === "auto" ? "border-cyan-800 text-cyan-400" : "border-blue-800 text-blue-400"}`}>
-                          {a.type.toUpperCase()}
-                        </Badge>
-                      </td>
-                      <td className="py-2 px-3">
-                        <span className={`text-xs ${a.status === "success" ? "text-green-400" : "text-red-400"}`}>
-                          {a.status.toUpperCase()}
-                        </span>
-                      </td>
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border text-xs text-muted-foreground uppercase tracking-wider">
+                      <th className="text-left py-2 px-3">Time</th>
+                      <th className="text-left py-2 px-3">Action</th>
+                      <th className="text-left py-2 px-3">Target IP</th>
+                      <th className="text-left py-2 px-3">Reason</th>
+                      <th className="text-left py-2 px-3">By</th>
+                      <th className="text-left py-2 px-3">Type</th>
+                      <th className="text-left py-2 px-3">Status</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {actions.map(a => (
+                      <tr key={a.id} className="border-b border-border/50 hover:bg-primary/5 transition-colors">
+                        <td className="py-2 px-3 text-xs text-muted-foreground font-mono">
+                          {format(new Date(a.createdAt), "MM/dd HH:mm:ss")}
+                        </td>
+                        <td className={`py-2 px-3 flex items-center gap-1.5 font-mono text-xs font-bold ${actionColors[a.action] ?? "text-gray-400"}`}>
+                          {actionIcons[a.action]}
+                          {a.action.toUpperCase()}
+                        </td>
+                        <td className="py-2 px-3 font-mono text-xs text-cyan-400">{a.targetIp}</td>
+                        <td className="py-2 px-3 text-xs text-muted-foreground max-w-xs truncate">{a.reason}</td>
+                        <td className="py-2 px-3 text-xs">
+                          {a.performedBy === "admin"
+                            ? <span className="flex items-center gap-1 text-blue-400"><UserCheck className="w-3 h-3" />Admin</span>
+                            : <span className="flex items-center gap-1 text-cyan-400"><Bot className="w-3 h-3" />Auto</span>}
+                        </td>
+                        <td className="py-2 px-3">
+                          <Badge variant="outline" className={`text-xs ${a.type === "auto" ? "border-cyan-800 text-cyan-400" : "border-blue-800 text-blue-400"}`}>
+                            {a.type.toUpperCase()}
+                          </Badge>
+                        </td>
+                        <td className="py-2 px-3">
+                          <span className={`text-xs ${a.status === "success" ? "text-green-400" : "text-red-400"}`}>
+                            {a.status.toUpperCase()}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {hasMoreActions && (
+                <div className="flex justify-center pt-3">
+                  <button
+                    onClick={() => setActionPage(p => p + 1)}
+                    className="text-xs text-primary/70 hover:text-primary border border-border hover:border-primary/40 rounded px-4 py-1.5 transition-colors font-mono"
+                  >
+                    Load more ({actionLimit} shown)
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>

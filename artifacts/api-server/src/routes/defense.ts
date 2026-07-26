@@ -131,10 +131,17 @@ router.delete("/defense/block/:ip", requireAuth, async (req, res) => {
 
 router.get("/defense/actions", async (req, res) => {
   const device = (req.query.device as string) || undefined;
+  const limit  = Math.min(Number(req.query.limit)  || 50, 200);
+  const offset = Number(req.query.offset) || 0;
+
+  const conditions = device ? [eq(defenseActionsTable.targetHost, device)] : [];
   const actions = await db.select().from(defenseActionsTable)
-    .orderBy(desc(defenseActionsTable.createdAt)).limit(200);
-  const filtered = device ? actions.filter(a => a.targetHost === device) : actions;
-  res.json(filtered.slice(0, 100).map(a => ({ ...a, createdAt: a.createdAt.toISOString() })));
+    .where(conditions.length > 0 ? conditions[0] : undefined)
+    .orderBy(desc(defenseActionsTable.createdAt))
+    .limit(limit)
+    .offset(offset);
+
+  res.json(actions.map(a => ({ ...a, createdAt: a.createdAt.toISOString() })));
 });
 
 router.get("/defense/status", async (req, res) => {

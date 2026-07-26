@@ -1,6 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useListEvents, getListEventsQueryKey } from "@workspace/api-client-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -264,20 +263,29 @@ function DefenseActionsPanel({ eventId }: { eventId: number }) {
   );
 }
 
+const EVENTS_PAGE = 50;
+
 export default function Events() {
   const [severityFilter, setSeverityFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [selectedEvent, setSelectedEvent] = useState<any>(null);
+  const [page, setPage] = useState(1);
   const { selectedIp, selectedDevice } = useDeviceContext();
 
-  const params = severityFilter !== "all" ? { severity: severityFilter as any } : {};
+  // Reset pagination when filter or device changes
+  useEffect(() => { setPage(1); }, [severityFilter, selectedIp]);
 
-  const { data: events, isLoading } = useListEvents(params, {
-    query: {
-      queryKey: getListEventsQueryKey(params),
-      refetchInterval: 5000,
-    },
+  const limit = EVENTS_PAGE * page;
+  const qs = new URLSearchParams({ limit: String(limit) });
+  if (severityFilter !== "all") qs.set("severity", severityFilter);
+
+  const { data: events, isLoading, isFetching } = useQuery<any[]>({
+    queryKey: ["events-paged", severityFilter, limit],
+    queryFn: () => fetch(`${BASE}/api/events?${qs}`).then(r => r.json()),
+    refetchInterval: 5000,
   });
+
+  const hasMore = (events?.length ?? 0) === limit;
 
   const deviceFiltered = selectedIp
     ? (events ?? []).filter(
@@ -315,7 +323,7 @@ export default function Events() {
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
             <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
           </span>
-          Live · {filtered.length} events
+          Live · {filtered.length} events{isFetching && !isLoading && <span className="text-primary/50"> · updating…</span>}
         </div>
       </div>
 
@@ -442,6 +450,18 @@ export default function Events() {
           </TableBody>
         </Table>
       </div>
+
+      {/* Load More */}
+      {hasMore && (
+        <div className="flex justify-center pt-1 pb-2">
+          <button
+            onClick={() => setPage(p => p + 1)}
+            className="text-xs text-primary/70 hover:text-primary border border-border hover:border-primary/40 rounded px-4 py-1.5 transition-colors font-mono"
+          >
+            Load more ({limit} shown)
+          </button>
+        </div>
+      )}
 
       {/* Rule Detail Sheet */}
       <Sheet open={!!selectedEvent} onOpenChange={open => { if (!open) setSelectedEvent(null); }}>

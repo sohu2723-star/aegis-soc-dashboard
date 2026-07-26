@@ -52,7 +52,7 @@ function InternetSpeedCard() {
 
   useEffect(() => {
     measure();
-    const id = setInterval(measure, 60_000);
+    const id = setInterval(measure, 5_000);
     return () => clearInterval(id);
   }, [measure]);
 
@@ -142,7 +142,7 @@ function InternetSpeedCard() {
           ))}
         </div>
         <div className="flex justify-between mt-1 text-[9px] text-muted-foreground/50 font-mono">
-          <span>-{barCount * 10}s</span>
+          <span>-{barCount * 5}s</span>
           <span>now</span>
         </div>
       </CardContent>

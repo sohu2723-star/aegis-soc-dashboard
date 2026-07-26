@@ -26,11 +26,13 @@ interface Alert {
   toolUsed: string | null;
 }
 
-function useAlerts() {
+const ALERTS_PAGE = 50;
+
+function useAlerts(limit: number) {
   return useQuery<Alert[]>({
-    queryKey: ["alerts"],
+    queryKey: ["alerts", limit],
     queryFn: async () => {
-      const r = await fetch(`${BASE}/api/alerts`);
+      const r = await fetch(`${BASE}/api/alerts?limit=${limit}`);
       if (!r.ok) throw new Error("Failed to fetch alerts");
       return r.json();
     },
@@ -68,9 +70,12 @@ export default function Alerts() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [filter, setFilter] = useState<"all" | "unacknowledged">("unacknowledged");
+  const [alertPage, setAlertPage] = useState(1);
   const { selectedIp, selectedDevice } = useDeviceContext();
 
-  const { data: allAlerts = [], isLoading } = useAlerts();
+  const alertLimit = ALERTS_PAGE * alertPage;
+  const { data: allAlerts = [], isLoading } = useAlerts(alertLimit);
+  const hasMoreAlerts = allAlerts.length === alertLimit;
 
   const ackMutation = useMutation({
     mutationFn: async (id: number) => {
@@ -236,6 +241,18 @@ export default function Alerts() {
             </div>
           </div>
         ))}
+
+        {/* Load more */}
+        {hasMoreAlerts && !isLoading && (
+          <div className="flex justify-center pt-1">
+            <button
+              onClick={() => setAlertPage(p => p + 1)}
+              className="text-xs text-primary/70 hover:text-primary border border-border hover:border-primary/40 rounded px-4 py-1.5 transition-colors font-mono"
+            >
+              Load more ({alertLimit} shown)
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -7,6 +7,8 @@ const router = Router();
 
 router.get("/alerts", async (req, res) => {
   const acknowledged = req.query.acknowledged;
+  const limit  = Math.min(Number(req.query.limit)  || 50, 200);
+  const offset = Number(req.query.offset) || 0;
 
   // Enrich alerts with linked security event data (sourceIp, targetHost, type, subtype, toolUsed)
   const rows = await db
@@ -27,7 +29,9 @@ router.get("/alerts", async (req, res) => {
     })
     .from(alertsTable)
     .leftJoin(securityEventsTable, eq(alertsTable.eventId, securityEventsTable.id))
-    .orderBy(desc(alertsTable.createdAt));
+    .orderBy(desc(alertsTable.createdAt))
+    .limit(limit)
+    .offset(offset);
 
   const filtered = acknowledged !== undefined
     ? rows.filter(a => a.acknowledged === (acknowledged === "true"))
