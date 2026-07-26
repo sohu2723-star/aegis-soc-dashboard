@@ -15,6 +15,24 @@ export function telegramAvailable(): boolean {
   return Boolean(BOT_TOKEN() && CHAT_ID());
 }
 
+/**
+ * Sanitize arbitrary text for use inside Telegram HTML parse_mode.
+ * Escapes &, <, > then converts Markdown ## headings and **bold** to HTML tags.
+ */
+export function sanitizeForTelegramHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    // ## Section headings → <b>
+    .replace(/^##\s+(.+)$/gm, "\n<b>$1</b>")
+    // **bold** → <b>
+    .replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")
+    // Trim excess blank lines
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 export async function sendTelegramMessage(text: string): Promise<void> {
   const token  = BOT_TOKEN();
   const chatId = CHAT_ID();

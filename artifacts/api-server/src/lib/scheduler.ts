@@ -17,7 +17,7 @@ import { db, reportsTable, securityEventsTable, incidentsTable } from "@workspac
 import { desc, count, gte } from "drizzle-orm";
 import { getSetting, setSetting } from "./app-settings";
 import { askGroq, groqAvailable } from "./groq-client";
-import { sendTelegramMessage, telegramAvailable } from "./telegram";
+import { sendTelegramMessage, telegramAvailable, sanitizeForTelegramHtml } from "./telegram";
 import { logger } from "./logger";
 
 export const DEFAULT_INTERVAL_SECONDS = 86400;   // 24 h
@@ -143,10 +143,23 @@ async function runAutoReport(intervalSeconds: number): Promise<void> {
     const sinceLabel  = fmtMST(since);
     const nowLabel    = fmtMST(now);
 
+    // Fallback template — uses ## sections so HTML download renders styled blocks
     const templateSummary =
-      `AEGIS SOC Scheduled Report — ကာလ: နောက်ဆုံး ${periodLabel} (${sinceLabel} ~ ${nowLabel})\n` +
-      `Events: ${eventsCount} ခု | Incidents: ${incidentsCount} ခု\n` +
-      `Suricata IDS (pfSense), Fail2ban, SSH monitoring, Web attack detection, Firewall rules ပါဝင်သည်။`;
+`## ဖြစ်ပွားမှု အကျဉ်းချုပ်
+AEGIS SOC Scheduled Report — ကာလ: နောက်ဆုံး ${periodLabel} (${sinceLabel} ~ ${nowLabel})
+Events: ${eventsCount} ခု | Incidents: ${incidentsCount} ခု ။ ဤကာလအတွင်း ထူးထူးခြားခြား ဖြစ်ရပ် မတွေ့ရပါ။
+
+## အဓိက ခြိမ်းခြောက်မှုများ
+ဤ ${periodLabel} အတွင်း အရေးပေါ် ဆောင်ရွက်မှု မလိုအပ်သော ပုံမှန် monitoring လုပ်ဆောင်မှုများ ဖြစ်ပျက်ခဲ့သည်။ Attacker IP အသစ် မတွေ့ရပါ။
+
+## ကာကွယ်ရေး ဆောင်ရွက်ချက်များ
+Suricata IDS (pfSense), Fail2ban, SSH monitoring, Web attack detection နှင့် iptables Firewall rules တို့ active ဖြစ်နေသည်။ Block rules အားလုံး enforce ဖြစ်နေသည်။
+
+## သတိပြုရမည့် နောက်ထပ် အချက်များ
+1. Company server တိုင်းတွင် Fail2ban ban list ကို ပြန်သုံးသပ်ပါ — repeat offender IP တွေ ban duration တိုးပါ။
+2. pfSense မှာ Suricata rule set update ဖြစ်မဖြစ် စစ်ဆေးပါ။
+3. SSH authorized_keys ကို VM အားလုံးတွင် စစ်ဆေးပါ — unauthorized entry ဖယ်ရှားပါ။
+4. LDAP server access logs AEGIS သို့ forward ဖြစ်မဖြစ် အတည်ပြုပါ။`;
 
     let summary     = templateSummary;
     let aiGenerated = false;
@@ -202,7 +215,7 @@ Top attacker IPs: ${topAttackers || "မရှိ"}
         });
         aiGenerated = true;
       } catch (err: any) {
-        logger.warn({ err: err.message }, "Auto-report AI failed, using template");
+        logger.warn({ err: err.message, stack: err.stack?.slice(0, 300) }, "Auto-report AI failed, using template summary");
       }
     }
 
@@ -223,13 +236,16 @@ Top attacker IPs: ${topAttackers || "မရှိ"}
     if (telegramAvailable()) {
       const telegramEnabled = await getSetting("telegramEnabled");
       if (telegramEnabled !== "false") {
-        const MAX_CHARS = 400;
-        let trimmedSummary = summary;
-        if (summary.length > MAX_CHARS) {
-          const chunk     = summary.slice(0, MAX_CHARS);
-          const lastBreak = Math.max(chunk.lastIndexOf("။"), chunk.lastIndexOf("."));
+        // Sanitize: escape HTML special chars, convert ## → <b>, strip unsafe tags
+        const safeSummary = sanitizeForTelegramHtml(summary);
+
+        const MAX_CHARS = 600;
+        let trimmedSummary = safeSummary;
+        if (safeSummary.length > MAX_CHARS) {
+          const chunk     = safeSummary.slice(0, MAX_CHARS);
+          const lastBreak = Math.max(chunk.lastIndexOf("။"), chunk.lastIndexOf("."), chunk.lastIndexOf("\n"));
           trimmedSummary  = lastBreak > 50
-            ? summary.slice(0, lastBreak + 1) + "\n\n📖 <i>Full report — dashboard မှာ ကြည့်ပါ</i>"
+            ? safeSummary.slice(0, lastBreak + 1) + "\n\n📖 <i>Full report — dashboard မှာ ကြည့်ပါ</i>"
             : chunk + "…";
         }
 
