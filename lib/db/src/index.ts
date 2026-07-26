@@ -44,10 +44,14 @@ const conn = parseConnectionUrl(process.env.SUPABASE_DB_URL);
 
 const client = postgres({
   ...conn,
-  ssl:  "require",
-  max:  10,
+  ssl:          "require",
+  max:          10,
   idle_timeout: 20,
   connect_timeout: 10,
+  // Supabase uses Supavisor in transaction mode (port 6543).
+  // Transaction-mode poolers do not support prepared statements —
+  // disable them or every query will fail with "Failed query" errors.
+  prepare:      false,
 });
 
 export const db = drizzle(client, { schema });
