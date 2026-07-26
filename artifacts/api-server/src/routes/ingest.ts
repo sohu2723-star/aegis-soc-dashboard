@@ -613,7 +613,7 @@ router.post("/ingest/dns", auth, async (req, res) => {
     : `DNS ${attack_type ?? "attack"} from ${src_ip}: query "${query}"`;
 
   const event = await insertEvent({
-    type:"network_attack", subtype: attack_type ?? "DNS Attack", severity: s,
+    type:"dns_attack", subtype: attack_type ?? "DNS Attack", severity: s,
     sourceIp: src_ip ?? "unknown", targetHost,
     toolUsed: isPoison ? "dnsspoof" : "bind9",
     description: desc,
@@ -654,7 +654,7 @@ router.post("/ingest/mysql", auth, async (req, res) => {
   });
 
   const event = await insertEvent({
-    type:"network_attack", subtype: `MySQL ${attack_type ?? "DB Auth Brute Force"}`, severity: s,
+    type:"db_attack", subtype: `MySQL ${attack_type ?? "DB Auth Brute Force"}`, severity: s,
     sourceIp: src_ip, targetHost: target_ip ?? "company-customer-db",
     toolUsed:"mysql",
     description:`MySQL ${attack_type ?? "auth failure"}: user='${username ?? "?"}' from ${src_ip} → ${target_ip ?? "10.20.20.10"}:3306`,
@@ -696,7 +696,7 @@ router.post("/ingest/ldap", auth, async (req, res) => {
   });
 
   const event = await insertEvent({
-    type:"network_attack", subtype: `LDAP ${attack_type ?? "Auth Brute Force"}`, severity: s,
+    type:"ldap_attack", subtype: `LDAP ${attack_type ?? "Auth Brute Force"}`, severity: s,
     sourceIp: src_ip, targetHost: target_ip ?? "company-ldap-server",
     toolUsed:"slapd",
     description:`LDAP ${attack_type ?? "auth failure"} from ${src_ip}: dn="${dn ?? "?"}" err=${errNum ?? "?"}`,

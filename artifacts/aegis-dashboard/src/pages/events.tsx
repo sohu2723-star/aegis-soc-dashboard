@@ -80,6 +80,19 @@ const SEV_COLORS: Record<string, string> = {
   low:      "border-green-500 text-green-500",
 };
 
+// Attack type → human-readable label
+const ATTACK_TYPE_LABELS: Record<string, string> = {
+  network_attack: "Network Attack",
+  web_attack:     "Web Attack",
+  db_attack:      "DB Attack",
+  dns_attack:     "DNS Attack",
+  ldap_attack:    "LDAP Attack",
+  auth_event:     "Auth Event",
+};
+function attackTypeLabel(type: string): string {
+  return ATTACK_TYPE_LABELS[type] ?? type.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
+
 // Behavioral classification helpers
 function isBreach(event: any)  { return event.status === "breach"; }
 function isAuthorized(event: any) {
@@ -376,7 +389,7 @@ export default function Events() {
                 <TableCell>
                   <SeverityBadge severity={event.severity} />
                 </TableCell>
-                <TableCell className="font-medium text-primary text-sm">{event.type}</TableCell>
+                <TableCell className="font-medium text-primary text-sm">{attackTypeLabel(event.type)}</TableCell>
                 <TableCell className="max-w-[280px]">
                   {event.subtype ? (
                     <div className="flex items-center gap-1.5">

@@ -914,7 +914,14 @@ export default function AttackFlowPage() {
                         {e.toolUsed}
                       </span>
                     )}
-                    <span className="text-white/75 truncate">{e.evType}</span>
+                    <span className="text-white/75 truncate">{({
+                        network_attack: "Network Attack",
+                        web_attack:     "Web Attack",
+                        db_attack:      "DB Attack",
+                        dns_attack:     "DNS Attack",
+                        ldap_attack:    "LDAP Attack",
+                        auth_event:     "Auth Event",
+                      } as Record<string,string>)[e.evType] ?? e.evType.replace(/_/g," ").replace(/\b\w/g,(c:string)=>c.toUpperCase())}</span>
                   </div>
                   <div className="text-white/40 truncate">
                     {e.srcIp} <span className="opacity-50">→</span> {e.target}
