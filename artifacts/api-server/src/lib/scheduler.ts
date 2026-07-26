@@ -145,21 +145,21 @@ async function runAutoReport(intervalSeconds: number): Promise<void> {
 
     // Fallback template — uses ## sections so HTML download renders styled blocks
     const templateSummary =
-`## ဖြစ်ပွားမှု အကျဉ်းချုပ်
-AEGIS SOC Scheduled Report — ကာလ: နောက်ဆုံး ${periodLabel} (${sinceLabel} ~ ${nowLabel})
-Events: ${eventsCount} ခု | Incidents: ${incidentsCount} ခု ။ ဤကာလအတွင်း ထူးထူးခြားခြား ဖြစ်ရပ် မတွေ့ရပါ။
+`## Incident Summary
+AEGIS SOC Scheduled Report — Period: Last ${periodLabel} (${sinceLabel} ~ ${nowLabel})
+Events: ${eventsCount} | Incidents: ${incidentsCount}. No unusual activity detected during this period.
 
-## အဓိက ခြိမ်းခြောက်မှုများ
-ဤ ${periodLabel} အတွင်း အရေးပေါ် ဆောင်ရွက်မှု မလိုအပ်သော ပုံမှန် monitoring လုပ်ဆောင်မှုများ ဖြစ်ပျက်ခဲ့သည်။ Attacker IP အသစ် မတွေ့ရပါ။
+## Key Threats
+No new attacker IPs detected during this ${periodLabel}. Routine monitoring operations only.
 
-## ကာကွယ်ရေး ဆောင်ရွက်ချက်များ
-Suricata IDS (pfSense), Fail2ban, SSH monitoring, Web attack detection နှင့် iptables Firewall rules တို့ active ဖြစ်နေသည်။ Block rules အားလုံး enforce ဖြစ်နေသည်။
+## Defense Actions
+Suricata IDS (pfSense), Fail2ban, SSH monitoring, Web attack detection and iptables Firewall rules are all active. All block rules enforced.
 
-## သတိပြုရမည့် နောက်ထပ် အချက်များ
-1. Company server တိုင်းတွင် Fail2ban ban list ကို ပြန်သုံးသပ်ပါ — repeat offender IP တွေ ban duration တိုးပါ။
-2. pfSense မှာ Suricata rule set update ဖြစ်မဖြစ် စစ်ဆေးပါ။
-3. SSH authorized_keys ကို VM အားလုံးတွင် စစ်ဆေးပါ — unauthorized entry ဖယ်ရှားပါ။
-4. LDAP server access logs AEGIS သို့ forward ဖြစ်မဖြစ် အတည်ပြုပါ။`;
+## Recommendations
+1. Review Fail2ban ban list on all company servers — increase ban duration for repeat offender IPs.
+2. Verify Suricata rule set is up to date on pfSense.
+3. Audit SSH authorized_keys on all VMs — remove unauthorized entries.
+4. Confirm LDAP server access logs are forwarding to AEGIS.`;
 
     let summary     = templateSummary;
     let aiGenerated = false;
@@ -174,43 +174,66 @@ Suricata IDS (pfSense), Fail2ban, SSH monitoring, Web attack detection နှင
         const byType:     Record<string, number> = {};
         const bySourceIp: Record<string, number> = {};
         const bySeverity: Record<string, number> = {};
+        // Per-IP attack type breakdown for accurate Key Threats analysis
+        const ipAttackTypes: Record<string, Record<string, number>> = {};
+        const ipTargets:     Record<string, Set<string>> = {};
+
         for (const e of recentEvents) {
           byType[e.type]         = (byType[e.type]         ?? 0) + 1;
           bySourceIp[e.sourceIp] = (bySourceIp[e.sourceIp] ?? 0) + 1;
           bySeverity[e.severity] = (bySeverity[e.severity] ?? 0) + 1;
+
+          if (!ipAttackTypes[e.sourceIp]) ipAttackTypes[e.sourceIp] = {};
+          ipAttackTypes[e.sourceIp][e.type] = (ipAttackTypes[e.sourceIp][e.type] ?? 0) + 1;
+
+          if (!ipTargets[e.sourceIp]) ipTargets[e.sourceIp] = new Set();
+          ipTargets[e.sourceIp].add(e.targetHost);
         }
-        const topAttackers = Object.entries(bySourceIp).sort(([,a],[,b])=>b-a).slice(0,5).map(([ip,n])=>`${ip} (${n})`).join(", ");
+
+        const topAttackerEntries = Object.entries(bySourceIp).sort(([,a],[,b])=>b-a).slice(0,5);
+        const topAttackers = topAttackerEntries.map(([ip,n])=>`${ip} (${n})`).join(", ");
         const attackTypes  = Object.entries(byType).sort(([,a],[,b])=>b-a).map(([t,n])=>`${t}: ${n}`).join(", ");
         const sevBreakdown = Object.entries(bySeverity).map(([s,n])=>`${s}:${n}`).join(", ");
 
+        // Detailed per-IP breakdown for AI
+        const ipDetails = topAttackerEntries.map(([ip, total]) => {
+          const types   = Object.entries(ipAttackTypes[ip] ?? {}).sort(([,a],[,b])=>b-a).map(([t,n])=>`${t}(${n})`).join(", ");
+          const targets = [...(ipTargets[ip] ?? [])].slice(0, 3).join(", ");
+          return `  - ${ip}: ${total} events | attack types: ${types} | targets: ${targets}`;
+        }).join("\n");
+
         summary = await askGroq({
-          system: `သင်သည် AEGIS-AI — မြန်မာ cybersecurity news anchor တစ်ဦးဖြစ်သည်။ live security briefing ပေးနေသကဲ့သို့ တိုက်ရိုက်ပြောသလို ရေးရမည်။
+          system: `You are AEGIS-AI — a Myanmar cybersecurity news anchor. Write like you are delivering a live security briefing.
 
-PERSONA: TV news anchor — "ဒီညပိုင်း ကျွန်တော်တို့ ကွန်ရက်ကို ဘာတွေ တိုက်ခိုက်ခဲ့လဲ ပြောပြမှာပါ" ဆိုတဲ့ presentation style။
-VOICE: active — "တိုက်ခိုက်မှုပြုလုပ်ခဲ့သည်", "ဖောက်ထွင်းရန် ကြိုးပမ်းခဲ့သည်", "ခိုးဝင်ရန် ကြိုးစားခဲ့သည်" — passive "တာဝန်ရှိသည်" မသုံးရ။
-LANGUAGE: သဘာဝကျသော မြန်မာဘာသာ — translate လုပ်ထားသလို မဖြစ်ရ — news anchor လို ပြောကြားသလို ရေးရမည်။
-NUMBERS + IPs: English digits သာ — မြန်မာဂဏန်း လုံးဝ မသုံးရ။
-COMPLETE: sentence အလယ်မှာ မဖြတ်ရ — sections အားလုံး ပြည့်ပြည့်စုံစုံ ပြောပြီးမှ ဆုံးရမည်။`,
-          user: `AEGIS SOC SECURITY BRIEFING DATA — နောက်ဆုံး ${periodLabel} (${sinceLabel} ~ ${nowLabel})
+PERSONA: TV news anchor — direct, urgent, authoritative.
+VOICE: active — "attacked", "attempted to breach", "tried to infiltrate" — never passive.
+LANGUAGE: Natural Myanmar language mixed with technical English terms (IP, SSH, brute-force, etc.) — do NOT sound like a translation.
+NUMBERS + IPs: English digits only — never Myanmar numerals.
+SECTION TITLES: Use exactly these English titles: ## Incident Summary / ## Key Threats / ## Defense Actions / ## Recommendations
+COMPLETE: Never cut off mid-sentence — complete all 4 sections fully before finishing.`,
+          user: `AEGIS SOC SECURITY BRIEFING DATA — Last ${periodLabel} (${sinceLabel} ~ ${nowLabel})
 
-Event: ${recentEvents.length} ခု | Incident: ${incidentsCount} ခု
-Severity breakdown: ${sevBreakdown || "မရှိ"}
-Attack types: ${attackTypes || "မရှိ"}
-Top attacker IPs: ${topAttackers || "မရှိ"}
+Events: ${recentEvents.length} | Incidents: ${incidentsCount}
+Severity: ${sevBreakdown || "none"}
+Attack types: ${attackTypes || "none"}
+Top attacker IPs: ${topAttackers || "none"}
 
-ဤ data ကို အသုံးပြုပြီး Myanmar news anchor style ဖြင့် security briefing ရေးပါ။ Section တိုင်းကို ပြည့်ပြည့်စုံစုံ ဖြည့်ပါ —
+Per-IP attack breakdown (for Key Threats section):
+${ipDetails || "  No attackers detected"}
 
-## ဖြစ်ပွားမှု အကျဉ်းချုပ်
-(ဒီ ${periodLabel} အတွင်း ဘာ attack တွေ ဖြစ်ခဲ့သလဲ — news anchor လို narrative ဖြင့်)
+Write a complete security briefing using ONLY this data. Fill all 4 sections accurately:
 
-## အဓိက ခြိမ်းခြောက်မှုများ
-(IP တစ်ခုချင်းစီ — တိုက်ခိုက်မှုပြုလုပ်ခဲ့သည်/ ဖောက်ထွင်းရန် ကြိုးပမ်းခဲ့သည် — active voice — top 5)
+## Incident Summary
+(What attacks happened this ${periodLabel} — narrative style)
 
-## ကာကွယ်ရေး ဆောင်ရွက်ချက်များ
-(ဘာ block လုပ်ပြီး၊ ဘာ pending ကျန် — active style ဖြင့်)
+## Key Threats
+(Each top attacker IP — what attack type they used, which targets they hit — active voice, specific details from the per-IP breakdown above)
 
-## သတိပြုရမည့် နောက်ထပ် အချက်များ
-(အနည်းဆုံး ၄ ချက် — တစ်ချက်ချင်းစီ တိကျသော အကြံပြုချက်)`,
+## Defense Actions
+(What was blocked, what is still pending — active style)
+
+## Recommendations
+(At least 4 specific, actionable items based on the actual attack types seen)`,
           maxTokens: 4000,
         });
         aiGenerated = true;
