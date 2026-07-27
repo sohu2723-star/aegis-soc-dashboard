@@ -167,7 +167,11 @@ function classifyWebSignature(signature: string, category: string): string | nul
  */
 function classifyAttackTypeFromSuricata(signature: string, category: string): string {
   const t = `${signature} ${category}`.toLowerCase();
-  // Web / application layer
+  // Database — must be checked BEFORE web_attack because "mysql" contains "sql"
+  // and would otherwise be misclassified as web_attack by the sql/sqli check below.
+  if (t.includes("mysql") || t.includes("mssql") || t.includes("postgres") ||
+      t.includes("oracle") || t.includes("database") || t.includes("sql server")) return "db_attack";
+  // Web / application layer (sql/sqli check is safe here — db keywords already handled above)
   if (t.includes("sql") || t.includes("sqli") || t.includes("xss") || t.includes("lfi") ||
       t.includes("rfi") || t.includes("csrf") || t.includes("traversal") ||
       t.includes("web application") || t.includes("http") || t.includes("php") ||
@@ -177,9 +181,6 @@ function classifyAttackTypeFromSuricata(signature: string, category: string): st
       t.includes("credential")) return "ssh_brute";
   // DNS
   if (t.includes("dns") || t.includes("domain") || t.includes("resolver")) return "dns_attack";
-  // Database
-  if (t.includes("mysql") || t.includes("mssql") || t.includes("postgres") ||
-      t.includes("oracle") || t.includes("database") || t.includes("sql server")) return "db_attack";
   // LDAP
   if (t.includes("ldap") || t.includes("slapd") || t.includes("directory")) return "ldap_attack";
   // Port scan / reconnaissance — check BEFORE ddos because Suricata nmap rules often
