@@ -6,6 +6,29 @@ import { ensureSystemStatusSeeded } from "./system";
 
 const router = Router();
 
+// ── In-memory cache for /dashboard/summary ────────────────────────────────────
+// The summary runs 8 parallel DB queries. With Supabase pooler (port 6543),
+// establishing connections after an idle period takes 2-5s per slot, making
+// the first request after idle > 8s → false "API slow" banner.
+// Cache per targetHost for 3s so rapid polls and SSE-triggered invalidations
+// don't all race to open fresh connections at once.
+const _summaryCache = new Map<string, { data: unknown; expiresAt: number }>();
+const SUMMARY_CACHE_MS = 3000;
+
+function getCachedSummary(key: string) {
+  const entry = _summaryCache.get(key);
+  if (entry && entry.expiresAt > Date.now()) return entry.data;
+  return null;
+}
+function setCachedSummary(key: string, data: unknown) {
+  _summaryCache.set(key, { data, expiresAt: Date.now() + SUMMARY_CACHE_MS });
+  // Prune stale entries (max 20 host keys)
+  if (_summaryCache.size > 20) {
+    const now = Date.now();
+    for (const [k, v] of _summaryCache) if (v.expiresAt <= now) _summaryCache.delete(k);
+  }
+}
+
 router.get("/dashboard/summary", async (req, res) => {
   await ensureSystemStatusSeeded();
   // Optional ?targetHost=IP — scope all event stats to a specific host
@@ -13,6 +36,10 @@ router.get("/dashboard/summary", async (req, res) => {
     typeof req.query.targetHost === "string" && req.query.targetHost
       ? req.query.targetHost
       : null;
+
+  const cacheKey = targetHost ?? "__all__";
+  const cached = getCachedSummary(cacheKey);
+  if (cached) { res.json(cached); return; }
 
   // Pre-build filters so we don't branch inside Promise.all
   const baseWhere   = targetHost ? eq(securityEventsTable.targetHost, targetHost) : undefined;
@@ -142,7 +169,7 @@ router.get("/dashboard/summary", async (req, res) => {
     count: Number(r.count),
   }));
 
-  res.json({
+  const payload = {
     totalEvents:    Number(totalEventsRes?.count  ?? 0),
     criticalEvents: Number(criticalRes?.count     ?? 0),
     openIncidents:  Number(openIncidentsRes?.count ?? 0),
@@ -155,7 +182,9 @@ router.get("/dashboard/summary", async (req, res) => {
     attacksByType,
     eventsTrend,
     scopedToHost: targetHost,
-  });
+  };
+  setCachedSummary(cacheKey, payload);
+  res.json(payload);
 });
 
 export default router;
