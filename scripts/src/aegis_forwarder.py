@@ -463,13 +463,13 @@ def _report_defense_result(cmd_id: int, success: bool, error: str = None):
 
 
 def _exec_defense_shell(command: str, cmd_id: int):
-    # Prepend sudo for iptables/ip6tables — forwarder runs as non-root user.
-    # For compound commands (containing && or ;), wrap in "sudo bash -c '...'" so
-    # every sub-command (including ss -K) runs with root privileges.
+    # Prepend sudo -n for iptables/ip6tables — forwarder runs as non-root user.
+    # -n (non-interactive) prevents sudo from prompting for a password; with
+    # NOPASSWD in sudoers.d this always succeeds without needing a TTY.
     if any(c in command for c in ("&&", ";", "||")):
-        run_cmd = f"sudo bash -c {shlex.quote(command)}"
+        run_cmd = f"sudo -n bash -c {shlex.quote(command)}"
     elif command.lstrip().startswith(("iptables", "ip6tables", "ss ", "ip route")):
-        run_cmd = f"sudo {command}"
+        run_cmd = f"sudo -n {command}"
     else:
         run_cmd = command
     print(f"[defense] Executing: {run_cmd}")
