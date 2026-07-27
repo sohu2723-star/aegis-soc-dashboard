@@ -67,6 +67,9 @@ export function useSSE() {
       eventsDebounceTimer = setTimeout(() => {
         queryClient.invalidateQueries({ queryKey: getGetRecentEventsQueryKey() });
         queryClient.invalidateQueries({ queryKey: getListEventsQueryKey({}) });
+        // Also refresh KPI cards so Total Events updates without waiting for stats_update
+        queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
+        queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
         eventsDebounceTimer = null;
       }, 1500);
     });
@@ -118,7 +121,9 @@ export function useSSE() {
     });
 
     es.addEventListener("stats_update", () => {
+      // Invalidate both the generated client key AND the custom key used in dashboard.tsx
       queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
     });
 
     // Host online/offline status changed — refresh network monitor

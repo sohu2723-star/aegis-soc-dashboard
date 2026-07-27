@@ -51,7 +51,7 @@ class Broadcaster {
     }
   }
 
-  /** Send SSE comment ping every 25 s to keep proxies from closing idle connections */
+  /** Send SSE comment ping every 15 s to keep proxies (Render, Vercel, Cloudflare) from closing idle connections */
   private _startPinger() {
     this._pingTimer = setInterval(() => {
       const dead: string[] = [];
@@ -67,7 +67,7 @@ class Broadcaster {
         this.clients = this.clients.filter((c) => !dead.includes(c.id));
         if (this.clients.length === 0) this._stopPinger();
       }
-    }, 25_000);
+    }, 15_000);
   }
 
   private _stopPinger() {

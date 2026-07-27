@@ -96,7 +96,7 @@ function debouncedStatsUpdate() {
   _statsDebounceTimer = setTimeout(() => {
     broadcaster.broadcast("stats_update", { timestamp: new Date().toISOString() });
     _statsDebounceTimer = null;
-  }, 2000);
+  }, 1000);
 }
 
 // ── Aegis API brute-force detection ──────────────────────────────────────────
