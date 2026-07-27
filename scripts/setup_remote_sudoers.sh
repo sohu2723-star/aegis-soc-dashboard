@@ -13,7 +13,13 @@ set -e
 
 # ── Config ────────────────────────────────────────────────────────────────────
 SSH_USER="${REMOTE_SSH_USER:-sithu}"
-SSH_KEY="${REMOTE_SSH_KEY:-/root/.ssh/aegis_id_rsa}"
+
+# This script is normally launched with sudo, but the SSH key belongs to the
+# desktop user who invoked it.  Do not resolve "~" as /root in that case.
+INVOKING_USER="${SUDO_USER:-${USER:-$(id -un)}}"
+INVOKING_HOME="$(getent passwd "$INVOKING_USER" | cut -d: -f6)"
+[ -n "$INVOKING_HOME" ] || INVOKING_HOME="$HOME"
+SSH_KEY="${REMOTE_SSH_KEY:-${INVOKING_HOME}/.ssh/aegis_id_rsa}"
 SUDOERS_LINE="${SSH_USER} ALL=(ALL) NOPASSWD: ALL"
 SUDOERS_FILE="/etc/sudoers.d/${SSH_USER}-nopasswd"
 
@@ -23,7 +29,14 @@ if [ -f "$LOCAL_CONF" ]; then
     _user=$(grep -E '^REMOTE_SSH_USER\s*=' "$LOCAL_CONF" | cut -d= -f2- | tr -d ' "')
     _key=$(grep  -E '^REMOTE_SSH_KEY\s*='  "$LOCAL_CONF" | cut -d= -f2- | tr -d ' "')
     [ -n "$_user" ] && SSH_USER="$_user" && SUDOERS_LINE="${SSH_USER} ALL=(ALL) NOPASSWD: ALL" && SUDOERS_FILE="/etc/sudoers.d/${SSH_USER}-nopasswd"
-    [ -n "$_key"  ] && SSH_KEY=$(eval echo "$_key")   # expand ~ if present
+    if [ -n "$_key" ]; then
+        # A configured ~/ path also belongs to the invoking user, not root.
+        case "$_key" in
+            "~")  SSH_KEY="$INVOKING_HOME" ;;
+            "~/"*) SSH_KEY="$INVOKING_HOME/${_key#\~/}" ;;
+            *)    SSH_KEY="$_key" ;;
+        esac
+    fi
 fi
 
 # Read VM IPs from local.conf (fallback to known defaults)
