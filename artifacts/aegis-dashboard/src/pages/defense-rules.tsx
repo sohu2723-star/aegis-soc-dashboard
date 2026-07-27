@@ -623,7 +623,7 @@ function FirewallTab() {
                       <SelectTrigger className="bg-background border-border text-xs"><SelectValue placeholder="any" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="">any</SelectItem>
-                        {["tcp","udp","icmp"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                        {["tcp","udp"].map(v => <SelectItem key={v} value={v}>{v.toUpperCase()}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
