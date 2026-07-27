@@ -219,15 +219,21 @@ async function insertEvent(values: typeof securityEventsTable.$inferInsert) {
   broadcaster.broadcast("security_event", serialized);
   // Debounced — avoids flooding the dashboard during port scan / DDoS bursts.
   debouncedStatsUpdate();
-  await evaluateEvent({
-    id:          event.id,
-    type:        event.type,
-    subtype:     event.subtype,
-    severity:    event.severity,
-    sourceIp:    event.sourceIp,
-    targetHost:  event.targetHost,
-    description: event.description,
-    status:      event.status,
+  // Fire-and-forget: auto-defense runs in the background so ingest endpoints
+  // return immediately without blocking on DB writes for rules/commands/blocks.
+  // 5 simultaneous attacks previously exhausted the Supabase pooler and made
+  // /api/dashboard/summary queue up → 8 s timeout → "warming up" banner.
+  setImmediate(() => {
+    evaluateEvent({
+      id:          event.id,
+      type:        event.type,
+      subtype:     event.subtype,
+      severity:    event.severity,
+      sourceIp:    event.sourceIp,
+      targetHost:  event.targetHost,
+      description: event.description,
+      status:      event.status,
+    }).catch(err => logger.warn({ err: err?.message ?? String(err) }, "evaluateEvent background task failed"));
   });
   // Every real attack severity is visible in Active Alerts. The endpoint-
   // specific calls below add a more descriptive message; mkAlert is

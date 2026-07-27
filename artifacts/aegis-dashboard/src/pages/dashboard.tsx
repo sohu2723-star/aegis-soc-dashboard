@@ -224,7 +224,7 @@ export default function Dashboard() {
             </span>
             {isSummaryError
               ? "API unreachable — auto-retrying…"
-              : "API warming up (Render cold start ~60–90 s) — auto-retrying…"}
+              : "API slow to respond — auto-retrying…"}
           </span>
           <button
             onClick={() => {
