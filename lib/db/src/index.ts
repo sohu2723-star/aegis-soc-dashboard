@@ -53,6 +53,12 @@ const client = postgres({
   max:             10,
   idle_timeout:    60,
   connect_timeout: 10,
+  // A JavaScript Promise.race timeout does not cancel the SQL operation. Make
+  // PostgreSQL cancel stalled statements too, otherwise timed-out dashboard
+  // requests retain every pool slot and all later browser refreshes hang.
+  connection: {
+    statement_timeout: 10_000,
+  },
   // NOTE: keep_alive omitted — Supabase Supavisor transaction-mode (port 6543)
   // doesn't maintain persistent connections per client; TCP keepalives can confuse it.
   // Supabase uses Supavisor in transaction mode (port 6543).
