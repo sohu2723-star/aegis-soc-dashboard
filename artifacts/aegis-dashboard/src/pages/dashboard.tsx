@@ -157,8 +157,10 @@ function useDashboardSummary(targetHost: string | null) {
 
   return useQuery({
     queryKey: ["dashboard-summary", targetHost],
-    queryFn: async () => {
-      const r = await fetch(url);
+    queryFn: async ({ signal }) => {
+      // React Query supplies an AbortSignal. Passing it through prevents stale
+      // retries/navigation from leaving requests open at the Vercel proxy.
+      const r = await fetch(url, { signal, cache: "no-store" });
       if (!r.ok) throw new Error("Failed to fetch summary");
       return r.json();
     },

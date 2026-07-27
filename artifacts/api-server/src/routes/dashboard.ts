@@ -14,6 +14,10 @@ const router = Router();
 // don't all race to open fresh connections at once.
 const _summaryCache = new Map<string, { data: unknown; expiresAt: number }>();
 const SUMMARY_CACHE_MS = 3000;
+// React Query retries and SSE invalidations can request the same summary while
+// the first DB read is still running.  Share that read instead of starting
+// another eight queries and exhausting the postgres.js pool.
+const _summaryRequests = new Map<string, Promise<any>>();
 
 function getCachedSummary(key: string) {
   const entry = _summaryCache.get(key);
@@ -52,13 +56,6 @@ router.get("/dashboard/summary", async (req, res) => {
   // The client's 8 s "slow" banner fires before this, but without this guard
   // the request would never resolve and retry would pile up.
   const DB_TIMEOUT_MS = 12_000;
-  const dbTimeout = new Promise<never>((_, reject) =>
-    setTimeout(
-      () => reject(new Error("dashboard/summary DB queries timed out")),
-      DB_TIMEOUT_MS,
-    ),
-  );
-
   // Pre-build filters so we don't branch inside Promise.all
   const baseWhere   = targetHost ? eq(securityEventsTable.targetHost, targetHost) : undefined;
   const critWhere   = targetHost
@@ -71,13 +68,30 @@ router.get("/dashboard/summary", async (req, res) => {
   const since12h = sql`now() - interval '12 hours'`;
 
   // ─── Run all 7 queries in parallel, with a hard timeout ─────────────────────
-  let queryResult: Awaited<ReturnType<typeof runQueries>>;
+  let queryResult: Awaited<ReturnType<typeof runSummaryQueries>>;
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
   try {
-    queryResult = await Promise.race([runQueries(), dbTimeout]);
+    let request = _summaryRequests.get(cacheKey);
+    if (!request) {
+      request = runSummaryQueries();
+      _summaryRequests.set(cacheKey, request);
+      void request.finally(() => {
+        if (_summaryRequests.get(cacheKey) === request) _summaryRequests.delete(cacheKey);
+      }).catch(() => undefined);
+    }
+    const dbTimeout = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(
+        () => reject(new Error("dashboard/summary DB queries timed out")),
+        DB_TIMEOUT_MS,
+      );
+    });
+    queryResult = await Promise.race([request, dbTimeout]);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(503).json({ error: "db_unavailable", message: msg });
     return;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
   }
   const [
     [totalEventsRes],
@@ -90,7 +104,7 @@ router.get("/dashboard/summary", async (req, res) => {
     trendRows,
   ] = queryResult;
 
-  function runQueries() {
+  function runSummaryQueries() {
     return Promise.all([
       // 1. Total events
       baseWhere
