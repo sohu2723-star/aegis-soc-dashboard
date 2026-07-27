@@ -100,6 +100,16 @@ router.delete("/defense/block/:ip", requireAuth, async (req, res) => {
         commandText: `fail2ban-client set ${jail} unbanip ${safeIp}`,
         targetIp: safeIp, status: "pending",
       }).returning();
+      // Also flush any direct iptables DROP rule that auto-defense may have
+      // added on the same VM (auto-defense queues iptables before the
+      // idempotent blocked_ips check, so the rule can exist even when
+      // blockedBy is "fail2ban:*").  Use 2>/dev/null || true so the command
+      // succeeds even if no matching rule exists.
+      await db.insert(defenseCommandsTable).values({
+        targetVm, commandType: "iptables",
+        commandText: `iptables -D INPUT -s ${safeIp} -j DROP 2>/dev/null || true`,
+        targetIp: safeIp, status: "pending",
+      });
       await db.insert(defenseActionsTable).values({
         type: "manual", action: "unblock", targetIp: safeIp,
         targetHost: block.targetHost,
