@@ -42,7 +42,11 @@ export function toTriggerType(eventType: string, eventSubtype: string): string {
   // Service-specific checks must precede the generic network/SSH fallback.
   if (sub.includes("ldap"))                                 return sub.includes("enum") ? "ldap_enum" : "ldap_brute";
   if (sub.includes("mysql") || sub.includes("database") || sub.includes("db ")) return "db_attack";
-  if (sub.includes("brute") && sub.includes("ssh"))        return "ssh_brute";
+  // SSH brute force — both failed attempts AND successful breach (Brute Force Success).
+  // Breach events have type "network_attack" + subtype "Brute Force Success"; they
+  // must still map to "ssh_brute" so rules with triggerAttackType="ssh_brute" fire.
+  if (sub.includes("brute") && (sub.includes("ssh") || typ === "ssh_brute"))  return "ssh_brute";
+  if (sub.includes("brute force") || sub.includes("brute-force"))             return "ssh_brute";
   if (sub.includes("port scan") || sub.includes("nmap"))   return "port_scan";
   if (sub.includes("ddos") || sub.includes("flood"))       return "ddos";
   if (sub.includes("sqli") || sub.includes("sql") || sub.includes("xss") ||
@@ -51,6 +55,9 @@ export function toTriggerType(eventType: string, eventSubtype: string): string {
       sub.includes("xxe") || typ === "web_attack")          return "web_attack";
   if (sub.includes("dns"))                                  return "dns_attack";
   if (sub.includes("arp") || sub.includes("mitm"))         return "mitm";
+  // Auth events (SSH unauthorized access, single login success without prior brute force)
+  // keep "auth_event" as their trigger type so dedicated rules can target them.
+  if (typ === "auth_event")                                 return "auth_event";
   return "any";
 }
 
