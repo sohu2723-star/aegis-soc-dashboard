@@ -11,12 +11,13 @@
  */
 
 import { db } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, isNull } from "drizzle-orm";
 import {
   defenseRulesTable,
   defenseCommandsTable,
   blockedIpsTable,
   defenseActionsTable,
+  sshSessionsTable,
   alertsTable,
   type DefenseRule,
 } from "@workspace/db";
@@ -234,6 +235,12 @@ async function executeAutoDefense(rule: DefenseRule, event: IngestEvent) {
         isActive:   true,
       });
     }
+
+    // Back-fill bannedBy on ssh_sessions rows so Connection Logs shows
+    // "aegis-auto-defense" instead of "—" for this IP.
+    await db.update(sshSessionsTable)
+      .set({ bannedBy: "aegis-auto-defense" })
+      .where(and(eq(sshSessionsTable.sourceIp, event.sourceIp), isNull(sshSessionsTable.bannedBy)));
   }
 
   await db.insert(defenseActionsTable).values({

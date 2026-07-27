@@ -2015,7 +2015,12 @@ def _remote_service_health_loop(hosts: list):
                 continue
             # Build one SSH command: check every service via systemctl in a single call
             cmds = " ".join(
-                f"$(systemctl is-active {svc} 2>/dev/null || echo unknown)"
+                # Use "; true" so the subshell always exits 0 — systemctl outputs
+                # "active", "inactive", or "failed" and we classify in Python.
+                # The old "|| echo unknown" fired on ANY non-zero exit (including
+                # "inactive") and caused stopped services to show "unknown" on the
+                # dashboard instead of "offline".
+                f"$(systemctl is-active {svc} 2>/dev/null; true)"
                 for svc, _, _ in health_svcs
             )
             full_cmd = f"printf '%s ' {cmds}"

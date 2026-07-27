@@ -533,7 +533,8 @@ router.post("/ingest/fail2ban", auth, async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 router.post("/ingest/ssh", auth, async (req, res) => {
   // dest_ip: IP of the SSH server being attacked (the Ubuntu VM's IP, e.g. 10.10.10.10)
-  const { src_ip, dest_ip, username, status: st, auth_method, session_id, failures, prior_failures, signature_text } = req.body;
+  // Hub forwarder may send "targetHost" instead of "dest_ip" — accept both.
+  const { src_ip, dest_ip, username, status: st, auth_method, session_id, failures, prior_failures, signature_text, targetHost: targetHostParam } = req.body;
 
   // Hub (aegis-company-admin, 10.30.30.10) SSHes into all company VMs every 15s
   // to tail their logs. Those legitimate connections appear in auth.log and get
@@ -548,7 +549,9 @@ router.post("/ingest/ssh", auth, async (req, res) => {
   // prior_failures = how many failed attempts from this IP before this success event
   // 0 = clean login (authorized); ≥3 = brute-force success (breach)
   const priorFails   = prior_failures != null ? Number(prior_failures) : failCount;
-  const targetHost   = resolveTargetHost(dest_ip, "company-web-server");
+  // Hub forwarder sends "targetHost" (the VM's IP) rather than "dest_ip".
+  // Fall back in order: dest_ip → targetHost param → "company-web-server".
+  const targetHost   = resolveTargetHost(dest_ip ?? targetHostParam, "company-web-server");
 
   const { log_source, matched_rule } = req.body;
   await db.insert(sshSessionsTable).values({
