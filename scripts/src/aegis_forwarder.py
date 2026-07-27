@@ -464,9 +464,14 @@ def _report_defense_result(cmd_id: int, success: bool, error: str = None):
 
 def _exec_defense_shell(command: str, cmd_id: int):
     # Prepend sudo for iptables/ip6tables — forwarder runs as non-root user.
-    # Remote VM path (_exec_defense_ssh_remote) already prepends sudo; this
-    # function handles the local Aegis VM execution which needs the same treatment.
-    run_cmd = f"sudo {command}" if command.lstrip().startswith(("iptables", "ip6tables")) else command
+    # For compound commands (containing && or ;), wrap in "sudo bash -c '...'" so
+    # every sub-command (including ss -K) runs with root privileges.
+    if any(c in command for c in ("&&", ";", "||")):
+        run_cmd = f"sudo bash -c {shlex.quote(command)}"
+    elif command.lstrip().startswith(("iptables", "ip6tables", "ss ", "ip route")):
+        run_cmd = f"sudo {command}"
+    else:
+        run_cmd = command
     print(f"[defense] Executing: {run_cmd}")
     try:
         result = subprocess.run(run_cmd, shell=True, capture_output=True, text=True, timeout=30)
@@ -598,10 +603,21 @@ def _dispatch_defense(cmd: dict):
 
 
 def _exec_defense_ssh_remote(target_ip: str, command: str, cmd_id: int):
-    """SSH into a company VM (company-web-server / company-dns-server / company-customer-db / company-ldap-server) and run an iptables command.
-    If the command is an iptables INPUT block, also kill any existing SSH sessions
-    from that attacker IP so the block takes effect immediately.
+    """SSH into a company VM and run a defense command with root privileges.
+
+    For compound commands (containing && or ;) the whole string is wrapped in
+    'sudo bash -c <quoted>' so every sub-command — including ss -K session kills
+    that follow an iptables DROP rule — runs as root.  Simple commands just get
+    a plain 'sudo' prefix.
+
+    ss -K is now embedded directly in the commandText for block_ip commands,
+    so no separate session-kill SSH call is needed here.
     """
+    if any(c in command for c in ("&&", ";", "||")):
+        remote_cmd = f"sudo bash -c {shlex.quote(command)}"
+    else:
+        remote_cmd = f"sudo {command}"
+
     ssh_cmd = [
         "ssh", "-T",
         "-i", REMOTE_SSH_KEY,
@@ -610,7 +626,7 @@ def _exec_defense_ssh_remote(target_ip: str, command: str, cmd_id: int):
         "-o", "BatchMode=yes",
         "-o", "IdentityAgent=none",
         f"{REMOTE_SSH_USER}@{target_ip}",
-        f"sudo {command}",
+        remote_cmd,
     ]
     print(f"[defense] SSH → {target_ip}: {command}")
     try:
@@ -618,25 +634,6 @@ def _exec_defense_ssh_remote(target_ip: str, command: str, cmd_id: int):
         if result.returncode == 0:
             print(f"[defense] ✓ SSH {target_ip}: {result.stdout.strip()}")
             _report_defense_result(cmd_id, True)
-
-            # After a DROP rule is added, kill any active sessions from the blocked IP.
-            # Extract the blocked IP from the iptables command (e.g. "iptables -I INPUT -s 1.2.3.4 -j DROP")
-            import re as _re
-            m = _re.search(r"iptables.*-I INPUT.*-s\s+([\d.]+).*-j DROP", command)
-            if m:
-                blocked_ip = m.group(1)
-                kill_cmd = [
-                    "ssh", "-T",
-                    "-i", REMOTE_SSH_KEY,
-                    "-o", "StrictHostKeyChecking=no",
-                    "-o", "ConnectTimeout=10",
-                    "-o", "BatchMode=yes",
-                    "-o", "IdentityAgent=none",
-                    f"{REMOTE_SSH_USER}@{target_ip}",
-                    f"sudo ss -K dst {blocked_ip} 2>/dev/null; sudo ss -K src {blocked_ip} 2>/dev/null; true",
-                ]
-                print(f"[defense] Killing active sessions from {blocked_ip} on {target_ip}")
-                subprocess.run(kill_cmd, capture_output=True, text=True, timeout=10)
         else:
             err = result.stderr.strip()
             print(f"[defense] ✗ SSH {target_ip}: {err}")

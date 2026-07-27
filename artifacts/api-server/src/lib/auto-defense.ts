@@ -72,7 +72,10 @@ function buildCommand(rule: DefenseRule, sourceIp: string, _eventId: number) {
     case "block_ip":
       return {
         commandType: "iptables",
-        commandText: `iptables -I INPUT -s ${safeIp} -j DROP`,
+        // Kill any active sessions from the attacker immediately after inserting the DROP rule.
+        // Using -I (insert) ensures this rule takes precedence over any existing ACCEPT rules.
+        // ss -K terminates established TCP connections so the block takes effect on live sessions too.
+        commandText: `iptables -I INPUT -s ${safeIp} -j DROP && ss -K dst ${safeIp} 2>/dev/null; ss -K src ${safeIp} 2>/dev/null; true`,
         undoCommand: `iptables -D INPUT -s ${safeIp} -j DROP`,
       };
 

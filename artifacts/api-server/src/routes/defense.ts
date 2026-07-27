@@ -49,10 +49,12 @@ router.post("/defense/block", requireAuth, async (req, res) => {
     ip: safeIp, reason, blockedBy: "manual", isActive: true,
   });
 
-  // Queue iptables DROP on all VMs
+  // Queue iptables DROP + session kill on all VMs.
+  // -I (insert) takes priority over existing ACCEPT rules.
+  // ss -K terminates live connections so the block hits active sessions immediately.
   await db.insert(defenseCommandsTable).values({
     targetVm: "all", commandType: "iptables",
-    commandText: `iptables -A INPUT -s ${safeIp} -j DROP`,
+    commandText: `iptables -I INPUT -s ${safeIp} -j DROP && ss -K dst ${safeIp} 2>/dev/null; ss -K src ${safeIp} 2>/dev/null; true`,
     targetIp: safeIp, status: "pending",
   });
 
