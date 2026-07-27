@@ -41,8 +41,11 @@ router.get("/dashboard/summary", async (req, res) => {
   const cached = getCachedSummary(cacheKey);
   if (cached) { res.json(cached); return; }
 
-  // Ensure rows exist — seeded at startup; this is a no-op after first call
-  await ensureSystemStatusSeeded();
+  // Kick off seeding in the background — do NOT await it.
+  // Seeding touches system_status with DELETE/INSERT which can hit Supabase
+  // statement_timeout while waiting for row locks held by another server instance.
+  // The dashboard handles missing system_status rows gracefully (shows 0/0).
+  void ensureSystemStatusSeeded();
 
   // Hard wall-clock timeout so the endpoint returns a 503 quickly when the
   // DB is unreachable (e.g. Supabase paused) instead of hanging indefinitely.

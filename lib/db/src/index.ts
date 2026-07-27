@@ -45,8 +45,13 @@ const conn = parseConnectionUrl(process.env.SUPABASE_DB_URL);
 const client = postgres({
   ...conn,
   ssl:             "require",
-  max:             5,    // reduced from 10 — Supabase free pooler has limited slots; fewer connections = faster acquisition
-  idle_timeout:    60,   // keep connections alive for 60s idle (was 20s — pool drain → slow reconnect burst)
+  // 10 connections per server instance.  Supabase pooler (port 6543) allows 60
+  // total; with 2 instances (local + Render) that's 20 — well within the limit.
+  // We raised this from 5 because the dashboard opens SSE + 4-5 polling requests
+  // simultaneously on login, exhausting a pool of 5 before startup seeding could
+  // grab a slot, causing all DB-backed routes to hang indefinitely.
+  max:             10,
+  idle_timeout:    60,
   connect_timeout: 10,
   // NOTE: keep_alive omitted — Supabase Supavisor transaction-mode (port 6543)
   // doesn't maintain persistent connections per client; TCP keepalives can confuse it.

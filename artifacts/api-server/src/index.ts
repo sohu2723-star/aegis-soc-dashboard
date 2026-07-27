@@ -36,6 +36,24 @@ async function startSchedulerWithRetry(attempt = 1): Promise<void> {
   }
 }
 
+// Seed system_status BEFORE accepting HTTP connections so that no incoming
+// request has to compete with seeding for DB pool slots.  This was previously
+// done inside app.listen (fire-and-forget), which caused pool exhaustion:
+// the dashboard's SSE + 4-5 polling requests grabbed all 5 pool slots on
+// login, leaving none for the seed, causing all DB routes to hang indefinitely.
+// Attempt seed before accepting connections, but cap at 5 s so a locked
+// system_status table (Supabase statement_timeout) never delays server start.
+logger.info("Seeding system_status before accepting connections…");
+try {
+  await Promise.race([
+    ensureSystemStatusSeeded(),
+    new Promise<void>((_, rej) => setTimeout(() => rej(new Error("startup seed timed out")), 5000)),
+  ]);
+  logger.info("system_status seed complete");
+} catch (e: any) {
+  logger.warn({ err: e?.message ?? String(e) }, "startup seed failed — server will proceed without it");
+}
+
 app.listen(port, (err) => {
   if (err) {
     logger.error({ err }, "Error listening on port");
@@ -45,9 +63,4 @@ app.listen(port, (err) => {
   logger.info({ port }, "Server listening");
   startSchedulerWithRetry();
   startSelfHeartbeat();
-  // Seed system_status rows in the background so the FIRST HTTP request to
-  // /dashboard/summary does not have to block on purge+seed DB operations.
-  ensureSystemStatusSeeded().catch(err =>
-    logger.warn({ err: err?.message ?? String(err) }, "ensureSystemStatusSeeded startup failed — will retry on first request")
-  );
 });

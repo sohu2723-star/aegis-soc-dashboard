@@ -277,19 +277,31 @@ async function withStatusMutation<T>(operation: () => Promise<T>): Promise<T> {
   }
 }
 
-// Track whether the initial seed has already completed so GET requests
-// don't repeat the expensive purge+seed on every dashboard poll.
+// Track whether the initial seed has already been ATTEMPTED so we never
+// retry on every request (which would cause lock-thrashing on system_status
+// when two server instances race — each DELETE/INSERT holds a row lock, and
+// a Supabase statement_timeout kills the waiting SELECT on the other instance).
 let _seeded = false;
 
 export async function ensureSystemStatusSeeded(): Promise<void> {
   if (_seeded) return;
-  await withStatusMutation(() => seedSystemStatusUnlocked());
+  // Mark as attempted immediately — even if the seed fails, we do NOT retry
+  // on every subsequent request.  The dashboard gracefully handles missing rows
+  // (shows 0/0 for systemsOnline).  A future restart will re-attempt.
   _seeded = true;
+  try {
+    await withStatusMutation(() => seedSystemStatusUnlocked());
+  } catch (e: any) {
+    // Log but don't throw — callers must not fail because seeding failed.
+    // The most common cause is a Supabase statement_timeout while waiting for
+    // a row lock held by another server instance doing the same seed.
+    console.warn("[system-seed] seed failed (non-fatal):", e?.message ?? String(e));
+  }
 }
 
 router.get("/system/status", async (_req, res) => {
-  // Seed only once at startup. Subsequent GETs skip the expensive purge+seed.
-  await ensureSystemStatusSeeded();
+  // Fire seed in background — do NOT await (same reason as dashboard/summary).
+  void ensureSystemStatusSeeded();
 
   // Only return global rows (no hostIp) + rows whose hostIp is a registered host
   const [allRows, hosts] = await Promise.all([
