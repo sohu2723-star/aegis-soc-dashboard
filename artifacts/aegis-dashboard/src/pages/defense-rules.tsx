@@ -88,7 +88,7 @@ function VmBadge({ vm }: { vm: string }) {
 const defenseTypeLabels: Record<string, string> = {
   block_ip: "Block IP", null_route: "Null Route", rate_limit: "Rate Limit",
   port_block: "Port Block",
-  pfsense_block: "pfSense SSH Block", alert_only: "Alert Only",
+  pfsense_block: "pfSense SSH Block",
 };
 
 const statusColors: Record<string, string> = {

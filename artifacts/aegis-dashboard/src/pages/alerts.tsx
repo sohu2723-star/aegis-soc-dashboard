@@ -89,6 +89,7 @@ export default function Alerts() {
     },
   });
 
+
   // Device filter — match on sourceIp or targetHost
   const deviceFiltered = selectedIp
     ? allAlerts.filter(

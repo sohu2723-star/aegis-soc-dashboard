@@ -48,4 +48,5 @@ router.patch("/alerts/:id/acknowledge", async (req, res) => {
   res.json({ ...alert, createdAt: alert.createdAt.toISOString() });
 });
 
+
 export default router;
