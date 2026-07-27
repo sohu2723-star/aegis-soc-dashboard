@@ -260,7 +260,7 @@ export default function AttackFlowPage() {
       else if (evType.includes("ddos") || evType.includes("port")) freq = 260;
 
       // Volume by severity
-      const vol = severity === "critical" ? 0.18 : severity === "high" ? 0.12 : 0.07;
+      const vol = severity === "critical" ? 0.38 : severity === "high" ? 0.28 : 0.18;
 
       const osc  = ctx.createOscillator();
       const gain = ctx.createGain();
