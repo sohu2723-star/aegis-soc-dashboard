@@ -103,6 +103,81 @@ const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: "history",  label: "Command History",    icon: <BookOpen className="w-3.5 h-3.5" /> },
 ];
 
+// ─── Attack-type smart presets ─────────────────────────────────────────────────
+// When the user picks a trigger attack type, all other fields auto-fill with
+// sensible defaults that match the AEGIS lab topology and ingest logic.
+const ATTACK_PRESETS: Record<string, {
+  name: string; description: string; severity: string;
+  threshold: number; windowSecs: number;
+  defenseType: string; targetVm: string; actionType: string;
+}> = {
+  ssh_brute: {
+    name: "Block SSH Brute Force",
+    description: "Auto-block IPs that trigger SSH brute-force alerts (fail2ban / auth.log watcher)",
+    severity: "high", threshold: 3, windowSecs: 60,
+    defenseType: "block_ip", targetVm: "all", actionType: "auto",
+  },
+  auth_event: {
+    name: "Block Unauthorized SSH Access",
+    description: "Block IP immediately when unauthorized SSH login succeeds (stolen creds / single clean login)",
+    severity: "critical", threshold: 1, windowSecs: 60,
+    defenseType: "block_ip", targetVm: "all", actionType: "auto",
+  },
+  web_attack: {
+    name: "Block Web Attack",
+    description: "Block IPs launching SQLi/XSS attacks against web server",
+    severity: "high", threshold: 3, windowSecs: 120,
+    defenseType: "block_ip", targetVm: "company-web-server", actionType: "auto",
+  },
+  network_attack: {
+    name: "Block Suricata Network Attack",
+    description: "Block IPs triggering Suricata IDS alerts",
+    severity: "high", threshold: 3, windowSecs: 60,
+    defenseType: "block_ip", targetVm: "all", actionType: "auto",
+  },
+  ddos: {
+    name: "Rate-Limit DDoS Source",
+    description: "Rate-limit IPs launching SYN flood / hping3 DDoS attacks",
+    severity: "high", threshold: 1, windowSecs: 30,
+    defenseType: "rate_limit", targetVm: "all", actionType: "auto",
+  },
+  port_scan: {
+    name: "Block Port Scanner",
+    description: "Block IPs performing nmap / port scans at pfSense WAN boundary",
+    severity: "medium", threshold: 1, windowSecs: 60,
+    defenseType: "pfsense_block", targetVm: "pfsense", actionType: "auto",
+  },
+  dns_attack: {
+    name: "Block DNS Attack",
+    description: "Block IPs attacking BIND9 DNS server",
+    severity: "high", threshold: 3, windowSecs: 60,
+    defenseType: "block_ip", targetVm: "company-dns-server", actionType: "auto",
+  },
+  db_attack: {
+    name: "Block Database Attack",
+    description: "Block IPs attacking MySQL / PostgreSQL database",
+    severity: "high", threshold: 3, windowSecs: 60,
+    defenseType: "block_ip", targetVm: "company-customer-db", actionType: "auto",
+  },
+  ldap_brute: {
+    name: "Block LDAP Brute Force",
+    description: "Block IPs attempting LDAP credential brute force (invalid bind credentials)",
+    severity: "high", threshold: 3, windowSecs: 60,
+    defenseType: "block_ip", targetVm: "company-ldap-server", actionType: "auto",
+  },
+  ldap_enum: {
+    name: "Block LDAP Enumeration",
+    description: "Block IPs performing LDAP directory enumeration (DN enumeration)",
+    severity: "medium", threshold: 5, windowSecs: 120,
+    defenseType: "block_ip", targetVm: "company-ldap-server", actionType: "auto",
+  },
+  any: {
+    name: "", description: "",
+    severity: "high", threshold: 5, windowSecs: 60,
+    defenseType: "block_ip", targetVm: "all", actionType: "auto",
+  },
+};
+
 // ─── Auto-Defense Rules Tab ────────────────────────────────────────────────────
 
 function RulesTab() {
@@ -116,14 +191,29 @@ function RulesTab() {
   // Create form state
   const [name, setName]                         = useState("");
   const [description, setDescription]           = useState("");
-  const [triggerAttackType, setTriggerAttack]   = useState("any");
-  const [triggerSeverity, setTriggerSeverity]   = useState("high");
-  const [triggerThreshold, setTriggerThreshold] = useState(3);
-  const [triggerWindow, setTriggerWindow]       = useState(60);
-  const [actionType, setActionType]             = useState("auto");
-  const [defenseType, setDefenseType]           = useState("block_ip");
-  const [targetVm, setTargetVm]                 = useState("company-web-server");
+  const [triggerAttackType, setTriggerAttack]   = useState("ssh_brute");
+  const [triggerSeverity, setTriggerSeverity]   = useState(ATTACK_PRESETS.ssh_brute.severity);
+  const [triggerThreshold, setTriggerThreshold] = useState(ATTACK_PRESETS.ssh_brute.threshold);
+  const [triggerWindow, setTriggerWindow]       = useState(ATTACK_PRESETS.ssh_brute.windowSecs);
+  const [actionType, setActionType]             = useState(ATTACK_PRESETS.ssh_brute.actionType);
+  const [defenseType, setDefenseType]           = useState(ATTACK_PRESETS.ssh_brute.defenseType);
+  const [targetVm, setTargetVm]                 = useState(ATTACK_PRESETS.ssh_brute.targetVm);
   const [priority, setPriority]                 = useState(100);
+
+  // When attack type changes, auto-fill all dependent fields
+  function handleAttackTypeChange(v: string) {
+    setTriggerAttack(v);
+    const p = ATTACK_PRESETS[v];
+    if (!p) return;
+    if (p.name)        setName(p.name);
+    if (p.description) setDescription(p.description);
+    setTriggerSeverity(p.severity);
+    setTriggerThreshold(p.threshold);
+    setTriggerWindow(p.windowSecs);
+    setDefenseType(p.defenseType);
+    setTargetVm(p.targetVm);
+    setActionType(p.actionType);
+  }
 
   const authHeaders = (): Record<string, string> => {
     const tok = getToken();
@@ -178,6 +268,9 @@ function RulesTab() {
     e.preventDefault();
     createMutation.mutate({ name, description, triggerAttackType, triggerSeverity,
       triggerThreshold, triggerWindowSecs: triggerWindow, actionType, defenseType, targetVm, priority });
+    // Reset to default preset after creation
+    handleAttackTypeChange("ssh_brute");
+    setPriority(100);
   }
 
   return (
@@ -226,28 +319,33 @@ function RulesTab() {
                 <Textarea value={description} onChange={e => setDescription(e.target.value)} className="bg-background border-border min-h-[60px] text-sm" />
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
+                <div className="space-y-1.5 col-span-2">
                   <Label className="text-xs uppercase text-muted-foreground">Trigger Attack Type</Label>
-                  <Select value={triggerAttackType} onValueChange={setTriggerAttack}>
+                  <Select value={triggerAttackType} onValueChange={handleAttackTypeChange}>
                     <SelectTrigger className="bg-background border-border text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {[
-                        { v: "any",            label: "any (all types)" },
-                        { v: "network_attack", label: "network_attack  (Suricata / general)" },
-                        { v: "web_attack",     label: "web_attack  (SQLi/XSS/LFI/RFI)" },
-                        { v: "ssh_brute",      label: "ssh_brute  (fail2ban / SSH watcher)" },
-                        { v: "ddos",           label: "ddos  (SYN flood / hping3)" },
-                        { v: "port_scan",      label: "port_scan  (nmap)" },
-                        { v: "dns_attack",     label: "dns_attack  (BIND9 / dnsspoof)" },
-                        { v: "db_attack",      label: "db_attack  (MySQL auth / SQL anomaly)" },
-                        { v: "ldap_brute",     label: "ldap_brute  (invalid bind credentials)" },
-                        { v: "ldap_enum",      label: "ldap_enum  (DN enumeration)" },
-                        { v: "auth_event",     label: "auth_event  (unauthorized login success)" },
+                        { v: "ssh_brute",      label: "ssh_brute — fail2ban / SSH watcher (brute force)" },
+                        { v: "auth_event",     label: "auth_event — unauthorized login success (stolen creds)" },
+                        { v: "network_attack", label: "network_attack — Suricata IDS / general" },
+                        { v: "web_attack",     label: "web_attack — SQLi / XSS" },
+                        { v: "ddos",           label: "ddos — SYN flood / hping3" },
+                        { v: "port_scan",      label: "port_scan — nmap" },
+                        { v: "dns_attack",     label: "dns_attack — BIND9 / dnsspoof" },
+                        { v: "db_attack",      label: "db_attack — MySQL auth brute force" },
+                        { v: "ldap_brute",     label: "ldap_brute — invalid bind credentials" },
+                        { v: "ldap_enum",      label: "ldap_enum — DN enumeration" },
+                        { v: "any",            label: "any — all event types (use carefully)" },
                       ].map(({ v, label }) => (
                         <SelectItem key={v} value={v}>{label}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
+                  {triggerAttackType === "any" && (
+                    <p className="text-[10px] text-yellow-400/80 bg-yellow-950/30 border border-yellow-500/20 rounded px-2 py-1.5 mt-1">
+                      ⚠ "any" fires on <strong>every</strong> ingest event regardless of type — including normal fail2ban, SSH, Suricata alerts. Set a high threshold (≥10) to avoid false positives.
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs uppercase text-muted-foreground">Trigger Severity</Label>
