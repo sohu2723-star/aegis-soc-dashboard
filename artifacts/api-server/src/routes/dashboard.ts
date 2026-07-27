@@ -44,6 +44,18 @@ router.get("/dashboard/summary", async (req, res) => {
   // Ensure rows exist — seeded at startup; this is a no-op after first call
   await ensureSystemStatusSeeded();
 
+  // Hard wall-clock timeout so the endpoint returns a 503 quickly when the
+  // DB is unreachable (e.g. Supabase paused) instead of hanging indefinitely.
+  // The client's 8 s "slow" banner fires before this, but without this guard
+  // the request would never resolve and retry would pile up.
+  const DB_TIMEOUT_MS = 12_000;
+  const dbTimeout = new Promise<never>((_, reject) =>
+    setTimeout(
+      () => reject(new Error("dashboard/summary DB queries timed out")),
+      DB_TIMEOUT_MS,
+    ),
+  );
+
   // Pre-build filters so we don't branch inside Promise.all
   const baseWhere   = targetHost ? eq(securityEventsTable.targetHost, targetHost) : undefined;
   const critWhere   = targetHost
@@ -55,7 +67,15 @@ router.get("/dashboard/summary", async (req, res) => {
 
   const since12h = sql`now() - interval '12 hours'`;
 
-  // ─── Run all 7 queries in parallel ──────────────────────────────────────────
+  // ─── Run all 7 queries in parallel, with a hard timeout ─────────────────────
+  let queryResult: Awaited<ReturnType<typeof runQueries>>;
+  try {
+    queryResult = await Promise.race([runQueries(), dbTimeout]);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(503).json({ error: "db_unavailable", message: msg });
+    return;
+  }
   const [
     [totalEventsRes],
     [criticalRes],
@@ -65,69 +85,73 @@ router.get("/dashboard/summary", async (req, res) => {
     allStatuses,
     attacksByTypeRows,
     trendRows,
-  ] = await Promise.all([
-    // 1. Total events
-    baseWhere
-      ? db.select({ count: count() }).from(securityEventsTable).where(baseWhere)
-      : db.select({ count: count() }).from(securityEventsTable),
+  ] = queryResult;
 
-    // 2. Critical events
-    db.select({ count: count() }).from(securityEventsTable).where(critWhere),
+  function runQueries() {
+    return Promise.all([
+      // 1. Total events
+      baseWhere
+        ? db.select({ count: count() }).from(securityEventsTable).where(baseWhere)
+        : db.select({ count: count() }).from(securityEventsTable),
 
-    // 3. Open incidents
-    db.select({ count: count() }).from(incidentsTable).where(eq(incidentsTable.status, "open")),
+      // 2. Critical events
+      db.select({ count: count() }).from(securityEventsTable).where(critWhere),
 
-    // 4. Unacknowledged alerts
-    db.select({ count: count() }).from(alertsTable).where(eq(alertsTable.acknowledged, false)),
+      // 3. Open incidents
+      db.select({ count: count() }).from(incidentsTable).where(eq(incidentsTable.status, "open")),
 
-    // 5. Blocked events
-    db.select({ count: count() }).from(securityEventsTable).where(blockedWhere),
+      // 4. Unacknowledged alerts
+      db.select({ count: count() }).from(alertsTable).where(eq(alertsTable.acknowledged, false)),
 
-    // 6. System status — fetch status + lastCheck + hostIp to apply stale timeout
-    db.select({
-      component: systemStatusTable.component,
-      status:    systemStatusTable.status,
-      lastCheck: systemStatusTable.lastCheck,
-      hostIp:    systemStatusTable.hostIp,
-    }).from(systemStatusTable),
+      // 5. Blocked events
+      db.select({ count: count() }).from(securityEventsTable).where(blockedWhere),
 
-    // 7. Attack type breakdown — GROUP BY at DB level (replaces 500-row fetch)
-    baseWhere
-      ? db
-          .select({ type: securityEventsTable.type, count: count() })
-          .from(securityEventsTable)
-          .where(baseWhere)
-          .groupBy(securityEventsTable.type)
-          .orderBy(desc(count()))
-          .limit(10)
-      : db
-          .select({ type: securityEventsTable.type, count: count() })
-          .from(securityEventsTable)
-          .groupBy(securityEventsTable.type)
-          .orderBy(desc(count()))
-          .limit(10),
+      // 6. System status — fetch status + lastCheck + hostIp to apply stale timeout
+      db.select({
+        component: systemStatusTable.component,
+        status:    systemStatusTable.status,
+        lastCheck: systemStatusTable.lastCheck,
+        hostIp:    systemStatusTable.hostIp,
+      }).from(systemStatusTable),
 
-    // 8. Hourly trend (last 12 h) — date_trunc at DB level
-    baseWhere
-      ? db
-          .select({
-            hour: sql<string>`to_char(date_trunc('hour', ${securityEventsTable.createdAt}), 'HH24":00"')`,
-            count: count(),
-          })
-          .from(securityEventsTable)
-          .where(and(baseWhere, gte(securityEventsTable.createdAt, sql`now() - interval '12 hours'`)))
-          .groupBy(sql`date_trunc('hour', ${securityEventsTable.createdAt})`)
-          .orderBy(sql`date_trunc('hour', ${securityEventsTable.createdAt})`)
-      : db
-          .select({
-            hour: sql<string>`to_char(date_trunc('hour', ${securityEventsTable.createdAt}), 'HH24":00"')`,
-            count: count(),
-          })
-          .from(securityEventsTable)
-          .where(gte(securityEventsTable.createdAt, sql`now() - interval '12 hours'`))
-          .groupBy(sql`date_trunc('hour', ${securityEventsTable.createdAt})`)
-          .orderBy(sql`date_trunc('hour', ${securityEventsTable.createdAt})`),
-  ]);
+      // 7. Attack type breakdown — GROUP BY at DB level (replaces 500-row fetch)
+      baseWhere
+        ? db
+            .select({ type: securityEventsTable.type, count: count() })
+            .from(securityEventsTable)
+            .where(baseWhere)
+            .groupBy(securityEventsTable.type)
+            .orderBy(desc(count()))
+            .limit(10)
+        : db
+            .select({ type: securityEventsTable.type, count: count() })
+            .from(securityEventsTable)
+            .groupBy(securityEventsTable.type)
+            .orderBy(desc(count()))
+            .limit(10),
+
+      // 8. Hourly trend (last 12 h) — date_trunc at DB level
+      baseWhere
+        ? db
+            .select({
+              hour: sql<string>`to_char(date_trunc('hour', ${securityEventsTable.createdAt}), 'HH24":00"')`,
+              count: count(),
+            })
+            .from(securityEventsTable)
+            .where(and(baseWhere, gte(securityEventsTable.createdAt, sql`now() - interval '12 hours'`)))
+            .groupBy(sql`date_trunc('hour', ${securityEventsTable.createdAt})`)
+            .orderBy(sql`date_trunc('hour', ${securityEventsTable.createdAt})`)
+        : db
+            .select({
+              hour: sql<string>`to_char(date_trunc('hour', ${securityEventsTable.createdAt}), 'HH24":00"')`,
+              count: count(),
+            })
+            .from(securityEventsTable)
+            .where(gte(securityEventsTable.createdAt, sql`now() - interval '12 hours'`))
+            .groupBy(sql`date_trunc('hour', ${securityEventsTable.createdAt})`)
+            .orderBy(sql`date_trunc('hour', ${securityEventsTable.createdAt})`),
+    ]);
+  }
   // ────────────────────────────────────────────────────────────────────────────
 
   // Apply same stale check as GET /system/status:

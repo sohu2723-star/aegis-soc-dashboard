@@ -26,7 +26,14 @@ router.get("/healthz", async (_req, res) => {
   let dbStatus: "ok" | "error" = "ok";
 
   try {
-    await db.execute(sql`SELECT 1`);
+    // Race the DB probe against a hard 8 s wall-clock timeout.
+    // Without this, a paused/unreachable Supabase causes the request to hang
+    // indefinitely even though connect_timeout is set on the pool — the pool
+    // timeout only governs the TCP handshake, not query execution stalls.
+    const timeout = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("DB probe timed out after 8 s")), 8000),
+    );
+    await Promise.race([db.execute(sql`SELECT 1`), timeout]);
   } catch {
     dbStatus = "error";
   }
