@@ -9,5 +9,38 @@ alert tcp any any -> 10.10.10.10 22 (msg:"AEGIS SSH connection burst WEB"; flags
 alert tcp any any -> 10.10.10.20 22 (msg:"AEGIS SSH connection burst DNS"; flags:S,12; threshold:type both,track by_src,count 8,seconds 30; classtype:attempted-admin; sid:9900021; rev:1;)
 alert tcp any any -> 10.20.20.10 22 (msg:"AEGIS SSH connection burst DB"; flags:S,12; threshold:type both,track by_src,count 8,seconds 30; classtype:attempted-admin; sid:9900022; rev:1;)
 alert tcp any any -> 10.20.20.20 22 (msg:"AEGIS SSH connection burst LDAP"; flags:S,12; threshold:type both,track by_src,count 8,seconds 30; classtype:attempted-admin; sid:9900023; rev:1;)
-alert tcp any any -> 10.20.20.10 3306 (msg:"AEGIS MYSQL connection burst"; flags:S,12; threshold:type both,track by_src,count 10,seconds 30; classtype:attempted-admin; sid:9900030; rev:1;)
-alert tcp any any -> 10.20.20.20 389 (msg:"AEGIS LDAP connection burst"; flags:S,12; threshold:type both,track by_src,count 10,seconds 30; classtype:attempted-admin; sid:9900040; rev:1;)
+# ── company-customer-db (10.20.20.10) MySQL Rules ─────────────────────────────
+# SID 9900030-9900039 reserved for MySQL / customer-db
+
+# Connection burst — rapid SYN flood to 3306 (hydra/sqlmap scanner warmup)
+alert tcp any any -> 10.20.20.10 3306 (msg:"AEGIS MYSQL connection burst"; flags:S,12; threshold:type both,track by_src,count 10,seconds 30; classtype:attempted-admin; sid:9900030; rev:2;)
+
+# Fast brute force — tighter window: 5 connections in 10s (hydra -t 4+)
+alert tcp any any -> 10.20.20.10 3306 (msg:"AEGIS MYSQL brute force fast"; flags:S,12; threshold:type both,track by_src,count 5,seconds 10; classtype:attempted-admin; sid:9900031; rev:1;)
+
+# MySQL auth failure response — server sends error 1045 "Access denied" packet
+# MySQL error packet: 0xff + error code 0x15 0x04 (1045 = 0x0415)
+alert tcp 10.20.20.10 3306 -> any any (msg:"AEGIS MYSQL auth failure response"; flow:from_server,established; content:"|ff 15 04|"; depth:4; threshold:type both,track by_dst,count 5,seconds 30; classtype:unsuccessful-user; sid:9900032; rev:1;)
+
+# MySQL root login attempt — "root" in client handshake username field
+alert tcp any any -> 10.20.20.10 3306 (msg:"AEGIS MYSQL root login attempt"; flow:to_server,established; content:"root"; nocase; threshold:type both,track by_src,count 3,seconds 60; classtype:attempted-admin; sid:9900033; rev:1;)
+
+# sqlmap MySQL probe — sqlmap sends characteristic test payloads
+alert tcp any any -> 10.20.20.10 3306 (msg:"AEGIS MYSQL sqlmap probe"; flow:to_server,established; content:"sqlmap"; nocase; classtype:web-application-attack; sid:9900034; rev:1;)
+
+# MySQL port scan — SYN with no established follow-up (scanner probing 3306)
+alert tcp any any -> 10.20.20.10 3306 (msg:"AEGIS MYSQL port scan"; flags:S,12; flow:stateless; threshold:type both,track by_src,count 3,seconds 5; classtype:attempted-recon; sid:9900035; rev:1;)
+
+# ── company-ldap-server (10.20.20.20) LDAP Rules ──────────────────────────────
+# SID 9900040-9900049 reserved for LDAP / ldap-server
+
+alert tcp any any -> 10.20.20.20 389 (msg:"AEGIS LDAP connection burst"; flags:S,12; threshold:type both,track by_src,count 10,seconds 30; classtype:attempted-admin; sid:9900040; rev:2;)
+
+# LDAP brute force fast — 5 binds in 10s
+alert tcp any any -> 10.20.20.20 389 (msg:"AEGIS LDAP brute force fast"; flags:S,12; threshold:type both,track by_src,count 5,seconds 10; classtype:attempted-admin; sid:9900041; rev:1;)
+
+# LDAP anonymous bind attempt — bindRequest with empty credentials (0x30 ... 0x60 ... 0x80 0x00)
+alert tcp any any -> 10.20.20.20 389 (msg:"AEGIS LDAP anonymous bind attempt"; flow:to_server,established; content:"|80 00|"; threshold:type both,track by_src,count 3,seconds 60; classtype:attempted-admin; sid:9900042; rev:1;)
+
+# LDAP enumeration — ldapsearch style (many SearchRequest PDUs 0x63)
+alert tcp any any -> 10.20.20.20 389 (msg:"AEGIS LDAP enumeration burst"; flow:to_server,established; content:"|63|"; threshold:type both,track by_src,count 20,seconds 30; classtype:attempted-recon; sid:9900043; rev:1;)
