@@ -1,7 +1,7 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { startScheduler } from "./lib/scheduler";
-import { startSelfHeartbeat } from "./routes/system";
+import { startSelfHeartbeat, ensureSystemStatusSeeded } from "./routes/system";
 
 // Prevent uncaught promise rejections (e.g. postgres.js internal timeouts on
 // cold-start) from crashing the process. Log them and keep running.
@@ -45,4 +45,9 @@ app.listen(port, (err) => {
   logger.info({ port }, "Server listening");
   startSchedulerWithRetry();
   startSelfHeartbeat();
+  // Seed system_status rows in the background so the FIRST HTTP request to
+  // /dashboard/summary does not have to block on purge+seed DB operations.
+  ensureSystemStatusSeeded().catch(err =>
+    logger.warn({ err: err?.message ?? String(err) }, "ensureSystemStatusSeeded startup failed — will retry on first request")
+  );
 });

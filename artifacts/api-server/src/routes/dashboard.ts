@@ -30,16 +30,19 @@ function setCachedSummary(key: string, data: unknown) {
 }
 
 router.get("/dashboard/summary", async (req, res) => {
-  await ensureSystemStatusSeeded();
   // Optional ?targetHost=IP — scope all event stats to a specific host
   const targetHost =
     typeof req.query.targetHost === "string" && req.query.targetHost
       ? req.query.targetHost
       : null;
 
+  // Fast path — return cached result before touching the DB
   const cacheKey = targetHost ?? "__all__";
   const cached = getCachedSummary(cacheKey);
   if (cached) { res.json(cached); return; }
+
+  // Ensure rows exist — seeded at startup; this is a no-op after first call
+  await ensureSystemStatusSeeded();
 
   // Pre-build filters so we don't branch inside Promise.all
   const baseWhere   = targetHost ? eq(securityEventsTable.targetHost, targetHost) : undefined;
