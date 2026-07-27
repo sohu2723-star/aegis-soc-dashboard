@@ -300,7 +300,11 @@ router.post("/ui/firewall/rules", maybeAdmin, async (req, res) => {
     return;
   }
 
-  const parts = ["iptables", "-A", chain];
+  // Use -I (insert at position 1 = top) so the rule takes priority over
+  // any existing ACCEPT rules already in the chain.  -A (append) places
+  // the rule at the bottom, so Ubuntu's default ACCEPT rules fire first
+  // and DROP/REJECT rules are never reached.
+  const parts = ["iptables", "-I", chain, "1"];
   if (protocol)   parts.push("-p", protocol);
   if (sourceIp)   parts.push("-s", sourceIp);
   if (destIp)     parts.push("-d", destIp);
@@ -325,11 +329,13 @@ router.post("/ui/firewall/rules", maybeAdmin, async (req, res) => {
   // Create one row per real target. A single targetVm="all" row can only be
   // claimed once, so it would apply to whichever agent polls first instead of
   // all four servers.
+  // Undo: -I 1 → -D (delete by rule specification, strip position arg "1")
+  const undoText = ruleText.replace(" -I ", " -D ").replace(/^(iptables -D \S+) 1 /, "$1 ");
   const commands = await db.insert(defenseCommandsTable).values(FIREWALL_TARGETS.map(targetVm => ({
     targetVm,
     commandType: "iptables",
     commandText: ruleText,
-    undoCommand: ruleText.replace(" -A ", " -D "),
+    undoCommand: undoText,
     targetIp: d.sourceIp ?? null,
     status: "pending",
   }))).returning({ id: defenseCommandsTable.id, targetVm: defenseCommandsTable.targetVm });
@@ -351,10 +357,16 @@ router.delete("/ui/firewall/rules/:id", maybeAdmin, async (req, res) => {
     eq(defenseCommandsTable.commandText, rule.ruleText),
     eq(defenseCommandsTable.status, "pending"),
   ));
+  // Handle both old rules (-A) and new rules (-I 1); strip the position
+  // argument "1" from -I so iptables -D matches by rule specification.
+  const deleteCmd = rule.ruleText
+    .replace(" -A ", " -D ")
+    .replace(" -I ", " -D ")
+    .replace(/^(iptables -D \S+) 1 /, "$1 ");
   const commands = await db.insert(defenseCommandsTable).values(FIREWALL_TARGETS.map(targetVm => ({
     targetVm,
     commandType: "iptables",
-    commandText: rule.ruleText.replace(" -A ", " -D "),
+    commandText: deleteCmd,
     undoCommand: rule.ruleText,
     targetIp: rule.sourceIp ?? null,
     status: "pending",

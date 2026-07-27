@@ -129,8 +129,15 @@ async function runAutoReport(intervalSeconds: number): Promise<void> {
   logger.info({ intervalSeconds }, "Auto-report: generating scheduled report");
 
   try {
-    const now   = new Date();
-    const since = new Date(now.getTime() - intervalSeconds * 1_000);
+    const now = new Date();
+    // For fixed daily/12h intervals, anchor "since" to the exact previous
+    // MST boundary (prev midnight or prev noon) rather than rolling
+    // "now - interval".  This ensures the query window matches the label
+    // exactly even if the poll fires a few seconds late.
+    const currentBoundary = mstBoundary(now, intervalSeconds);
+    const since = currentBoundary !== null
+      ? new Date(currentBoundary - intervalSeconds * 1_000)
+      : new Date(now.getTime() - intervalSeconds * 1_000);
 
     const [windowEventsResult]   = await db.select({ count: count() }).from(securityEventsTable)
       .where(gte(securityEventsTable.createdAt, since));
@@ -319,9 +326,14 @@ async function poll(): Promise<void> {
 export async function startScheduler(): Promise<void> {
   if (_pollTimer !== null) return; // already running
 
-  // Seed lastAutoReportAt if this is first ever start (so we don't fire on cold boot)
+  // Seed lastAutoReportAt only on true first boot (no value in DB).
+  // Do NOT overwrite an existing value — if the server restarts after
+  // midnight but before the scheduled report fires, overwriting with
+  // "now" would set lastRun > boundary and the midnight report would
+  // be permanently skipped until the next day's midnight.
   const existing = await getSetting("lastAutoReportAt");
   if (!existing) {
+    // First cold boot: set to now so we don't fire immediately on startup.
     await setSetting("lastAutoReportAt", new Date().toISOString());
   }
 
