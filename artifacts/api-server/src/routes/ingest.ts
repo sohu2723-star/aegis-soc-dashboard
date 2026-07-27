@@ -23,7 +23,7 @@ import { evaluateEvent } from "../lib/auto-defense";
 import { sendTelegramMessage, telegramAvailable } from "../lib/telegram";
 import { getSetting } from "../lib/app-settings";
 import { isDefenderIp, isLabInternalIp, isSuricataProtocolNoiseSid, resolveTargetHost } from "../lib/ip-classifier";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { recordTrafficStats } from "./network";
 import { logger } from "../lib/logger";
 import {
@@ -497,6 +497,12 @@ router.post("/ingest/fail2ban", auth, async (req, res) => {
       targetHost: resolvedFail2banTarget, isActive: true,
     });
   }
+
+  // Back-fill bannedBy on existing ssh_sessions rows for this IP so the
+  // Connection Logs page shows who banned it instead of "—".
+  await db.update(sshSessionsTable)
+    .set({ bannedBy: `fail2ban:${jailName}` })
+    .where(and(eq(sshSessionsTable.sourceIp, ip), isNull(sshSessionsTable.bannedBy)));
 
   // Build a human-readable rule text for the dashboard.
   // If forwarder sends filter_regex, prefer that; otherwise summarise jail config.
