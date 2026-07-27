@@ -613,10 +613,14 @@ def _exec_defense_ssh_remote(target_ip: str, command: str, cmd_id: int):
     ss -K is now embedded directly in the commandText for block_ip commands,
     so no separate session-kill SSH call is needed here.
     """
+    # Use sudo -n (non-interactive) so sudo never attempts to prompt for a
+    # password — with NOPASSWD in sudoers.d this always succeeds, and without it
+    # we get a clean "sudo: a password is required" error instead of a hang or
+    # the misleading "terminal is required" message caused by BatchMode+no-TTY.
     if any(c in command for c in ("&&", ";", "||")):
-        remote_cmd = f"sudo bash -c {shlex.quote(command)}"
+        remote_cmd = f"sudo -n bash -c {shlex.quote(command)}"
     else:
-        remote_cmd = f"sudo {command}"
+        remote_cmd = f"sudo -n {command}"
 
     ssh_cmd = [
         "ssh", "-T",

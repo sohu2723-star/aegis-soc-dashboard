@@ -20,7 +20,10 @@ INVOKING_USER="${SUDO_USER:-${USER:-$(id -un)}}"
 INVOKING_HOME="$(getent passwd "$INVOKING_USER" | cut -d: -f6)"
 [ -n "$INVOKING_HOME" ] || INVOKING_HOME="$HOME"
 SSH_KEY="${REMOTE_SSH_KEY:-${INVOKING_HOME}/.ssh/aegis_id_rsa}"
-SUDOERS_LINE="${SSH_USER} ALL=(ALL) NOPASSWD: ALL"
+# Two lines: disable requiretty (so sudo works over BatchMode SSH without a TTY)
+# and grant full NOPASSWD so no password prompt is ever needed.
+SUDOERS_CONTENT="Defaults:${SSH_USER} !requiretty\n${SSH_USER} ALL=(ALL) NOPASSWD: ALL"
+SUDOERS_LINE="${SSH_USER} ALL=(ALL) NOPASSWD: ALL"   # kept for display/error messages
 SUDOERS_FILE="/etc/sudoers.d/${SSH_USER}-nopasswd"
 
 # Load overrides from local.conf if it exists
@@ -28,7 +31,7 @@ LOCAL_CONF="$(dirname "$0")/src/aegis_forwarder.local.conf"
 if [ -f "$LOCAL_CONF" ]; then
     _user=$(grep -E '^REMOTE_SSH_USER\s*=' "$LOCAL_CONF" | cut -d= -f2- | tr -d ' "')
     _key=$(grep  -E '^REMOTE_SSH_KEY\s*='  "$LOCAL_CONF" | cut -d= -f2- | tr -d ' "')
-    [ -n "$_user" ] && SSH_USER="$_user" && SUDOERS_LINE="${SSH_USER} ALL=(ALL) NOPASSWD: ALL" && SUDOERS_FILE="/etc/sudoers.d/${SSH_USER}-nopasswd"
+    [ -n "$_user" ] && SSH_USER="$_user" && SUDOERS_CONTENT="Defaults:${SSH_USER} !requiretty\n${SSH_USER} ALL=(ALL) NOPASSWD: ALL" && SUDOERS_LINE="${SSH_USER} ALL=(ALL) NOPASSWD: ALL" && SUDOERS_FILE="/etc/sudoers.d/${SSH_USER}-nopasswd"
     if [ -n "$_key" ]; then
         # A configured ~/ path also belongs to the invoking user, not root.
         case "$_key" in
@@ -82,12 +85,12 @@ push_sudoers() {
     # We pipe through sudo tee to create a root-owned file
     echo "  [1] Writing sudoers rule..."
     if ssh "${SSH_OPTS[@]}" "${SSH_USER}@${ip}" \
-        "echo '${SUDOERS_LINE}' | sudo tee ${SUDOERS_FILE} > /dev/null && sudo chmod 440 ${SUDOERS_FILE} && sudo visudo -c -f ${SUDOERS_FILE}"; then
+        "printf '${SUDOERS_CONTENT}\\n' | sudo tee ${SUDOERS_FILE} > /dev/null && sudo chmod 440 ${SUDOERS_FILE} && sudo visudo -c -f ${SUDOERS_FILE}"; then
         echo "  ✓ Sudoers file written and validated"
     else
         echo "  ✗ Write failed — VM may require a password for sudo"
         echo "    SSH in manually and run:"
-        echo "      echo '${SUDOERS_LINE}' | sudo tee ${SUDOERS_FILE} && sudo chmod 440 ${SUDOERS_FILE}"
+        echo "      printf '${SUDOERS_CONTENT}\\n' | sudo tee ${SUDOERS_FILE} && sudo chmod 440 ${SUDOERS_FILE}"
         return 1
     fi
 
