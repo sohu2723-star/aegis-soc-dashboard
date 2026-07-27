@@ -10,10 +10,10 @@ const router = Router();
 // The summary runs 8 parallel DB queries. With Supabase pooler (port 6543),
 // establishing connections after an idle period takes 2-5s per slot, making
 // the first request after idle > 8s → false "API slow" banner.
-// Cache per targetHost for 3s so rapid polls and SSE-triggered invalidations
+// Cache per targetHost for 10s so rapid polls and SSE-triggered invalidations
 // don't all race to open fresh connections at once.
 const _summaryCache = new Map<string, { data: unknown; expiresAt: number }>();
-const SUMMARY_CACHE_MS = 3000;
+const SUMMARY_CACHE_MS = 10_000;
 // React Query retries and SSE invalidations can request the same summary while
 // the first DB read is still running.  Share that read instead of starting
 // another eight queries and exhausting the postgres.js pool.
@@ -58,16 +58,9 @@ router.get("/dashboard/summary", async (req, res) => {
   const DB_TIMEOUT_MS = 12_000;
   // Pre-build filters so we don't branch inside Promise.all
   const baseWhere   = targetHost ? eq(securityEventsTable.targetHost, targetHost) : undefined;
-  const critWhere   = targetHost
-    ? and(eq(securityEventsTable.severity, "critical"), eq(securityEventsTable.targetHost, targetHost))
-    : eq(securityEventsTable.severity, "critical");
-  const blockedWhere = targetHost
-    ? and(eq(securityEventsTable.status, "blocked"), eq(securityEventsTable.targetHost, targetHost))
-    : eq(securityEventsTable.status, "blocked");
-
   const since12h = sql`now() - interval '12 hours'`;
 
-  // ─── Run all 7 queries in parallel, with a hard timeout ─────────────────────
+  // ─── Run the summary queries in bounded batches, with a hard timeout ────────
   let queryResult: Awaited<ReturnType<typeof runSummaryQueries>>;
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -94,45 +87,38 @@ router.get("/dashboard/summary", async (req, res) => {
     if (timeoutId) clearTimeout(timeoutId);
   }
   const [
-    [totalEventsRes],
-    [criticalRes],
+    [eventCounts],
     [openIncidentsRes],
     [activeAlertsRes],
-    [blockedRes],
     allStatuses,
     attacksByTypeRows,
     trendRows,
   ] = queryResult;
 
   function runSummaryQueries() {
-    return Promise.all([
-      // 1. Total events
-      baseWhere
-        ? db.select({ count: count() }).from(securityEventsTable).where(baseWhere)
-        : db.select({ count: count() }).from(securityEventsTable),
+    // Never occupy most of the connection pool with one dashboard request.
+    // The event counters share one table scan, and the remaining reads run in
+    // two batches of at most three queries each.
+    const eventCounters = baseWhere
+      ? db.select({
+          total: count(),
+          critical: sql<number>`count(*) filter (where ${securityEventsTable.severity} = 'critical')`,
+          blocked: sql<number>`count(*) filter (where ${securityEventsTable.status} = 'blocked')`,
+        }).from(securityEventsTable).where(baseWhere)
+      : db.select({
+          total: count(),
+          critical: sql<number>`count(*) filter (where ${securityEventsTable.severity} = 'critical')`,
+          blocked: sql<number>`count(*) filter (where ${securityEventsTable.status} = 'blocked')`,
+        }).from(securityEventsTable);
 
-      // 2. Critical events
-      db.select({ count: count() }).from(securityEventsTable).where(critWhere),
-
-      // 3. Open incidents
-      db.select({ count: count() }).from(incidentsTable).where(eq(incidentsTable.status, "open")),
-
-      // 4. Unacknowledged alerts
-      db.select({ count: count() }).from(alertsTable).where(eq(alertsTable.acknowledged, false)),
-
-      // 5. Blocked events
-      db.select({ count: count() }).from(securityEventsTable).where(blockedWhere),
-
-      // 6. System status — fetch status + lastCheck + hostIp to apply stale timeout
-      db.select({
+    const statusQuery = db.select({
         component: systemStatusTable.component,
         status:    systemStatusTable.status,
         lastCheck: systemStatusTable.lastCheck,
         hostIp:    systemStatusTable.hostIp,
-      }).from(systemStatusTable),
+      }).from(systemStatusTable);
 
-      // 7. Attack type breakdown — GROUP BY at DB level (replaces 500-row fetch)
-      baseWhere
+    const attackTypesQuery = baseWhere
         ? db
             .select({ type: securityEventsTable.type, count: count() })
             .from(securityEventsTable)
@@ -145,10 +131,9 @@ router.get("/dashboard/summary", async (req, res) => {
             .from(securityEventsTable)
             .groupBy(securityEventsTable.type)
             .orderBy(desc(count()))
-            .limit(10),
+            .limit(10);
 
-      // 8. Hourly trend (last 12 h) — date_trunc at DB level
-      baseWhere
+    const trendQuery = baseWhere
         ? db
             .select({
               hour: sql<string>`to_char(date_trunc('hour', ${securityEventsTable.createdAt}), 'HH24":00"')`,
@@ -166,8 +151,18 @@ router.get("/dashboard/summary", async (req, res) => {
             .from(securityEventsTable)
             .where(gte(securityEventsTable.createdAt, sql`now() - interval '12 hours'`))
             .groupBy(sql`date_trunc('hour', ${securityEventsTable.createdAt})`)
-            .orderBy(sql`date_trunc('hour', ${securityEventsTable.createdAt})`),
-    ]);
+            .orderBy(sql`date_trunc('hour', ${securityEventsTable.createdAt})`);
+
+    return Promise.all([eventCounters, attackTypesQuery, trendQuery]).then(
+      async ([counts, attackTypes, trend]) => {
+        const [openIncidents, activeAlerts, statuses] = await Promise.all([
+          db.select({ count: count() }).from(incidentsTable).where(eq(incidentsTable.status, "open")),
+          db.select({ count: count() }).from(alertsTable).where(eq(alertsTable.acknowledged, false)),
+          statusQuery,
+        ]);
+        return [counts, openIncidents, activeAlerts, statuses, attackTypes, trend] as const;
+      },
+    );
   }
   // ────────────────────────────────────────────────────────────────────────────
 
@@ -214,11 +209,11 @@ router.get("/dashboard/summary", async (req, res) => {
   }));
 
   const payload = {
-    totalEvents:    Number(totalEventsRes?.count  ?? 0),
-    criticalEvents: Number(criticalRes?.count     ?? 0),
+    totalEvents:    Number(eventCounts?.total     ?? 0),
+    criticalEvents: Number(eventCounts?.critical  ?? 0),
     openIncidents:  Number(openIncidentsRes?.count ?? 0),
     activeAlerts:   Number(activeAlertsRes?.count  ?? 0),
-    blockedIPs:     Number(blockedRes?.count       ?? 0),
+    blockedIPs:     Number(eventCounts?.blocked    ?? 0),
     systemsOnline,
     systemsTotal,
     deviceSystemsOnline,

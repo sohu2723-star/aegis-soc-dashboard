@@ -9,7 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDeviceContext } from "@/lib/device-context";
-import { useGetRecentEvents, getGetRecentEventsQueryKey } from "@workspace/api-client-react";
+import { useGetRecentEvents, getGetRecentEventsQueryKey, type DashboardSummary } from "@workspace/api-client-react";
 import { HostLabel } from "@/lib/host-utils";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -155,8 +155,15 @@ function useDashboardSummary(targetHost: string | null) {
     ? `${BASE}/api/dashboard/summary?targetHost=${encodeURIComponent(targetHost)}`
     : `${BASE}/api/dashboard/summary`;
 
-  return useQuery({
+  return useQuery<DashboardSummary & {
+    deviceSystemsOnline: number;
+    deviceSystemsTotal: number;
+  }>({
     queryKey: ["dashboard-summary", targetHost],
+    // Keep the last successful summary visible while switching from a saved
+    // device to "All Devices" or while a background refresh is in flight.
+    // A slow refresh must never replace already-rendered data with skeletons.
+    placeholderData: (previousData) => previousData,
     queryFn: async ({ signal }) => {
       // React Query supplies an AbortSignal. Passing it through prevents stale
       // retries/navigation from leaving requests open at the Vercel proxy.
