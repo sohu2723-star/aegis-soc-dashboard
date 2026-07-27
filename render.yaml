@@ -3,7 +3,7 @@ services:
     name: aegis-api-server
     env: node
     region: singapore
-    plan: free
+    plan: starter
     rootDir: artifacts/api-server
     buildCommand: cd ../.. && pnpm install && pnpm --filter @workspace/api-server run build
     startCommand: node --enable-source-maps ./dist/index.mjs
