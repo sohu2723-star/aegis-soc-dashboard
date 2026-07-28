@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useAuth } from "@/contexts/auth-context";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -61,6 +62,7 @@ function secsHint(raw: string): string {
 
 export default function SettingsPage() {
   const { toast } = useToast();
+  const { isDemo } = useAuth();
 
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading,  setLoading]  = useState(true);
@@ -170,7 +172,7 @@ export default function SettingsPage() {
   const hint = secsHint(customSecs);
 
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="space-y-6 max-w-3xl w-full">
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-primary uppercase flex items-center gap-2">
@@ -211,7 +213,8 @@ export default function SettingsPage() {
                     size="sm"
                     variant={isActive ? "default" : "outline"}
                     className={isActive ? "" : "border-border text-muted-foreground hover:text-primary hover:border-primary/50"}
-                    disabled={savingInterval}
+                    disabled={isDemo || savingInterval}
+                    title={isDemo ? "Demo mode — read only" : undefined}
                     onClick={() => setIntervalSecs(p.value)}
                   >
                     {isActive && <Zap className="w-3 h-3 mr-1" />}
@@ -236,7 +239,8 @@ export default function SettingsPage() {
                   placeholder="e.g. 43200"
                   value={customSecs}
                   onChange={e => setCustomSecs(e.target.value)}
-                  className="bg-background border-border font-mono"
+                  readOnly={isDemo}
+                  className={`bg-background border-border font-mono${isDemo ? " opacity-50 cursor-not-allowed" : ""}`}
                   onKeyDown={e => e.key === "Enter" && applyCustomInterval()}
                 />
                 {hint && (
@@ -247,7 +251,8 @@ export default function SettingsPage() {
               </div>
               <Button
                 onClick={applyCustomInterval}
-                disabled={savingInterval || !customSecs}
+                disabled={isDemo || savingInterval || !customSecs}
+                title={isDemo ? "Demo mode — read only" : undefined}
                 className="shrink-0"
               >
                 {savingInterval ? <RefreshCcw className="w-4 h-4 animate-spin" /> : "Apply"}
@@ -279,8 +284,9 @@ export default function SettingsPage() {
               )}
               <Switch
                 checked={settings?.telegramEnabled ?? false}
-                onCheckedChange={toggleTelegram}
-                disabled={savingTelegram || !settings?.telegramConfigured}
+                onCheckedChange={v => !isDemo && toggleTelegram(v)}
+                disabled={isDemo || savingTelegram || !settings?.telegramConfigured}
+                title={isDemo ? "Demo mode — read only" : undefined}
               />
             </div>
           </div>
@@ -297,7 +303,8 @@ export default function SettingsPage() {
               size="sm"
               className="border-border"
               onClick={testTelegram}
-              disabled={testingTelegram || !settings?.telegramConfigured}
+              disabled={isDemo || testingTelegram || !settings?.telegramConfigured}
+              title={isDemo ? "Demo mode — read only" : undefined}
             >
               {testingTelegram ? (
                 <RefreshCcw className="w-4 h-4 animate-spin" />

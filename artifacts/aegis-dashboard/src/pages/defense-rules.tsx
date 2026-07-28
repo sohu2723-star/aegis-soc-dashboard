@@ -185,7 +185,7 @@ function RulesTab() {
   const { data: hotIps = [] } = useHotIps();
   const qc = useQueryClient();
   const { toast } = useToast();
-  const { getToken } = useAuth();
+  const { getToken, isDemo } = useAuth();
   const [createOpen, setCreateOpen] = useState(false);
 
   // Create form state
@@ -301,9 +301,9 @@ function RulesTab() {
         <p className="text-xs text-muted-foreground">
           {rules.filter(r => r.isActive).length} active / {rules.length} total rules
         </p>
-        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <Dialog open={createOpen} onOpenChange={v => !isDemo && setCreateOpen(v)}>
           <DialogTrigger asChild>
-            <Button size="sm"><Plus className="w-3.5 h-3.5 mr-1.5" /> New Rule</Button>
+            <Button size="sm" disabled={isDemo} title={isDemo ? "Demo mode — read only" : undefined}><Plus className="w-3.5 h-3.5 mr-1.5" /> New Rule</Button>
           </DialogTrigger>
           <DialogContent className="bg-card border-border max-w-lg">
             <DialogHeader>
@@ -441,7 +441,9 @@ function RulesTab() {
                 <TableCell>
                   <Switch
                     checked={r.isActive}
-                    onCheckedChange={v => toggleMutation.mutate({ id: r.id, isActive: v })}
+                    onCheckedChange={v => !isDemo && toggleMutation.mutate({ id: r.id, isActive: v })}
+                    disabled={isDemo}
+                    title={isDemo ? "Demo mode — read only" : undefined}
                     className="scale-75"
                   />
                 </TableCell>
@@ -472,6 +474,8 @@ function RulesTab() {
                   <Button
                     variant="ghost" size="icon"
                     className="h-7 w-7 text-muted-foreground hover:text-red-400"
+                    disabled={isDemo}
+                    title={isDemo ? "Demo mode — read only" : undefined}
                     onClick={() => {
                       if (confirm(`"${r.name}" ကို ဖျက်မလား?`)) deleteMutation.mutate(r.id);
                     }}
@@ -494,7 +498,7 @@ function FirewallTab() {
   const { data: rules = [], isLoading } = useFwRules();
   const qc = useQueryClient();
   const { toast } = useToast();
-  const { getToken } = useAuth();
+  const { getToken, isDemo } = useAuth();
   const [createOpen, setCreateOpen] = useState(false);
 
   // Form state
@@ -583,9 +587,9 @@ function FirewallTab() {
           <Button variant="outline" size="sm" onClick={handleExport} className="border-border">
             <Download className="w-3.5 h-3.5 mr-1.5" /> Export .sh
           </Button>
-          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+          <Dialog open={createOpen} onOpenChange={v => !isDemo && setCreateOpen(v)}>
             <DialogTrigger asChild>
-              <Button size="sm"><Plus className="w-3.5 h-3.5 mr-1.5" /> Add Rule</Button>
+              <Button size="sm" disabled={isDemo} title={isDemo ? "Demo mode — read only" : undefined}><Plus className="w-3.5 h-3.5 mr-1.5" /> Add Rule</Button>
             </DialogTrigger>
             <DialogContent className="bg-card border-border max-w-lg">
               <DialogHeader>
@@ -702,6 +706,8 @@ function FirewallTab() {
                     <Button
                       variant="ghost" size="icon"
                       className="h-7 w-7 text-muted-foreground hover:text-red-400"
+                      disabled={isDemo}
+                      title={isDemo ? "Demo mode — read only" : undefined}
                       onClick={() => { if (confirm("Rule ဖယ်မလား?")) deleteMutation.mutate(r.id); }}
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -813,7 +819,7 @@ export default function DefenseRules() {
 
   return (
     <div className="space-y-6 h-full flex flex-col">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-primary uppercase">Defense Rules</h1>
           <p className="text-sm text-muted-foreground">Auto-defense rules, firewall policies, and command execution history.</p>
@@ -828,7 +834,7 @@ export default function DefenseRules() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 border border-border rounded-lg p-1 bg-card w-fit">
+      <div className="flex gap-1 border border-border rounded-lg p-1 bg-card w-fit overflow-x-auto max-w-full">
         {TABS.map(t => (
           <button
             key={t.id}

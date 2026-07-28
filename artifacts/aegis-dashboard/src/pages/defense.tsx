@@ -181,7 +181,7 @@ export default function Defense() {
   const { toast } = useToast();
   const qc = useQueryClient();
   const { selectedDevice } = useDeviceContext();
-  const { getToken } = useAuth();
+  const { getToken, isDemo } = useAuth();
 
   const defAuthHeaders = (extra: Record<string,string> = {}) => {
     const tok = getToken();
@@ -386,7 +386,7 @@ export default function Defense() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-primary uppercase">Defense Center</h1>
           <p className="text-sm text-muted-foreground">
@@ -404,7 +404,7 @@ export default function Defense() {
       </div>
 
       {/* ── Top status row ─────────────────────────────────────────────────── */}
-      <div className={`grid gap-4 ${deviceFilter ? "grid-cols-4" : "grid-cols-2"}`}>
+      <div className={`grid gap-4 ${deviceFilter ? "grid-cols-2 lg:grid-cols-4" : "grid-cols-1 sm:grid-cols-2"}`}>
         {/* Auto Defense — real, persisted toggle (app_settings table) */}
         <Card className={`bg-card border-border ${status?.autoDefenseEnabled ? "" : "border-red-800/40"}`}>
           <CardContent className="p-4 flex items-center gap-3">
@@ -414,8 +414,9 @@ export default function Defense() {
               <div className="flex items-center gap-2 mt-0.5">
                 <Switch
                   checked={status?.autoDefenseEnabled ?? false}
-                  disabled={toggleAutoDefenseMutation.isPending || !status}
-                  onCheckedChange={checked => toggleAutoDefenseMutation.mutate(checked)}
+                  disabled={isDemo || toggleAutoDefenseMutation.isPending || !status}
+                  onCheckedChange={checked => !isDemo && toggleAutoDefenseMutation.mutate(checked)}
+                  title={isDemo ? "Demo mode — read only" : undefined}
                 />
                 <p className={`text-sm font-bold ${status?.autoDefenseEnabled ? "text-green-400" : "text-red-400"}`}>
                   {status?.autoDefenseEnabled ? "ENABLED" : "DISABLED"}
@@ -454,8 +455,9 @@ export default function Defense() {
                 <div className="grid grid-cols-3 gap-1">
                   {(["start", "stop", "restart"] as const).map(action => (
                     <Button key={action} size="sm" variant="outline"
-                      disabled={fail2banControl.isPending}
+                      disabled={isDemo || fail2banControl.isPending}
                       onClick={() => fail2banControl.mutate(action)}
+                      title={isDemo ? "Demo mode — read only" : undefined}
                       className="h-7 text-[10px] uppercase">
                       {action}
                     </Button>
@@ -585,7 +587,8 @@ export default function Defense() {
                         variant="outline"
                         className="h-6 px-2 text-xs border-green-800 text-green-400 hover:bg-green-900/20"
                         onClick={() => unblockMutation.mutate(b.ip)}
-                        disabled={unblockMutation.isPending}
+                        disabled={isDemo || unblockMutation.isPending}
+                        title={isDemo ? "Demo mode — read only" : undefined}
                       >
                         <Unlock className="w-3 h-3 mr-1" />Unblock
                       </Button>
@@ -626,24 +629,27 @@ export default function Defense() {
           <p className="text-xs text-muted-foreground">
             IP တစ်ခုကို manually block လုပ်မည် — iptables DROP (all VMs) + pfSense EasyRuleBlockHosts တပြိုင်နက် queued ဖြစ်မည်
           </p>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap sm:flex-nowrap">
             <Input
               placeholder="Attacker IP (e.g. 192.168.10.99)"
               value={manualIp}
               onChange={e => setManualIp(e.target.value)}
-              className="font-mono text-sm h-8 flex-1"
+              readOnly={isDemo}
+              className={`font-mono text-sm h-8 flex-1 min-w-0 ${isDemo ? "opacity-50 cursor-not-allowed" : ""}`}
             />
             <Input
               placeholder="Reason (optional)"
               value={manualReason}
               onChange={e => setManualReason(e.target.value)}
-              className="text-sm h-8 flex-1"
+              readOnly={isDemo}
+              className={`text-sm h-8 flex-1 min-w-0 ${isDemo ? "opacity-50 cursor-not-allowed" : ""}`}
             />
             <Button
               size="sm"
               variant="destructive"
               className="h-8 px-3 text-xs shrink-0"
-              disabled={!manualIp.trim() || manualBlockMutation.isPending}
+              disabled={isDemo || !manualIp.trim() || manualBlockMutation.isPending}
+              title={isDemo ? "Demo mode — read only" : undefined}
               onClick={() => manualBlockMutation.mutate({ ip: manualIp.trim(), reason: manualReason.trim() })}
             >
               <Ban className="w-3 h-3 mr-1" />
@@ -688,7 +694,7 @@ export default function Defense() {
             <Button
               onClick={() => runAiDefend(aiIp)}
               disabled={!aiIp || aiLoading}
-              className="shrink-0"
+              className="shrink-0 whitespace-nowrap"
             >
               {aiLoading ? (
                 <><RefreshCcw className="w-3.5 h-3.5 mr-1.5 animate-spin" />Analyzing...</>
@@ -764,7 +770,7 @@ export default function Defense() {
       {/* ── AI RULE RECOMMENDATIONS ───────────────────────────────── */}
       <Card className="bg-card border-primary/30 shadow-[0_0_16px_rgba(var(--primary-rgb),0.06)]">
         <CardHeader className="pb-3 border-b border-border/50">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <div className="w-6 h-6 rounded bg-primary/10 flex items-center justify-center">
                 <Sparkles className="w-3.5 h-3.5 text-primary" />
@@ -777,7 +783,7 @@ export default function Defense() {
               size="sm"
               onClick={fetchRuleRecs}
               disabled={ruleRecsLoading}
-              className="text-xs"
+              className="text-xs shrink-0 whitespace-nowrap self-end sm:self-auto"
             >
               {ruleRecsLoading ? (
                 <><RefreshCcw className="w-3.5 h-3.5 mr-1.5 animate-spin" />Generating…</>
@@ -817,8 +823,9 @@ export default function Defense() {
                         size="sm"
                         variant={applied ? "outline" : "default"}
                         className={`shrink-0 text-xs h-7 px-2 ${applied ? "border-green-700 text-green-400" : ""}`}
-                        onClick={() => !applied && applyRule(rec)}
-                        disabled={applied}
+                        onClick={() => !applied && !isDemo && applyRule(rec)}
+                        disabled={applied || isDemo}
+                        title={isDemo ? "Demo mode — read only" : undefined}
                       >
                         {applied ? <><Check className="w-3 h-3 mr-1" />Applied</> : <><Plus className="w-3 h-3 mr-1" />Apply</>}
                       </Button>

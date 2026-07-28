@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useAuth } from "@/contexts/auth-context";
 import { useListReports, useGenerateReport, getListReportsQueryKey } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -301,6 +302,7 @@ function VoiceReader({ text }: { text: string }) {
 }
 
 export default function Reports() {
+  const { isDemo } = useAuth();
   const [isGenerateOpen, setIsGenerateOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [type, setType] = useState("daily");
@@ -438,14 +440,14 @@ export default function Reports() {
 
     <div className="space-y-6 h-full flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-primary uppercase">Security Reports</h1>
           <p className="text-sm text-muted-foreground">Historical analysis and compliance documentation.</p>
         </div>
-        <Dialog open={isGenerateOpen} onOpenChange={setIsGenerateOpen}>
+        <Dialog open={isGenerateOpen} onOpenChange={v => !isDemo && setIsGenerateOpen(v)}>
           <DialogTrigger asChild>
-            <Button>
+            <Button disabled={isDemo} title={isDemo ? "Demo mode — read only" : undefined}>
               <Plus className="w-4 h-4 mr-2" />
               Generate Report
             </Button>
@@ -627,7 +629,7 @@ export default function Reports() {
           <p className="text-xs mt-1 text-muted-foreground/60">Click "Generate Report" to create your first AI-powered report.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered?.map((report) => (
             <Card key={report.id} className="bg-card border-border hover:border-primary/50 transition-colors group">
               <CardHeader className="pb-3 border-b border-border/50">
@@ -671,9 +673,9 @@ export default function Reports() {
                     variant="outline"
                     size="icon"
                     className="border-border text-red-500 hover:text-red-400 hover:bg-red-500/10 hover:border-red-500/30"
-                    disabled={deletingId === report.id}
-                    onClick={() => setDeleteTarget({ id: report.id, title: report.title })}
-                    title="Delete report"
+                    disabled={isDemo || deletingId === report.id}
+                    onClick={() => !isDemo && setDeleteTarget({ id: report.id, title: report.title })}
+                    title={isDemo ? "Demo mode — read only" : "Delete report"}
                   >
                     <Trash2 className="w-4 h-4" />
                   </Button>

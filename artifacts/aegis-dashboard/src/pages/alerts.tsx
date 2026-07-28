@@ -7,6 +7,7 @@ import { HostLabel } from "@/lib/host-utils";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { useDeviceContext } from "@/lib/device-context";
+import { useAuth } from "@/contexts/auth-context";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -69,6 +70,7 @@ const attackTypeLabel: Record<string, string> = {
 export default function Alerts() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { isDemo } = useAuth();
   const [filter, setFilter] = useState<"all" | "unacknowledged">("unacknowledged");
   const [alertPage, setAlertPage] = useState(1);
   const { selectedIp, selectedDevice } = useDeviceContext();
@@ -105,7 +107,7 @@ export default function Alerts() {
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-start gap-3 justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-primary uppercase">Active Alerts</h1>
           {selectedDevice ? (
@@ -228,7 +230,8 @@ export default function Alerts() {
                     size="sm"
                     variant={alert.severity === "critical" ? "destructive" : "default"}
                     onClick={() => ackMutation.mutate(alert.id)}
-                    disabled={ackMutation.isPending}
+                    disabled={isDemo || ackMutation.isPending}
+                    title={isDemo ? "Demo mode — read only" : undefined}
                   >
                     <Check className="h-4 w-4 mr-2" />
                     Acknowledge

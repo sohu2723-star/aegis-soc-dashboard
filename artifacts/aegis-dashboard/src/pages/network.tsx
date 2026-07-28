@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Wifi, Monitor, Shield, Activity, X, AlertTriangle, Trash2, Search } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/auth-context";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar } from "recharts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format, formatDistanceToNow } from "date-fns";
@@ -323,6 +324,7 @@ export default function Network() {
   const prevHostsRef = useRef<NetworkHost[]>([]);
   const qc = useQueryClient();
   const { toast } = useToast();
+  const { isDemo } = useAuth();
 
   // Flash row when status changes
   useEffect(() => {
@@ -402,7 +404,8 @@ export default function Network() {
           <AlertDialogCancel className="border-border">Cancel</AlertDialogCancel>
           <AlertDialogAction
             className="bg-red-600 hover:bg-red-700 text-white"
-            onClick={confirmRemoveHost}
+            onClick={!isDemo ? confirmRemoveHost : undefined}
+            disabled={isDemo}
           >
             Remove
           </AlertDialogAction>
@@ -417,7 +420,7 @@ export default function Network() {
         />
       )}
 
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-primary uppercase">Network Monitor</h1>
           <p className="text-sm text-muted-foreground">Real-time network topology and traffic analysis.</p>
@@ -431,7 +434,7 @@ export default function Network() {
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Card className="bg-card border-border">
           <CardContent className="p-4 flex items-center gap-4">
             <div className="relative">
@@ -673,8 +676,8 @@ export default function Network() {
                         {<Button
                           variant="ghost" size="icon"
                           className="h-7 w-7 text-red-500 hover:text-red-400 hover:bg-red-500/10"
-                          title="Remove from list"
-                          disabled={loadingId === h.id}
+                          title={isDemo ? "Demo mode — read only" : "Remove from list"}
+                          disabled={isDemo || loadingId === h.id}
                           onClick={e => removeHost(e, h)}
                         >
                           <Trash2 className="w-3.5 h-3.5" />

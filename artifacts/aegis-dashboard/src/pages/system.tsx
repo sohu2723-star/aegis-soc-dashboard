@@ -37,7 +37,7 @@ export default function SystemStatus() {
   const { data: allSystems, isLoading } = useGetSystemStatus({ query: { queryKey: getGetSystemStatusQueryKey(), refetchInterval: 5000 } });
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const { getToken } = useAuth();
+  const { getToken, isDemo } = useAuth();
   const [togglingId, setTogglingId] = useState<number | null>(null);
 
   async function controlService(sys: any, action: "start" | "stop") {
@@ -108,7 +108,7 @@ export default function SystemStatus() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-primary uppercase">System Status</h1>
           <p className="text-sm text-muted-foreground">
@@ -127,7 +127,7 @@ export default function SystemStatus() {
 
       {/* Summary bar */}
       {!isLoading && systems && (
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Card className="bg-card border-border">
             <CardContent className="p-4 flex items-center gap-3">
               <CheckCircle className="w-7 h-7 text-green-500" />
@@ -185,7 +185,7 @@ export default function SystemStatus() {
                   {/* Global/shared components (no specific host) */}
                   {globalSystems.length > 0 && (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {globalSystems.map(sys => <SystemCard key={sys.id} sys={sys} getStatusIcon={getStatusIcon} onControl={controlService} toggling={togglingId === sys.id} />)}
+                      {globalSystems.map(sys => <SystemCard key={sys.id} sys={sys} getStatusIcon={getStatusIcon} onControl={controlService} toggling={togglingId === sys.id} isDemo={isDemo} />)}
                     </div>
                   )}
 
@@ -199,7 +199,7 @@ export default function SystemStatus() {
                           <HostLabel ip={hostIp} showIp={true} />
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pl-4 border-l border-cyan-400/20">
-                          {hostSystems.map(sys => <SystemCard key={sys.id} sys={sys} getStatusIcon={getStatusIcon} onControl={controlService} toggling={togglingId === sys.id} />)}
+                          {hostSystems.map(sys => <SystemCard key={sys.id} sys={sys} getStatusIcon={getStatusIcon} onControl={controlService} toggling={togglingId === sys.id} isDemo={isDemo} />)}
                         </div>
                       </div>
                     );
@@ -216,7 +216,7 @@ export default function SystemStatus() {
                   {layerLabels[layer] ?? layer} Layer
                 </h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {layerSystems.map((sys) => <SystemCard key={sys.id} sys={sys} getStatusIcon={getStatusIcon} onControl={controlService} toggling={togglingId === sys.id} />)}
+                  {layerSystems.map((sys) => <SystemCard key={sys.id} sys={sys} getStatusIcon={getStatusIcon} onControl={controlService} toggling={togglingId === sys.id} isDemo={isDemo} />)}
                 </div>
               </div>
             );
@@ -227,11 +227,12 @@ export default function SystemStatus() {
   );
 }
 
-function SystemCard({ sys, getStatusIcon, onControl, toggling }: {
+function SystemCard({ sys, getStatusIcon, onControl, toggling, isDemo }: {
   sys: any;
   getStatusIcon: (s: string) => React.ReactNode;
   onControl?: (sys: any, action: "start" | "stop") => void;
   toggling?: boolean;
+  isDemo?: boolean;
 }) {
   const canToggle = TOGGLEABLE.has(sys.component) && !!sys.hostIp && !!SERVICE_NAME[sys.component];
   return (
@@ -283,7 +284,8 @@ function SystemCard({ sys, getStatusIcon, onControl, toggling }: {
                 size="sm"
                 variant="outline"
                 className="flex-1 h-7 text-[10px] gap-1.5 text-green-400 border-green-500/40 hover:bg-green-500/10 hover:border-green-500"
-                disabled={toggling || sys.status === "online"}
+                disabled={isDemo || toggling || sys.status === "online"}
+                title={isDemo ? "Demo mode — read only" : undefined}
                 onClick={() => onControl(sys, "start")}
               >
                 {toggling ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
@@ -293,7 +295,8 @@ function SystemCard({ sys, getStatusIcon, onControl, toggling }: {
                 size="sm"
                 variant="outline"
                 className="flex-1 h-7 text-[10px] gap-1.5 text-red-400 border-red-500/40 hover:bg-red-500/10 hover:border-red-500"
-                disabled={toggling || sys.status === "offline"}
+                disabled={isDemo || toggling || sys.status === "offline"}
+                title={isDemo ? "Demo mode — read only" : undefined}
                 onClick={() => onControl(sys, "stop")}
               >
                 {toggling ? <Loader2 className="w-3 h-3 animate-spin" /> : <Square className="w-3 h-3" />}
