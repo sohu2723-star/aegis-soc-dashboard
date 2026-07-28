@@ -1,18 +1,20 @@
 /**
  * Auth routes
  *   POST /api/auth/admin-key   — login with AEGIS_ADMIN_KEY
- *   POST /api/auth/google      — verify Google ID token; allow only ALLOWED_EMAIL
+ *   POST /api/auth/google      — verify Google ID token; allow only ADMIN_EMAIL
+ *   POST /api/auth/demo        — public demo access (read-only token)
  *   GET  /api/auth/me          — validate current session
  *   POST /api/auth/logout      — client-side only (clears nothing server-side)
  */
 import { Router } from "express";
 import { OAuth2Client } from "google-auth-library";
-import { signToken, verifyToken } from "../lib/jwt-auth";
+import { signToken, signDemoToken, verifyToken } from "../lib/jwt-auth";
 
 const router = Router();
 
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID ?? "524254578493-9ce8ttte7c63hjo61rn9seo2m6jpfbjb.apps.googleusercontent.com";
-const ALLOWED_EMAIL    = process.env.ADMIN_EMAIL ?? "copy2723@gmail.com";
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID ?? "";
+// ADMIN_EMAIL must be set via env — no hardcoded fallback (security)
+const ALLOWED_EMAIL = process.env.ADMIN_EMAIL ?? "";
 
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 
@@ -22,11 +24,11 @@ router.post("/auth/admin-key", (req, res) => {
   const adminKey = process.env.AEGIS_ADMIN_KEY;
 
   if (!adminKey) {
-    res.status(500).json({ error: "Server not configured (AEGIS_ADMIN_KEY missing)" });
+    res.status(500).json({ error: "Server not configured" });
     return;
   }
   if (!key || key !== adminKey) {
-    res.status(401).json({ error: "Invalid admin key" });
+    res.status(401).json({ error: "Invalid access key" });
     return;
   }
 
@@ -38,7 +40,11 @@ router.post("/auth/admin-key", (req, res) => {
 router.post("/auth/google", async (req, res) => {
   const { credential } = req.body as { credential?: string };
   if (!credential) {
-    res.status(400).json({ error: "No Google credential provided" });
+    res.status(400).json({ error: "No credential provided" });
+    return;
+  }
+  if (!GOOGLE_CLIENT_ID) {
+    res.status(500).json({ error: "Google auth not configured" });
     return;
   }
 
@@ -49,19 +55,28 @@ router.post("/auth/google", async (req, res) => {
     });
     const payload = ticket.getPayload();
     if (!payload?.email) {
-      res.status(401).json({ error: "Could not read email from token" });
+      res.status(401).json({ error: "Could not verify identity" });
       return;
     }
-    if (payload.email !== ALLOWED_EMAIL) {
+    if (!ALLOWED_EMAIL || payload.email !== ALLOWED_EMAIL) {
       res.status(403).json({ error: "Access denied" });
       return;
     }
 
-    const token = signToken({ role: "admin", method: "google", email: payload.email });
-    res.json({ ok: true, token, email: payload.email });
+    // email not stored in JWT — only role/method (JWT is base64 decodable)
+    const token = signToken({ role: "admin", method: "google" });
+    // Return display name only (not full email) for UI
+    const displayName = payload.name ?? payload.email.split("@")[0];
+    res.json({ ok: true, token, displayName });
   } catch (err: any) {
-    res.status(401).json({ error: err?.message ?? "Google token verification failed" });
+    res.status(401).json({ error: "Verification failed" });
   }
+});
+
+/* ── Demo access — no credentials needed, read-only token ───────────────── */
+router.post("/auth/demo", (_req, res) => {
+  const token = signDemoToken();
+  res.json({ ok: true, token });
 });
 
 /* ── Whoami ──────────────────────────────────────────────────────────────── */
@@ -76,7 +91,8 @@ router.get("/auth/me", (req, res) => {
     res.status(401).json({ error: "Invalid or expired session" });
     return;
   }
-  res.json({ ok: true, user: payload });
+  // Never return sensitive info — only role and method
+  res.json({ ok: true, user: { role: payload.role, method: payload.method } });
 });
 
 /* ── Logout (stateless — client just discards the token) ─────────────────── */

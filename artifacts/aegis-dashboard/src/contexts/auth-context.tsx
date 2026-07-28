@@ -1,21 +1,21 @@
 /**
  * Auth context — stores JWT session in localStorage ("aegis_session").
- * Exposes: user, login(), logout(), isLoading, isAuthenticated
+ * Exposes: user, isDemo, login(), logout(), isLoading, isAuthenticated
  */
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
 
 const TOKEN_KEY = "aegis_session";
 
 export interface AuthUser {
-  role:   "admin";
-  method: "admin-key" | "google";
-  email?: string;
+  role:   "admin" | "demo";
+  method: "admin-key" | "google" | "demo";
 }
 
 interface AuthState {
   user:            AuthUser | null;
   isLoading:       boolean;
   isAuthenticated: boolean;
+  isDemo:          boolean;
   login:           (token: string) => Promise<void>;
   logout:          () => void;
   getToken:        () => string | null;
@@ -58,10 +58,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const getToken = useCallback(() => localStorage.getItem(TOKEN_KEY), []);
 
+  const isDemo = user?.role === "demo";
+
   return (
     <AuthContext.Provider value={{
       user, isLoading,
       isAuthenticated: user !== null,
+      isDemo,
       login, logout, getToken,
     }}>
       {children}

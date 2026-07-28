@@ -7,6 +7,7 @@ import { AuthProvider } from "@/contexts/auth-context";
 import { AuthGuard } from "@/components/auth-guard";
 import NotFound from "@/pages/not-found";
 import LoginPage from "@/pages/login";
+import DemoEntry from "@/pages/demo-entry";
 import { Layout } from "@/components/layout";
 import { useSSE } from "@/hooks/use-sse";
 import { useKeepAlive } from "@/hooks/use-keep-alive";
@@ -28,15 +29,9 @@ import AttackFlow from "@/pages/attack-flow";
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      // SSE (useSSE hook) already pushes live events via broadcaster — no need
-      // to hammer the API on every window focus. Disable focus-refetch to avoid
-      // a burst of 8+ parallel DB queries every time the user alt-tabs back.
       refetchOnWindowFocus: false,
-      // 10 s stale window: data is considered fresh for 10 s after the last
-      // successful fetch. Prevents duplicate requests when the dashboard's
-      // own refetchInterval fires alongside a component remount.
       staleTime: 10_000,
-      gcTime: 60_000,        // keep cache 1 min before garbage collecting
+      gcTime: 60_000,
       retry: 2,
       retryDelay: 2000,
     },
@@ -51,24 +46,24 @@ function ProtectedRouter() {
   const sound = useSoundAlert();
   return (
     <SoundAlertContext.Provider value={sound}>
-    <AuthGuard>
-      <Layout>
-        <Switch>
-          <Route path="/" component={Dashboard} />
-          <Route path="/events" component={Events} />
-          <Route path="/alerts" component={Alerts} />
-          <Route path="/system" component={SystemStatus} />
-          <Route path="/network" component={Network} />
-          <Route path="/defense" component={Defense} />
-          <Route path="/reports" component={Reports} />
-          <Route path="/connections" component={Connections} />
-          <Route path="/defense-rules" component={DefenseRules} />
-          <Route path="/settings" component={SettingsPage} />
-          <Route path="/attack-flow" component={AttackFlow} />
-          <Route component={NotFound} />
-        </Switch>
-      </Layout>
-    </AuthGuard>
+      <AuthGuard>
+        <Layout>
+          <Switch>
+            <Route path="/" component={Dashboard} />
+            <Route path="/events" component={Events} />
+            <Route path="/alerts" component={Alerts} />
+            <Route path="/system" component={SystemStatus} />
+            <Route path="/network" component={Network} />
+            <Route path="/defense" component={Defense} />
+            <Route path="/reports" component={Reports} />
+            <Route path="/connections" component={Connections} />
+            <Route path="/defense-rules" component={DefenseRules} />
+            <Route path="/settings" component={SettingsPage} />
+            <Route path="/attack-flow" component={AttackFlow} />
+            <Route component={NotFound} />
+          </Switch>
+        </Layout>
+      </AuthGuard>
     </SoundAlertContext.Provider>
   );
 }
@@ -82,6 +77,7 @@ function App() {
             <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
               <Switch>
                 <Route path="/login" component={LoginPage} />
+                <Route path="/demo" component={DemoEntry} />
                 <Route component={ProtectedRouter} />
               </Switch>
             </WouterRouter>

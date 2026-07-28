@@ -608,7 +608,7 @@ export default function AttackFlowPage() {
       {/* ── SVG canvas ──────────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top bar */}
-        <div className="flex items-center gap-4 px-4 py-2 border-b border-border bg-card/40 shrink-0">
+        <div className="flex items-center gap-3 px-4 py-2 border-b border-border bg-card/40 shrink-0 overflow-x-auto">
           <div className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
             <span className="text-xs font-mono text-green-400 font-bold tracking-wider">STREAMING</span>
@@ -629,12 +629,12 @@ export default function AttackFlowPage() {
           </span>
         </div>
 
-        {/* SVG */}
-        <div className="flex-1 flex items-center justify-center p-4 overflow-hidden">
+        {/* SVG — responsive: fills width on desktop, scrollable on mobile */}
+        <div className="flex-1 flex items-center justify-center p-2 sm:p-4 overflow-auto">
           <svg
             viewBox={`0 0 ${VW} ${VH}`}
-            className="w-full h-full"
-            style={{ maxHeight: "calc(100vh - 10rem)" }}
+            className="w-full h-auto"
+            style={{ minWidth: "320px", maxHeight: "calc(100vh - 8rem)" }}
           >
             <defs>
               {/* Grid */}
