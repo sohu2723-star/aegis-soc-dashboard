@@ -67,12 +67,12 @@ function DemoQRModal({ onClose }: { onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={onClose}>
       <div className="bg-card border border-border rounded-xl p-6 flex flex-col items-center gap-4 shadow-2xl" onClick={e => e.stopPropagation()}>
-        <p className="text-[10px] text-muted-foreground uppercase tracking-widest">Demo Access QR</p>
-        <div className="bg-white p-3 rounded-lg">
-          <QRCodeSVG value={demoUrl} size={180} />
+        <p className="text-xs text-cyan-100/80 font-semibold uppercase tracking-widest">Demo Access QR</p>
+        <div className="bg-white p-4 rounded-xl shadow-[0_0_28px_rgba(255,255,255,0.16)]" aria-label="Scannable demo access QR code">
+          <QRCodeSVG value={demoUrl} size={224} level="H" marginSize={1} shapeRendering="crispEdges" />
         </div>
-        <p className="text-[10px] text-muted-foreground max-w-[220px] text-center break-all font-mono">{demoUrl}</p>
-        <p className="text-[10px] text-muted-foreground/60">Anyone who scans this can view the dashboard (read-only)</p>
+        <p className="text-xs text-slate-300 max-w-[280px] text-center break-all font-mono select-all">{demoUrl}</p>
+        <p className="text-xs text-muted-foreground">Anyone who scans this can view the dashboard (read-only)</p>
         <button onClick={onClose} className="text-xs text-primary hover:underline">Close</button>
       </div>
     </div>
