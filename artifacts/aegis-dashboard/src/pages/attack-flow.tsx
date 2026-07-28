@@ -603,10 +603,10 @@ export default function AttackFlowPage() {
   }
 
   return (
-    <div className="flex h-full bg-background text-foreground overflow-hidden">
+    <div className="flex h-full min-h-0 flex-col bg-background text-foreground overflow-y-auto lg:flex-row lg:overflow-hidden">
 
       {/* ── SVG canvas ──────────────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex min-h-[62vh] flex-col min-w-0 shrink-0 lg:min-h-0 lg:flex-1 lg:shrink">
         {/* Top bar */}
         <div className="flex items-center gap-3 px-4 py-2 border-b border-border bg-card/40 shrink-0 overflow-x-auto">
           <div className="flex items-center gap-1.5">
@@ -630,11 +630,11 @@ export default function AttackFlowPage() {
         </div>
 
         {/* SVG — responsive: fills width on desktop, scrollable on mobile */}
-        <div className="flex-1 flex items-center justify-center p-2 sm:p-4 overflow-auto">
+        <div className="flex-1 flex items-center justify-start p-2 sm:p-4 overflow-x-auto overflow-y-hidden lg:justify-center lg:overflow-auto">
           <svg
             viewBox={`0 0 ${VW} ${VH}`}
-            className="threat-map-svg w-full h-auto"
-            style={{ minWidth: "820px", maxHeight: "calc(100vh - 8rem)" }}
+            className="h-auto w-[760px] max-w-none shrink-0 sm:w-[900px] lg:w-full lg:max-w-full"
+            style={{ maxHeight: "calc(100vh - 8rem)" }}
           >
             <defs>
               {/* Grid */}
@@ -932,7 +932,7 @@ export default function AttackFlowPage() {
       </div>
 
       {/* ── Right panel: Live Feed / Data Flow tabs ──────────────────────── */}
-      <div className="w-72 shrink-0 border-l border-border flex flex-col bg-card/30">
+      <div className="flex min-h-[55vh] w-full shrink-0 flex-col border-t border-border bg-card/30 lg:min-h-0 lg:w-72 lg:border-l lg:border-t-0">
 
         {/* Tab header */}
         <div className="px-2 py-1.5 border-b border-border flex items-center gap-1 shrink-0">
