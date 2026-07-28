@@ -247,3 +247,10 @@ Internship project — cybersecurity lab
 ## License
 
 MIT
+
+## AEGIS SOC Poster
+
+The enhanced, presentation-ready AEGIS SOC poster is stored in the repository at
+[`docs/assets/aegis-soc-poster-enhanced.svg`](docs/assets/aegis-soc-poster-enhanced.svg).
+
+[![AEGIS SOC enhanced poster](docs/assets/aegis-soc-poster-enhanced.svg)](docs/assets/aegis-soc-poster-enhanced.svg)
