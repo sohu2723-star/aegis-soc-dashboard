@@ -160,3 +160,14 @@ select, summary, label[for],
 input, textarea, [contenteditable="true"] {
   cursor: text !important;
 }
+
+/* Keep labels and IP addresses sharp when the responsive threat-map SVG scales. */
+.threat-map-svg {
+  text-rendering: geometricPrecision;
+  shape-rendering: geometricPrecision;
+  -webkit-font-smoothing: antialiased;
+}
+
+.threat-map-svg text {
+  font-variant-numeric: tabular-nums;
+}

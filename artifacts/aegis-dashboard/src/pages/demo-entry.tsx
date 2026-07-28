@@ -55,16 +55,16 @@ export default function DemoEntry() {
       </div>
 
       {/* QR + Enter button */}
-      <div className="flex flex-col items-center gap-5 border border-border rounded-xl p-6 bg-card/40 mb-6 w-full max-w-xs">
-        <p className="text-[10px] text-muted-foreground uppercase tracking-widest">Demo Access — Scan or Click</p>
+      <div className="flex flex-col items-center gap-5 border border-cyan-500/25 rounded-2xl p-7 bg-card/70 mb-6 w-full max-w-sm shadow-[0_0_40px_rgba(6,182,212,0.08)]">
+        <p className="text-xs text-cyan-100/80 uppercase tracking-[0.2em] font-semibold">Demo Access — Scan or Click</p>
 
         {demoUrl && (
-          <div className="bg-white p-3 rounded-lg shadow-lg">
-            <QRCodeSVG value={demoUrl} size={180} />
+          <div className="bg-white p-4 rounded-xl shadow-[0_0_28px_rgba(255,255,255,0.16)]" aria-label="Scannable demo access QR code">
+            <QRCodeSVG value={demoUrl} size={224} level="H" marginSize={1} shapeRendering="crispEdges" />
           </div>
         )}
 
-        <p className="text-[10px] text-muted-foreground text-center break-all">{demoUrl}</p>
+        <p className="text-xs leading-relaxed text-slate-300 text-center break-all select-all">{demoUrl}</p>
 
         {error && (
           <p className="text-red-400 text-xs text-center">Failed to connect. Check API server.</p>
