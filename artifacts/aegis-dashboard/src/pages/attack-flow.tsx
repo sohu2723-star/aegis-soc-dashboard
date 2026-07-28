@@ -823,17 +823,17 @@ export default function AttackFlowPage() {
                   )}
 
                   {/* Label block below node */}
-                  <text x={n.x} y={n.y + 44} textAnchor="middle" fontSize="9.5" fill={strokeCol} fontFamily="monospace" fontWeight="bold">
+                  <text x={n.x} y={n.y + 45} textAnchor="middle" fontSize="11" fill={strokeCol} fontFamily="monospace" fontWeight="bold">
                     {n.label}
                   </text>
-                  <text x={n.x} y={n.y + 56} textAnchor="middle" fontSize="7.5" fill="rgba(255,255,255,0.38)" fontFamily="monospace">
+                  <text x={n.x} y={n.y + 58} textAnchor="middle" fontSize="9" fill="rgba(255,255,255,0.72)" fontFamily="monospace">
                     {n.sub}
                   </text>
                   {/* Attacker node: show live Kali IP; others show static IP */}
                   {key === "attacker" ? (
                     <>
-                      <text x={n.x} y={n.y + 67} textAnchor="middle" fontSize="7.5"
-                        fill={attackerIp === "* / any" ? "rgba(255,255,255,0.2)" : "#ef4444"}
+                      <text x={n.x} y={n.y + 71} textAnchor="middle" fontSize="8.5"
+                        fill={attackerIp === "* / any" ? "rgba(255,255,255,0.55)" : "#f87171"}
                         fontFamily="monospace" fontWeight={attackerIp === "* / any" ? "normal" : "bold"}>
                         {attackerIp}
                       </text>
@@ -848,7 +848,7 @@ export default function AttackFlowPage() {
                       )}
                     </>
                   ) : (
-                    <text x={n.x} y={n.y + 67} textAnchor="middle" fontSize="7" fill="rgba(255,255,255,0.2)" fontFamily="monospace">
+                    <text x={n.x} y={n.y + 71} textAnchor="middle" fontSize="8.5" fill="rgba(255,255,255,0.62)" fontFamily="monospace" fontWeight="500">
                       {n.ip}
                     </text>
                   )}
@@ -1372,6 +1372,27 @@ function DataFlowDiagram({ lastEventTs }: { lastEventTs: number }) {
             <span className="text-[8.5px] text-muted-foreground/50 truncate">{s.desc}</span>
           </div>
         ))}
+      </div>
+
+      <div className="mt-4 pt-3 border-t border-border/50">
+        <p className="text-[10px] font-mono font-bold text-cyan-400 mb-2 uppercase tracking-widest">Technology stack</p>
+        <div className="grid grid-cols-2 gap-1.5">
+          {[
+            ["Perimeter", "pfSense · Suricata"],
+            ["Network", "MikroTik CHR"],
+            ["Sensors", "Fail2ban · BIND9"],
+            ["Directory", "OpenLDAP"],
+            ["API", "Node.js · Express 5"],
+            ["Database", "PostgreSQL · Drizzle"],
+            ["Frontend", "React 19 · Vite"],
+            ["Realtime", "SSE · Telegram"],
+          ].map(([label, value]) => (
+            <div key={label} className="rounded-md border border-cyan-500/15 bg-cyan-500/[0.04] p-2 min-w-0">
+              <p className="text-[8px] uppercase tracking-wider text-muted-foreground">{label}</p>
+              <p className="text-[9px] leading-snug font-semibold text-slate-200 mt-0.5">{value}</p>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
