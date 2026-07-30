@@ -191,7 +191,10 @@ let _attackerIpCache = "* / any";
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function AttackFlowPage() {
   const [packets, setPackets]       = useState<Packet[]>(() => _packetCache);
-  const [log, setLog]               = useState<LogEntry[]>(() => readLiveFeed().map(toLogEntry));
+  const [log, setLog]               = useState<LogEntry[]>(() => {
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    return readLiveFeed().map(toLogEntry).filter(e => e.tsMs >= cutoff);
+  });
   const [alertNodes, setAlertNodes] = useState<Set<NodeKey>>(new Set());  // red border flash
   const [pulseNodes, setPulseNodes] = useState<Set<NodeKey>>(new Set());  // expanding ring
   const [stats, setStats]           = useState(() => _statsCache);
@@ -322,8 +325,8 @@ export default function AttackFlowPage() {
       path,
       seg: 0,
       t: 0,
-      // Slow enough to follow the full path. Replay uses the same pace.
-      speed: replay ? 0.00018 : 0.00020 + Math.random() * 0.00008,
+      // Speed — snappier on live events, slightly slower on replay for clarity.
+      speed: replay ? 0.00042 : 0.00055 + Math.random() * 0.00022,
       blocked: false,
       blockedAt: 0,
       severity: ev.severity ?? "medium",
@@ -752,13 +755,39 @@ export default function AttackFlowPage() {
             {packets.map(p => {
               const { x, y } = pos(p);
               const col = p.isTg ? "#29b6f6" : p.blocked ? "#ef4444" : (SEV_COLOR[p.severity] ?? "#f59e0b");
-              const r   = p.blocked ? 9 : 5;
+              // Size by severity: bigger = more dangerous
+              const sevR: Record<string, number> = { critical: 10, high: 8, medium: 6, low: 5, info: 4 };
+              const r = p.blocked ? 11 : p.isTg ? 6 : (sevR[p.severity] ?? 6);
+              const isCritical = !p.blocked && !p.isTg && p.severity === "critical";
               return (
                 <g key={p.id} filter="url(#pkt-glow)">
-                  {/* Outer glow */}
-                  <circle cx={x} cy={y} r={r + 8} fill={col} opacity={0.12} />
-                  {/* Core */}
-                  <circle cx={x} cy={y} r={r} fill={col} opacity={p.blocked ? 0.6 : 1} />
+                  {/* Outer glow — scales with r */}
+                  <circle cx={x} cy={y} r={r + 9} fill={col} opacity={0.13} />
+                  {/* Core with blink on live packets */}
+                  <circle cx={x} cy={y} r={r} fill={col} opacity={p.blocked ? 0.6 : 1}>
+                    {!p.blocked && (
+                      <animate
+                        attributeName="opacity"
+                        values="1;0.45;1"
+                        dur={isCritical ? "0.55s" : "0.9s"}
+                        repeatCount="indefinite"
+                      />
+                    )}
+                  </circle>
+                  {/* Critical: ⚠ warning badge on the dot */}
+                  {isCritical && (
+                    <text
+                      x={x} y={y + 3.5}
+                      textAnchor="middle"
+                      fontSize="8"
+                      fill="#fff"
+                      fontWeight="bold"
+                      fontFamily="monospace"
+                      style={{ pointerEvents: "none" }}
+                    >
+                      ⚠
+                    </text>
+                  )}
                   {/* Label above */}
                   <text
                     x={x} y={y - r - 4}
