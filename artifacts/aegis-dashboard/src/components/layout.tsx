@@ -316,9 +316,9 @@ export function Layout({ children }: { children: ReactNode }) {
               </span>
             </div>
           )}
-          {/* ── Viewing bar — soft tint on attack, normal otherwise ── */}
+          {/* ── Viewing bar — whole bar pulses on attack ── */}
           <div
-            className={`flex items-center justify-between gap-3 px-6 py-3 border-b shrink-0 transition-colors duration-500 ${!fs ? "bg-card/60" : ""}`}
+            className={`flex items-center justify-between gap-3 px-6 py-3 border-b shrink-0 transition-colors duration-500 ${!fs ? "bg-card/60" : "animate-pulse"}`}
             style={fs ? { background: fs.bg, borderBottomColor: fs.border } : undefined}
           >
 
