@@ -16,6 +16,10 @@ import { useToast } from "@/hooks/use-toast";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
+// ── Module-level AI briefing cache: 5-minute TTL, survives route changes ──────
+let _aiBriefingCache: { data: ThreatAnalysis; fetchedAt: number } | null = null;
+const AI_BRIEFING_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
 interface ThreatAnalysis {
   analysis: string;
   generatedAt: string;
@@ -311,8 +315,11 @@ export default function Reports() {
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; title: string } | null>(null);
 
-  // AI Briefing state
-  const [aiData, setAiData] = useState<ThreatAnalysis | null>(null);
+  // AI Briefing state — initialise from module cache so re-visiting the page
+  // shows the last result instantly instead of a blank spinner.
+  const [aiData, setAiData] = useState<ThreatAnalysis | null>(
+    () => _aiBriefingCache?.data ?? null
+  );
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const briefingLang = "en" as const;
@@ -320,10 +327,14 @@ export default function Reports() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  // Auto-load AI briefing on mount + auto-refresh every 5 minutes
+  // Auto-load AI briefing on mount + auto-refresh every 5 minutes.
+  // Skip the initial fetch if cached data is still fresh (< TTL).
   useEffect(() => {
-    loadAiBriefing();
-    const timer = setInterval(() => loadAiBriefing(), 5 * 60 * 1000);
+    const cacheAge = _aiBriefingCache ? Date.now() - _aiBriefingCache.fetchedAt : Infinity;
+    if (cacheAge >= AI_BRIEFING_TTL_MS) {
+      loadAiBriefing();
+    }
+    const timer = setInterval(() => loadAiBriefing(), AI_BRIEFING_TTL_MS);
     return () => clearInterval(timer);
   }, []);
 
@@ -383,7 +394,10 @@ export default function Reports() {
         const e = await r.json();
         throw new Error(e.error ?? `HTTP ${r.status}`);
       }
-      setAiData(await r.json());
+      const data: ThreatAnalysis = await r.json();
+      // Write to module-level cache so re-visits restore instantly
+      _aiBriefingCache = { data, fetchedAt: Date.now() };
+      setAiData(data);
     } catch (err: any) {
       setAiError(err.message);
     } finally {

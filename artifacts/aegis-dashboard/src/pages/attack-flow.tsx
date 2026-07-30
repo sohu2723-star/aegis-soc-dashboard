@@ -181,16 +181,23 @@ interface LogEntry {
   ruleName?: string;     // defense rule name (defense_action events)
 }
 
+// ── Module-level cache: survives route changes (unmount → remount) ─────────────
+// Packets are animation state — we snapshot them on unmount so the map
+// doesn't go blank when the user navigates away and returns.
+let _packetCache: Packet[] = [];
+let _statsCache   = { attacks: 0, blocked: 0 };
+let _attackerIpCache = "* / any";
+
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function AttackFlowPage() {
-  const [packets, setPackets]       = useState<Packet[]>([]);
+  const [packets, setPackets]       = useState<Packet[]>(() => _packetCache);
   const [log, setLog]               = useState<LogEntry[]>(() => readLiveFeed().map(toLogEntry));
   const [alertNodes, setAlertNodes] = useState<Set<NodeKey>>(new Set());  // red border flash
   const [pulseNodes, setPulseNodes] = useState<Set<NodeKey>>(new Set());  // expanding ring
-  const [stats, setStats]           = useState({ attacks: 0, blocked: 0 });
+  const [stats, setStats]           = useState(() => _statsCache);
   const [tgToasts, setTgToasts]     = useState<{ id: string; sev: string; ts: string }[]>([]);
   // Dynamic attacker IP — updated live from incoming security_event sourceIp
-  const [attackerIp, setAttackerIp] = useState<string>("* / any");
+  const [attackerIp, setAttackerIp] = useState<string>(() => _attackerIpCache);
   // Data flow diagram toggle
   const [showDataFlow, setShowDataFlow] = useState(false);
   // Increments each time a real SSE security_event arrives — drives DataFlowDiagram
@@ -379,6 +386,16 @@ export default function AttackFlowPage() {
     rafRef.current = requestAnimationFrame(animate);
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
   }, [animate]);
+
+  // ── Persist packets/stats/attackerIp to module cache on unmount ─────────
+  // This keeps the map populated when the user navigates away and returns.
+  useEffect(() => {
+    return () => {
+      setPackets(latest => { _packetCache = latest; return latest; });
+      setStats(latest => { _statsCache = latest; return latest; });
+      setAttackerIp(latest => { _attackerIpCache = latest; return latest; });
+    };
+  }, []);
 
   // ── 24 h auto-cleanup of log entries ─────────────────────────────────────
   useEffect(() => {
