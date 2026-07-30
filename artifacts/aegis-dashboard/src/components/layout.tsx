@@ -22,7 +22,6 @@ import {
   Eye,
   QrCode,
   AlertTriangle,
-  X,
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import {
@@ -42,141 +41,39 @@ import { DeviceSelector } from "@/components/device-selector";
 import { QRCodeSVG } from "qrcode.react";
 import { useState } from "react";
 
-// ── Global attack warning bar ─────────────────────────────────────────────────
-interface AlertBanner {
-  id: number;
+// ── Viewing-bar alert state ───────────────────────────────────────────────────
+interface AlertFlash {
   severity: "critical" | "high" | "medium";
   evType: string;
   srcIp: string;
   target: string;
 }
 
-const SEV_BANNER: Record<string, {
+const SEV_FLASH: Record<string, {
   bg: string; border: string; text: string; dot: string; label: string;
 }> = {
   critical: {
-    bg:     "rgba(239,68,68,0.10)",
-    border: "rgba(239,68,68,0.40)",
+    bg:     "rgba(239,68,68,0.12)",
+    border: "rgba(239,68,68,0.50)",
     text:   "#fca5a5",
     dot:    "#ef4444",
     label:  "CRITICAL",
   },
   high: {
-    bg:     "rgba(249,115,22,0.10)",
-    border: "rgba(249,115,22,0.38)",
+    bg:     "rgba(249,115,22,0.12)",
+    border: "rgba(249,115,22,0.45)",
     text:   "#fdba74",
     dot:    "#f97316",
     label:  "HIGH",
   },
   medium: {
     bg:     "rgba(234,179,8,0.10)",
-    border: "rgba(234,179,8,0.35)",
+    border: "rgba(234,179,8,0.40)",
     text:   "#fde047",
     dot:    "#eab308",
     label:  "MEDIUM",
   },
 };
-
-function AttackWarningBar() {
-  const [banners, setBanners] = useState<AlertBanner[]>([]);
-  const dismissTimers = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
-  const idRef = useRef(0);
-
-  const dismiss = useCallback((id: number) => {
-    setBanners(prev => prev.filter(b => b.id !== id));
-    dismissTimers.current.delete(id);
-  }, []);
-
-  useEffect(() => {
-    let es: EventSource;
-    let reconnect: ReturnType<typeof setTimeout>;
-
-    function connect() {
-      es = new EventSource(`${BASE}/api/events/stream`);
-
-      es.addEventListener("security_event", (e) => {
-        try {
-          const ev = JSON.parse(e.data);
-          const sev = (ev.severity ?? "").toLowerCase();
-          if (sev !== "critical" && sev !== "high" && sev !== "medium") return;
-
-          const id = ++idRef.current;
-          const banner: AlertBanner = {
-            id,
-            severity: sev as AlertBanner["severity"],
-            evType: ev.type ?? "attack",
-            srcIp: ev.sourceIp ?? "?",
-            target: ev.targetHost ?? "?",
-          };
-          setBanners(prev => [banner, ...prev].slice(0, 3));
-
-          // Auto-dismiss after 5 s
-          const t = setTimeout(() => dismiss(id), 5000);
-          dismissTimers.current.set(id, t);
-        } catch { /* skip */ }
-      });
-
-      es.onerror = () => {
-        es.close();
-        reconnect = setTimeout(connect, 6000);
-      };
-    }
-
-    connect();
-    return () => {
-      es?.close();
-      clearTimeout(reconnect);
-      dismissTimers.current.forEach(t => clearTimeout(t));
-    };
-  }, [dismiss]);
-
-  if (banners.length === 0) return null;
-
-  return (
-    <div className="shrink-0 flex flex-col gap-0.5 px-2 pt-1">
-      {banners.map(b => {
-        const s = SEV_BANNER[b.severity];
-        const label = b.evType.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
-        return (
-          <div
-            key={b.id}
-            className="flex items-center gap-2 px-3 py-1.5 rounded text-[10px] font-mono select-none"
-            style={{
-              background: s.bg,
-              border: `1px solid ${s.border}`,
-              color: s.text,
-            }}
-          >
-            {/* Blinking dot */}
-            <span
-              className="shrink-0 w-2 h-2 rounded-full animate-pulse"
-              style={{ background: s.dot, boxShadow: `0 0 6px ${s.dot}` }}
-            />
-            <AlertTriangle className="w-3 h-3 shrink-0" style={{ color: s.dot }} />
-            <span className="font-bold tracking-wider" style={{ color: s.dot }}>
-              {s.label}
-            </span>
-            <span className="opacity-70 mx-0.5">·</span>
-            <span className="font-bold truncate max-w-[110px]">{label}</span>
-            <span className="opacity-50">from</span>
-            <span className="font-bold truncate max-w-[90px]" style={{ color: s.text }}>
-              {b.srcIp}
-            </span>
-            <span className="opacity-50">→</span>
-            <span className="truncate max-w-[80px] opacity-80">{b.target}</span>
-            <button
-              className="ml-auto shrink-0 opacity-50 hover:opacity-100 transition-opacity"
-              onClick={() => dismiss(b.id)}
-              aria-label="Dismiss"
-            >
-              <X className="w-3 h-3" />
-            </button>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -222,6 +119,52 @@ export function Layout({ children }: { children: ReactNode }) {
   const { user, logout, isDemo } = useAuth();
   const { enabled: soundEnabled, toggle: toggleSound } = useContext(SoundAlertContext);
   const [showQR, setShowQR] = useState(false);
+
+  // ── Viewing-bar attack flash ─────────────────────────────────────────────
+  const [flash, setFlash] = useState<AlertFlash | null>(null);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearFlash = useCallback(() => {
+    setFlash(null);
+    if (flashTimer.current) { clearTimeout(flashTimer.current); flashTimer.current = null; }
+  }, []);
+
+  useEffect(() => {
+    let es: EventSource;
+    let reconnect: ReturnType<typeof setTimeout>;
+
+    function connect() {
+      es = new EventSource(`${BASE}/api/events/stream`);
+      es.addEventListener("security_event", (e) => {
+        try {
+          const ev = JSON.parse(e.data);
+          const sev = (ev.severity ?? "").toLowerCase();
+          if (sev !== "critical" && sev !== "high" && sev !== "medium") return;
+          if (flashTimer.current) clearTimeout(flashTimer.current);
+          setFlash({
+            severity: sev as AlertFlash["severity"],
+            evType:   ev.type ?? "attack",
+            srcIp:    ev.sourceIp ?? "?",
+            target:   ev.targetHost ?? "?",
+          });
+          flashTimer.current = setTimeout(clearFlash, 5000);
+        } catch { /* skip */ }
+      });
+      es.onerror = () => { es.close(); reconnect = setTimeout(connect, 6000); };
+    }
+
+    connect();
+    return () => {
+      es?.close();
+      clearTimeout(reconnect);
+      if (flashTimer.current) clearTimeout(flashTimer.current);
+    };
+  }, [clearFlash]);
+
+  const fs = flash ? SEV_FLASH[flash.severity] : null;
+  const flashLabel = flash
+    ? flash.evType.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())
+    : "";
 
   return (
     <SidebarProvider>
@@ -372,15 +315,54 @@ export function Layout({ children }: { children: ReactNode }) {
               </span>
             </div>
           )}
-          <div className="flex items-center justify-between gap-3 px-6 py-3 border-b border-border bg-card/60 shrink-0">
-            <div className="flex items-center gap-2">
+          {/* ── Viewing bar — flashes with severity color on attack ── */}
+          <div
+            className="relative flex items-center justify-between gap-3 px-6 py-3 border-b shrink-0 overflow-hidden transition-colors duration-300"
+            style={{
+              background: fs ? fs.bg : "rgba(var(--card)/0.6)",
+              borderBottomColor: fs ? fs.border : "var(--border)",
+            }}
+          >
+            {/* Pulsing glow overlay when alert is active */}
+            {fs && (
+              <span
+                className="pointer-events-none absolute inset-0 animate-pulse"
+                style={{ background: fs.bg, opacity: 0.7 }}
+              />
+            )}
+
+            <div className="relative flex items-center gap-2 min-w-0">
               <SidebarTrigger />
-              <span className="text-xs text-muted-foreground uppercase tracking-wider">Viewing</span>
+              {fs && flash ? (
+                <>
+                  {/* Blinking dot */}
+                  <span
+                    className="shrink-0 w-2 h-2 rounded-full animate-pulse"
+                    style={{ background: fs.dot, boxShadow: `0 0 7px ${fs.dot}` }}
+                  />
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" style={{ color: fs.dot }} />
+                  <span className="text-xs font-bold tracking-widest" style={{ color: fs.dot }}>
+                    {fs.label}
+                  </span>
+                  <span className="text-xs opacity-40 mx-0.5">·</span>
+                  <span className="text-xs font-mono font-bold truncate max-w-[120px]" style={{ color: fs.text }}>
+                    {flashLabel}
+                  </span>
+                  <span className="text-xs opacity-40 hidden sm:inline">from</span>
+                  <span className="text-xs font-mono font-bold truncate max-w-[100px] hidden sm:inline" style={{ color: fs.text }}>
+                    {flash.srcIp}
+                  </span>
+                  <span className="text-xs opacity-30 hidden sm:inline">→</span>
+                  <span className="text-xs font-mono opacity-60 truncate max-w-[80px] hidden md:inline">
+                    {flash.target}
+                  </span>
+                </>
+              ) : (
+                <span className="text-xs text-muted-foreground uppercase tracking-wider">Viewing</span>
+              )}
             </div>
             <DeviceSelector />
           </div>
-          {/* ── Global attack warning bar — appears on all pages ── */}
-          <AttackWarningBar />
           <div className="flex-1 overflow-auto p-4 sm:p-6">
             {children}
           </div>
