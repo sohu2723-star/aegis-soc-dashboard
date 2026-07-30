@@ -1,4 +1,4 @@
-import { ReactNode, useContext } from "react";
+import { ReactNode, useContext, useEffect, useRef, useCallback } from "react";
 import { Link, useLocation } from "wouter";
 import { SoundAlertContext } from "@/App";
 import { 
@@ -21,6 +21,8 @@ import {
   VolumeX,
   Eye,
   QrCode,
+  AlertTriangle,
+  X,
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import {
@@ -39,6 +41,142 @@ import {
 import { DeviceSelector } from "@/components/device-selector";
 import { QRCodeSVG } from "qrcode.react";
 import { useState } from "react";
+
+// ── Global attack warning bar ─────────────────────────────────────────────────
+interface AlertBanner {
+  id: number;
+  severity: "critical" | "high" | "medium";
+  evType: string;
+  srcIp: string;
+  target: string;
+}
+
+const SEV_BANNER: Record<string, {
+  bg: string; border: string; text: string; dot: string; label: string;
+}> = {
+  critical: {
+    bg:     "rgba(239,68,68,0.10)",
+    border: "rgba(239,68,68,0.40)",
+    text:   "#fca5a5",
+    dot:    "#ef4444",
+    label:  "CRITICAL",
+  },
+  high: {
+    bg:     "rgba(249,115,22,0.10)",
+    border: "rgba(249,115,22,0.38)",
+    text:   "#fdba74",
+    dot:    "#f97316",
+    label:  "HIGH",
+  },
+  medium: {
+    bg:     "rgba(234,179,8,0.10)",
+    border: "rgba(234,179,8,0.35)",
+    text:   "#fde047",
+    dot:    "#eab308",
+    label:  "MEDIUM",
+  },
+};
+
+function AttackWarningBar() {
+  const [banners, setBanners] = useState<AlertBanner[]>([]);
+  const dismissTimers = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+  const idRef = useRef(0);
+
+  const dismiss = useCallback((id: number) => {
+    setBanners(prev => prev.filter(b => b.id !== id));
+    dismissTimers.current.delete(id);
+  }, []);
+
+  useEffect(() => {
+    let es: EventSource;
+    let reconnect: ReturnType<typeof setTimeout>;
+
+    function connect() {
+      es = new EventSource(`${BASE}/api/events/stream`);
+
+      es.addEventListener("security_event", (e) => {
+        try {
+          const ev = JSON.parse(e.data);
+          const sev = (ev.severity ?? "").toLowerCase();
+          if (sev !== "critical" && sev !== "high" && sev !== "medium") return;
+
+          const id = ++idRef.current;
+          const banner: AlertBanner = {
+            id,
+            severity: sev as AlertBanner["severity"],
+            evType: ev.type ?? "attack",
+            srcIp: ev.sourceIp ?? "?",
+            target: ev.targetHost ?? "?",
+          };
+          setBanners(prev => [banner, ...prev].slice(0, 3));
+
+          // Auto-dismiss after 5 s
+          const t = setTimeout(() => dismiss(id), 5000);
+          dismissTimers.current.set(id, t);
+        } catch { /* skip */ }
+      });
+
+      es.onerror = () => {
+        es.close();
+        reconnect = setTimeout(connect, 6000);
+      };
+    }
+
+    connect();
+    return () => {
+      es?.close();
+      clearTimeout(reconnect);
+      dismissTimers.current.forEach(t => clearTimeout(t));
+    };
+  }, [dismiss]);
+
+  if (banners.length === 0) return null;
+
+  return (
+    <div className="shrink-0 flex flex-col gap-0.5 px-2 pt-1">
+      {banners.map(b => {
+        const s = SEV_BANNER[b.severity];
+        const label = b.evType.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+        return (
+          <div
+            key={b.id}
+            className="flex items-center gap-2 px-3 py-1.5 rounded text-[10px] font-mono select-none"
+            style={{
+              background: s.bg,
+              border: `1px solid ${s.border}`,
+              color: s.text,
+            }}
+          >
+            {/* Blinking dot */}
+            <span
+              className="shrink-0 w-2 h-2 rounded-full animate-pulse"
+              style={{ background: s.dot, boxShadow: `0 0 6px ${s.dot}` }}
+            />
+            <AlertTriangle className="w-3 h-3 shrink-0" style={{ color: s.dot }} />
+            <span className="font-bold tracking-wider" style={{ color: s.dot }}>
+              {s.label}
+            </span>
+            <span className="opacity-70 mx-0.5">·</span>
+            <span className="font-bold truncate max-w-[110px]">{label}</span>
+            <span className="opacity-50">from</span>
+            <span className="font-bold truncate max-w-[90px]" style={{ color: s.text }}>
+              {b.srcIp}
+            </span>
+            <span className="opacity-50">→</span>
+            <span className="truncate max-w-[80px] opacity-80">{b.target}</span>
+            <button
+              className="ml-auto shrink-0 opacity-50 hover:opacity-100 transition-opacity"
+              onClick={() => dismiss(b.id)}
+              aria-label="Dismiss"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -241,6 +379,8 @@ export function Layout({ children }: { children: ReactNode }) {
             </div>
             <DeviceSelector />
           </div>
+          {/* ── Global attack warning bar — appears on all pages ── */}
+          <AttackWarningBar />
           <div className="flex-1 overflow-auto p-4 sm:p-6">
             {children}
           </div>
