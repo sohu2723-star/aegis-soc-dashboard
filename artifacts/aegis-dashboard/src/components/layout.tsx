@@ -52,23 +52,24 @@ interface AlertFlash {
 const SEV_FLASH: Record<string, {
   bg: string; border: string; text: string; dot: string; label: string;
 }> = {
+  // Keep all values very subtle — just a soft tint, not a solid fill
   critical: {
-    bg:     "rgba(239,68,68,0.12)",
-    border: "rgba(239,68,68,0.50)",
+    bg:     "rgba(239,68,68,0.07)",
+    border: "rgba(239,68,68,0.30)",
     text:   "#fca5a5",
     dot:    "#ef4444",
     label:  "CRITICAL",
   },
   high: {
-    bg:     "rgba(249,115,22,0.12)",
-    border: "rgba(249,115,22,0.45)",
+    bg:     "rgba(249,115,22,0.07)",
+    border: "rgba(249,115,22,0.28)",
     text:   "#fdba74",
     dot:    "#f97316",
     label:  "HIGH",
   },
   medium: {
-    bg:     "rgba(234,179,8,0.10)",
-    border: "rgba(234,179,8,0.40)",
+    bg:     "rgba(234,179,8,0.06)",
+    border: "rgba(234,179,8,0.25)",
     text:   "#fde047",
     dot:    "#eab308",
     label:  "MEDIUM",
@@ -315,21 +316,11 @@ export function Layout({ children }: { children: ReactNode }) {
               </span>
             </div>
           )}
-          {/* ── Viewing bar — flashes with severity color on attack ── */}
+          {/* ── Viewing bar — soft tint on attack, normal otherwise ── */}
           <div
-            className="relative flex items-center justify-between gap-3 px-6 py-3 border-b shrink-0 overflow-hidden transition-colors duration-300"
-            style={{
-              background: fs ? fs.bg : "rgba(var(--card)/0.6)",
-              borderBottomColor: fs ? fs.border : "var(--border)",
-            }}
+            className={`flex items-center justify-between gap-3 px-6 py-3 border-b shrink-0 transition-colors duration-500 ${!fs ? "bg-card/60" : ""}`}
+            style={fs ? { background: fs.bg, borderBottomColor: fs.border } : undefined}
           >
-            {/* Pulsing glow overlay when alert is active */}
-            {fs && (
-              <span
-                className="pointer-events-none absolute inset-0 animate-pulse"
-                style={{ background: fs.bg, opacity: 0.7 }}
-              />
-            )}
 
             <div className="relative flex items-center gap-2 min-w-0">
               <SidebarTrigger />
