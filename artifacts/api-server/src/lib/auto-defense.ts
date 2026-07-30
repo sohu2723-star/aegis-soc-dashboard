@@ -224,6 +224,21 @@ export async function evaluateEvent(event: IngestEvent): Promise<void> {
 async function executeAutoDefense(rule: DefenseRule, event: IngestEvent) {
   const { commandType, commandText, undoCommand } = buildCommand(rule, event.sourceIp, event.id);
 
+  // Deduplication: if this defense type produces a hard block and the IP is
+  // already actively blocked, skip queuing another command.  Without this,
+  // every ingest event re-queues the same iptables/pfSense command for an IP
+  // that is already blocked, causing an unbounded pile-up of "pending" rows.
+  const isHardBlock = ["block_ip", "null_route", "pfsense_block"].includes(rule.defenseType);
+  if (isHardBlock) {
+    const alreadyBlocked = await db.select({ id: blockedIpsTable.id })
+      .from(blockedIpsTable)
+      .where(and(eq(blockedIpsTable.ip, event.sourceIp), eq(blockedIpsTable.isActive, true)));
+    if (alreadyBlocked.length > 0) {
+      console.log(`[AutoDefense] Skipped — ${event.sourceIp} already actively blocked`);
+      return;
+    }
+  }
+
   const targets = commandType === "ssh_pfsense" ? ["pfsense"] : rule.targetVm === "all"
     ? ["aegis", "company-web-server", "company-dns-server", "company-customer-db", "company-ldap-server"]
     : [rule.targetVm];

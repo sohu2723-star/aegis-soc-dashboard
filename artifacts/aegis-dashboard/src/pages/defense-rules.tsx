@@ -86,9 +86,20 @@ function VmBadge({ vm }: { vm: string }) {
 }
 
 const defenseTypeLabels: Record<string, string> = {
-  block_ip: "Block IP", null_route: "Null Route", rate_limit: "Rate Limit",
-  port_block: "Port Block",
-  pfsense_block: "pfSense SSH Block",
+  block_ip:      "Block IP (iptables DROP)",
+  null_route:    "Null Route (blackhole)",
+  rate_limit:    "Rate Limit (iptables limit)",
+  port_block:    "Port Block (iptables port)",
+  pfsense_block: "pfSense WAN Block (easyrule)",
+  dns_block:     "DNS Block (/etc/hosts)",
+  waf_rule:      "WAF Rule (modsec_ban)",
+  alert_only:    "Alert Only (log, no block)",
+};
+
+// Certain defense types must target a specific VM — auto-enforce consistency.
+const DEFENSE_TYPE_FORCED_VM: Record<string, string> = {
+  pfsense_block: "pfsense",
+  dns_block:     "company-dns-server",
 };
 
 const statusColors: Record<string, string> = {
@@ -136,10 +147,10 @@ const ATTACK_PRESETS: Record<string, {
     defenseType: "block_ip", targetVm: "all", actionType: "auto",
   },
   ddos: {
-    name: "Rate-Limit DDoS Source",
-    description: "Rate-limit IPs launching SYN flood / hping3 DDoS attacks",
+    name: "Block DDoS Source at pfSense WAN",
+    description: "Block DDoS/SYN-flood source IP at pfSense WAN boundary — stops Suricata alerts at source",
     severity: "high", threshold: 1, windowSecs: 30,
-    defenseType: "rate_limit", targetVm: "all", actionType: "auto",
+    defenseType: "pfsense_block", targetVm: "pfsense", actionType: "auto",
   },
   port_scan: {
     name: "Block Port Scanner",
@@ -213,6 +224,13 @@ function RulesTab() {
     setDefenseType(p.defenseType);
     setTargetVm(p.targetVm);
     setActionType(p.actionType);
+  }
+
+  // When defense type changes, auto-enforce the required target VM
+  function handleDefenseTypeChange(v: string) {
+    setDefenseType(v);
+    const forced = DEFENSE_TYPE_FORCED_VM[v];
+    if (forced) setTargetVm(forced);
   }
 
   const authHeaders = (): Record<string, string> => {
@@ -368,7 +386,7 @@ function RulesTab() {
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs uppercase text-muted-foreground">Defense Type</Label>
-                  <Select value={defenseType} onValueChange={setDefenseType}>
+                  <Select value={defenseType} onValueChange={handleDefenseTypeChange}>
                     <SelectTrigger className="bg-background border-border text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {Object.entries(defenseTypeLabels).map(([v, l]) => (
@@ -376,6 +394,16 @@ function RulesTab() {
                       ))}
                     </SelectContent>
                   </Select>
+                  {defenseType === "pfsense_block" && (
+                    <p className="text-[10px] text-cyan-400/80 bg-cyan-950/30 border border-cyan-500/20 rounded px-2 py-1.5 mt-1">
+                      ℹ pfSense WAN Block — SSH into pfSense and runs <code>easyrule block WAN &lt;IP&gt;</code>. Stops Suricata from alerting because traffic is dropped before it reaches LAN/DMZ interfaces.
+                    </p>
+                  )}
+                  {defenseType === "rate_limit" && (
+                    <p className="text-[10px] text-yellow-400/80 bg-yellow-950/30 border border-yellow-500/20 rounded px-2 py-1.5 mt-1">
+                      ⚠ Rate Limit ကို VM iptables မှာ run တာဆိုတော့ Suricata (pfSense) က traffic ကိုဆက်မြင်နိုင်ပြီး alerts ဆက်ဝင်နိုင်သည်။ DDoS ကိုရပ်ချင်ရင် pfSense WAN Block သုံးပါ။
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs uppercase text-muted-foreground">Action Mode</Label>
@@ -383,13 +411,28 @@ function RulesTab() {
                     <SelectTrigger className="bg-background border-border text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="auto">Auto Execute</SelectItem>
+                      <SelectItem value="suggest">Suggest (Manual Review)</SelectItem>
                     </SelectContent>
                   </Select>
+                  {actionType === "suggest" && (
+                    <p className="text-[10px] text-yellow-400/80 bg-yellow-950/30 border border-yellow-500/20 rounded px-2 py-1.5 mt-1">
+                      ⚠ Suggest mode — command ကို auto execute မလုပ်ဘဲ Active Alerts မှာ manual review အတွက် ပြသသည်။
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs uppercase text-muted-foreground">Target VM</Label>
-                  <Select value={targetVm} onValueChange={setTargetVm}>
-                    <SelectTrigger className="bg-background border-border text-xs"><SelectValue /></SelectTrigger>
+                  <Label className="text-xs uppercase text-muted-foreground">
+                    Target VM
+                    {DEFENSE_TYPE_FORCED_VM[defenseType] && (
+                      <span className="ml-2 text-cyan-400/70 normal-case font-normal">(auto-set by defense type)</span>
+                    )}
+                  </Label>
+                  <Select
+                    value={targetVm}
+                    onValueChange={setTargetVm}
+                    disabled={!!DEFENSE_TYPE_FORCED_VM[defenseType]}
+                  >
+                    <SelectTrigger className={`bg-background border-border text-xs${DEFENSE_TYPE_FORCED_VM[defenseType] ? " opacity-60 cursor-not-allowed" : ""}`}><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="company-web-server">company-web-server (10.10.10.10)</SelectItem>
                       <SelectItem value="company-dns-server">company-dns-server (10.10.10.20)</SelectItem>
