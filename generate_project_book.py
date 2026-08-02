@@ -1094,7 +1094,7 @@ bullet(doc, "WAN rule: allow source 192.168.10.0/24 (Kali attack traffic)")
 bullet(doc, "Suricata package installed with EVE JSON output enabled on WAN/DMZ interfaces")
 bullet(doc, "EasyRule block table (EasyRuleBlockHosts) used by auto-defense for WAN IP blocking")
 
-add_image(doc, "missing_4_2.png", "Figure 4.2: pfSense Interface Configuration Screenshot")
+add_image(doc, "figure_4_2.png", "Figure 4.2: pfSense Interface Configuration Screenshot")
 
 h2(doc, "4.3  Company Server Setup")
 
@@ -1158,7 +1158,7 @@ body(doc,
     "on company-web-server authenticates staff login credentials against LDAP. "
     "Fail2ban monitors LDAP authentication failures.", True)
 
-add_image(doc, "missing_4_3_4.png", "Figure 4.3.4: OpenLDAP Directory Structure")
+add_image(doc, "figure_4_3_4.png", "Figure 4.3.4: OpenLDAP Directory Structure")
 
 h2(doc, "4.4  Security Sensors Configuration")
 
@@ -1208,7 +1208,7 @@ logpath  = /var/log/apache2/error.log
 maxretry = 5
 bantime  = 1800""")
 
-add_image(doc, "missing_4_5.png", "Figure 4.5: Fail2ban Jail Configuration on company-web-server")
+add_image(doc, "figure_4_5.png", "Figure 4.5: Fail2ban Jail Configuration on company-web-server")
 
 body(doc,
     "AEGIS monitors Fail2ban's log file for 'Ban' and 'Unban' actions. Each ban event "
@@ -1237,7 +1237,7 @@ body(doc,
     "and runs a persistent tail -F command on the discovered log path. Each EVE JSON "
     "alert line is parsed and forwarded to /api/ingest/suricata.", True)
 
-add_image(doc, "missing_4_6.png", "Figure 4.6: Suricata IDS EVE JSON Output Sample")
+add_image(doc, "figure_4_6.png", "Figure 4.6: Suricata IDS EVE JSON Output Sample")
 
 h2(doc, "4.5  AEGIS Forwarder Agent")
 
@@ -1476,6 +1476,8 @@ add_table(doc,
     col_widths=[2.5, 3, 10.5]
 )
 
+add_image(doc, "figure_4_9.png", "Figure 4.9: AEGIS Dashboard — Main Overview Page")
+
 h3(doc, "4.8.2  Real-Time Threat Map")
 
 body(doc,
@@ -1490,6 +1492,8 @@ bullet(doc, "Packet color: red = critical/high, orange = medium, blue = Telegram
 bullet(doc, "⚠ warning icon appears on critical severity packets")
 bullet(doc, "Live feed panel shows the last 50 events; entries older than 24 hours are pruned on load")
 
+add_image(doc, "figure_4_10.png", "Figure 4.10: AEGIS Dashboard — Live Threat Map")
+
 h3(doc, "4.8.3  Global Attack Warning Bar")
 
 body(doc,
@@ -1501,6 +1505,9 @@ bullet(doc, "Flash state stores: background color, border color, event descripti
 bullet(doc, "The Viewing bar div applies animate-pulse class during the flash")
 bullet(doc, "Flash automatically dismisses after 5 seconds via setTimeout")
 bullet(doc, "Severity colors: critical = soft red (rgba(239,68,68,0.07)), high = orange, medium = yellow")
+
+add_image(doc, "figure_4_11.png", "Figure 4.11: AEGIS Dashboard — Defense Center Page")
+add_image(doc, "figure_4_12.png", "Figure 4.12: AEGIS Dashboard — Events Page with AI Analysis")
 
 h3(doc, "4.8.4  Authentication Flow")
 
@@ -1555,6 +1562,8 @@ body(doc,
     "If the API call fails (rate limit, network error), a template-based summary "
     "is used as fallback — the system never returns an error to the user.", True)
 
+add_image(doc, "figure_4_13.png", "Figure 4.13: AEGIS Dashboard — Reports Page")
+
 h2(doc, "4.10  Notification System (Telegram)")
 
 body(doc,
@@ -1576,6 +1585,8 @@ body(doc,
     "On the Threat Map, Telegram notifications are visualized as blue packets traveling "
     "from the AEGIS hub node to the Telegram node, providing visual confirmation that "
     "the alert was dispatched.", True)
+
+add_image(doc, "figure_4_14.png", "Figure 4.14: Telegram Notification Sample")
 
 page_break(doc)
 
@@ -1636,6 +1647,9 @@ body(doc,
     "5 minutes) triggered and queued an iptables command. The defense agent executed "
     "the block within 15 seconds of the initial detection.", True)
 
+add_image(doc, "figure_5_1.png", "Figure 5.1: Kali Linux Attack Execution — Hydra SSH Brute Force")
+add_image(doc, "figure_5_2.png", "Figure 5.2: AEGIS Dashboard — Brute Force Detection Alert")
+
 h3(doc, "5.2.2  SQL Injection (T-04)")
 
 body(doc,
@@ -1648,6 +1662,8 @@ body(doc,
     "The dashboard displayed the source IP, targeted URL patterns, and Suricata "
     "signature names. The auto-defense rule queued an iptables block for the "
     "Kali IP. A Telegram notification was dispatched within 10 seconds.", True)
+
+add_image(doc, "figure_5_3.png", "Figure 5.3: sqlmap SQL Injection Attack Result")
 
 h3(doc, "5.2.3  HTTP Flood DDoS (T-06)")
 
@@ -1662,11 +1678,15 @@ body(doc,
     "triggered after 50 events within 1 minute, blocking the source IP at pfSense "
     "WAN level via easyrule.", True)
 
+add_image(doc, "figure_5_4.png", "Figure 5.4: hping3 DDoS Simulation — Apache Service Down")
+
 h2(doc, "5.3  Auto-Defense Validation")
 
 body(doc,
     "Auto-defense execution was validated by monitoring the defense_commands table "
     "and confirming iptables/pfctl rule changes on the target VMs:", True)
+
+add_image(doc, "figure_5_5.png", "Figure 5.5: Auto-Defense Command Queue — Pending/Executed")
 
 add_table(doc,
     headers=["Rule", "Triggered By", "Command Queued", "Executed", "Confirmed on VM"],
