@@ -294,9 +294,23 @@ page_break(doc)
 h1(doc, "ACKNOWLEDGEMENTS")
 
 body(doc,
-    "First and foremost, I would like to express my sincere gratitude to my supervisor "
-    "and all the lecturers of the Department for their invaluable guidance, encouragement, "
-    "and support throughout the development of this project.", True)
+    "First and foremost, I would like to express my deepest and most sincere gratitude "
+    "to my project supervisor, Dr. Htay Htay Yi, for her exceptional guidance, "
+    "continuous encouragement, and invaluable technical insights throughout every phase "
+    "of this project. Her constructive feedback and unwavering support were instrumental "
+    "in shaping the direction and quality of this work.", True)
+
+body(doc,
+    "I am also profoundly grateful to Dr. Thiri Thitsar Khaing for her dedicated "
+    "teaching, academic mentorship, and patient guidance in helping me understand the "
+    "theoretical foundations of network security and system design that underpin this "
+    "project.", True)
+
+body(doc,
+    "My sincere appreciation also goes to Dr. Thu Zar San for her thoughtful advice, "
+    "encouragement throughout the research process, and for sharing her expertise in "
+    "cybersecurity concepts and best practices that greatly enriched the depth and "
+    "rigor of this work.", True)
 
 body(doc,
     "I am deeply thankful to my internship organization for providing the necessary "
