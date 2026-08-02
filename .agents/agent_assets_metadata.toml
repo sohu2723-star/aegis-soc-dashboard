@@ -1,0 +1,9 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "ImfldkMtuW4TPzTqcKgD-"
+uri = "file://AEGIS_SOC_Dashboard_Project_Book.docx"
+type = "word_document"
+title = "AEGIS SOC Dashboard — Project Book"
+description = "A4 format, ~50 pages. Abstract, TOC, List of Figures/Tables, Abbreviations, Chapters 1–7, References, Appendices A–C."
