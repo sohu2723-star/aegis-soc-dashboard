@@ -1262,7 +1262,7 @@ bullet(doc, "_watch_pfsense_suricata() — pfSense only (GLOBAL_COMPONENTS)")
 bullet(doc, "hub_health_loop() — reports hub VM's own status")
 bullet(doc, "ssh_keepalive_loop(hostIp) — 60s keepalive for each SSH connection")
 
-add_image(doc, "missing_4_7.png", "Figure 4.7: AEGIS Forwarder Agent Thread Architecture")
+add_image(doc, "thread_arch.png", "Figure 4.7: AEGIS Forwarder Agent Thread Architecture")
 
 body(doc,
     "Each watch thread uses Paramiko SSH to connect to the target VM and tail the "
