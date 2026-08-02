@@ -123,12 +123,17 @@ def caption(doc, text):
 
 def add_image(doc, path, caption_text, width_cm=15):
     import os
-    if not os.path.exists(path):
-        return None
+    placeholder = "placeholder.png"
+    final_path = path if os.path.exists(path) else placeholder
+    
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     run = p.add_run()
-    run.add_picture(path, width=Cm(width_cm))
+    try:
+        run.add_picture(final_path, width=Cm(width_cm))
+    except:
+        run.add_text(f"[IMAGE MISSING: {caption_text}]")
+    
     caption(doc, caption_text)
     return p
 
@@ -896,6 +901,8 @@ body(doc,
     "AEGIS follows a three-tier architecture separating data collection, processing, "
     "and presentation layers:", True)
 
+add_image(doc, "missing_3_1.png", "Figure 3.1: Overall AEGIS System Architecture")
+
 body(doc, "Tier 1 — Data Collection Layer:", True)
 bullet(doc, "AEGIS Forwarder Agent (Python) runs on the hub VM (10.30.30.10)")
 bullet(doc, "Spawns independent monitoring threads for each service/VM combination")
@@ -946,6 +953,8 @@ h2(doc, "3.5  Database Schema Design")
 body(doc,
     "The AEGIS database is hosted on Supabase (managed PostgreSQL). The core tables are:", True)
 
+add_image(doc, "missing_3_3.png", "Figure 3.3: Database Entity-Relationship Diagram")
+
 add_table(doc,
     headers=["Table", "Purpose", "Key Columns"],
     rows=[
@@ -976,6 +985,8 @@ bullet(doc, "Admin endpoints (/api/defense/*, /api/firewall/*, /api/reports/*): 
            "management and report generation.")
 bullet(doc, "Public endpoints (/api/events, /api/alerts, /api/hosts, /api/ai/*, "
            "/api/stream): JWT-protected. Used by the dashboard for data display.")
+
+add_image(doc, "missing_3_4.png", "Figure 3.4: API Server Request-Response Flow")
 
 h2(doc, "3.7  Dashboard UX Design")
 
@@ -1083,6 +1094,8 @@ bullet(doc, "WAN rule: allow source 192.168.10.0/24 (Kali attack traffic)")
 bullet(doc, "Suricata package installed with EVE JSON output enabled on WAN/DMZ interfaces")
 bullet(doc, "EasyRule block table (EasyRuleBlockHosts) used by auto-defense for WAN IP blocking")
 
+add_image(doc, "missing_4_2.png", "Figure 4.2: pfSense Interface Configuration Screenshot")
+
 h2(doc, "4.3  Company Server Setup")
 
 body(doc,
@@ -1145,6 +1158,8 @@ body(doc,
     "on company-web-server authenticates staff login credentials against LDAP. "
     "Fail2ban monitors LDAP authentication failures.", True)
 
+add_image(doc, "missing_4_3_4.png", "Figure 4.3.4: OpenLDAP Directory Structure")
+
 h2(doc, "4.4  Security Sensors Configuration")
 
 body(doc,
@@ -1193,6 +1208,8 @@ logpath  = /var/log/apache2/error.log
 maxretry = 5
 bantime  = 1800""")
 
+add_image(doc, "missing_4_5.png", "Figure 4.5: Fail2ban Jail Configuration on company-web-server")
+
 body(doc,
     "AEGIS monitors Fail2ban's log file for 'Ban' and 'Unban' actions. Each ban event "
     "creates a security_event record with eventType='fail2ban' and severity determined "
@@ -1220,6 +1237,8 @@ body(doc,
     "and runs a persistent tail -F command on the discovered log path. Each EVE JSON "
     "alert line is parsed and forwarded to /api/ingest/suricata.", True)
 
+add_image(doc, "missing_4_6.png", "Figure 4.6: Suricata IDS EVE JSON Output Sample")
+
 h2(doc, "4.5  AEGIS Forwarder Agent")
 
 body(doc,
@@ -1242,6 +1261,8 @@ bullet(doc, "_watch_slapd(hostIp) — company-ldap-server only")
 bullet(doc, "_watch_pfsense_suricata() — pfSense only (GLOBAL_COMPONENTS)")
 bullet(doc, "hub_health_loop() — reports hub VM's own status")
 bullet(doc, "ssh_keepalive_loop(hostIp) — 60s keepalive for each SSH connection")
+
+add_image(doc, "missing_4_7.png", "Figure 4.7: AEGIS Forwarder Agent Thread Architecture")
 
 body(doc,
     "Each watch thread uses Paramiko SSH to connect to the target VM and tail the "
@@ -1376,6 +1397,8 @@ h2(doc, "4.7  Auto-Defense Engine")
 body(doc,
     "The auto-defense engine is the most sophisticated component of AEGIS. It translates "
     "detected threats into concrete firewall actions without human intervention.", True)
+
+add_image(doc, "missing_4_8.png", "Figure 4.8: Auto-Defense Engine Pipeline Diagram")
 
 h3(doc, "4.7.1  Defense Rule Schema")
 
