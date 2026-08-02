@@ -1,0 +1,23 @@
+graph LR
+    Event["New Security Event"] --> Trigger["Trigger Evaluation"]
+    Trigger --> RuleCheck{"Matches Defense Rule?"}
+    
+    RuleCheck -- No --> End[No Action]
+    RuleCheck -- Yes --> Count{"Threshold Reached?<br/>(e.g. 3 attempts)"}
+    
+    Count -- No --> Log[Log Match]
+    Count -- Yes --> Action["Create Defense Command"]
+    
+    Action --> Target{"Target Host?"}
+    
+    Target -- pfSense --> P_Cmd["pfSense EasyRule Block"]
+    Target -- Ubuntu VM --> U_Cmd["iptables -j DROP"]
+    
+    P_Cmd --> Exec["Forwarder Agent Exec"]
+    U_Cmd --> Exec
+    
+    Exec --> Audit["Update Command Status: 'executed'"]
+    Audit --> Dash["Display on Dashboard"]
+
+    style Action fill:#f96,stroke:#333,stroke-width:2px
+    style Exec fill:#bbf,stroke:#333,stroke-width:2px

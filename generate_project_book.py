@@ -986,7 +986,7 @@ bullet(doc, "Admin endpoints (/api/defense/*, /api/firewall/*, /api/reports/*): 
 bullet(doc, "Public endpoints (/api/events, /api/alerts, /api/hosts, /api/ai/*, "
            "/api/stream): JWT-protected. Used by the dashboard for data display.")
 
-add_image(doc, "missing_3_4.png", "Figure 3.4: API Server Request-Response Flow")
+add_image(doc, "api_flow.png", "Figure 3.4: API Server Request-Response Flow")
 
 h2(doc, "3.7  Dashboard UX Design")
 
@@ -1398,7 +1398,7 @@ body(doc,
     "The auto-defense engine is the most sophisticated component of AEGIS. It translates "
     "detected threats into concrete firewall actions without human intervention.", True)
 
-add_image(doc, "missing_4_8.png", "Figure 4.8: Auto-Defense Engine Pipeline Diagram")
+add_image(doc, "defense_pipeline.png", "Figure 4.8: Auto-Defense Engine Pipeline Diagram")
 
 h3(doc, "4.7.1  Defense Rule Schema")
 

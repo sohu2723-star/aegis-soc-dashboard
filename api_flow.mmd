@@ -1,0 +1,30 @@
+sequenceDiagram
+    participant Agent as AEGIS Forwarder Agent
+    participant API as API Server (Express.js)
+    participant DB as Database (PostgreSQL)
+    participant Engine as Auto-Defense Engine
+    participant Dash as React Dashboard
+    participant TG as Telegram Bot
+
+    Agent->>API: POST /api/ingest/* (Normalized Event)
+    activate API
+    API->>API: Validate API Key (X-AEGIS-Key)
+    API->>DB: INSERT INTO security_events
+    API->>DB: INSERT INTO alerts (if severity >= Medium)
+    
+    par Real-time Updates
+        API-->>Dash: SSE: security_event (Broadcast)
+    and Notifications
+        API->>TG: Send Message (if severity >= High)
+    end
+
+    API->>Engine: Evaluate Event against Rules
+    activate Engine
+    Engine->>DB: SELECT matching rules
+    Engine->>DB: INSERT INTO defense_commands (if threshold met)
+    deactivate Engine
+
+    API-->>Agent: 201 Created (Success)
+    deactivate API
+
+    Note over Agent,Dash: Real-time loop completed in < 3 seconds
