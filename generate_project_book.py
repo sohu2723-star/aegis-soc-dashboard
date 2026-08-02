@@ -901,7 +901,7 @@ body(doc,
     "AEGIS follows a three-tier architecture separating data collection, processing, "
     "and presentation layers:", True)
 
-add_image(doc, "missing_3_1.png", "Figure 3.1: Overall AEGIS System Architecture")
+add_image(doc, "architecture.png", "Figure 3.1: Overall AEGIS System Architecture")
 
 body(doc, "Tier 1 — Data Collection Layer:", True)
 bullet(doc, "AEGIS Forwarder Agent (Python) runs on the hub VM (10.30.30.10)")
@@ -953,7 +953,7 @@ h2(doc, "3.5  Database Schema Design")
 body(doc,
     "The AEGIS database is hosted on Supabase (managed PostgreSQL). The core tables are:", True)
 
-add_image(doc, "missing_3_3.png", "Figure 3.3: Database Entity-Relationship Diagram")
+add_image(doc, "database_erd.png", "Figure 3.3: Database Entity-Relationship Diagram")
 
 add_table(doc,
     headers=["Table", "Purpose", "Key Columns"],

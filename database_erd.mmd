@@ -1,0 +1,54 @@
+erDiagram
+    SECURITY_EVENTS ||--o{ ALERTS : triggers
+    SECURITY_EVENTS ||--o{ DEFENSE_COMMANDS : causes
+    DEFENSE_RULES ||--o{ DEFENSE_COMMANDS : defines
+    NETWORK_HOSTS ||--o{ SYSTEM_COMPONENTS : has
+    
+    SECURITY_EVENTS {
+        uuid id PK
+        timestamp timestamp
+        string sourceIp
+        string targetHost
+        string eventType
+        string severity
+        string description
+        text rawLog
+    }
+    
+    ALERTS {
+        uuid id PK
+        uuid eventId FK
+        string severity
+        string message
+        boolean isRead
+        boolean sentToTelegram
+    }
+    
+    DEFENSE_RULES {
+        uuid id PK
+        string name
+        string triggerAttackType
+        string minSeverity
+        int threshold
+        int windowMinutes
+        string actionType
+    }
+    
+    DEFENSE_COMMANDS {
+        uuid id PK
+        uuid ruleId FK
+        uuid eventId FK
+        string command
+        string status
+        string targetHost
+        timestamp executedAt
+    }
+    
+    NETWORK_HOSTS {
+        uuid id PK
+        string hostname
+        string ipAddress
+        string role
+        boolean isOnline
+        timestamp lastSeen
+    }

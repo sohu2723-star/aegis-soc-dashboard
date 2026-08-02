@@ -1,0 +1,52 @@
+graph TD
+    subgraph "GNS3 Virtual Lab Environment"
+        subgraph "Monitored Zone"
+            Web["company-web-server<br/>(Apache, Fail2ban)"]
+            DB["company-customer-db<br/>(MySQL, Fail2ban)"]
+            DNS["company-dns-server<br/>(BIND9, Fail2ban)"]
+            LDAP["company-ldap-server<br/>(OpenLDAP, Fail2ban)"]
+        end
+        
+        subgraph "Network Security"
+            pfSense["pfSense Firewall<br/>(Suricata IDS)"]
+        end
+        
+        Forwarder["AEGIS Forwarder Agent<br/>(Python Hub)"]
+        
+        pfSense -->|EVE JSON Logs| Forwarder
+        Web -->|SSH Tail Logs| Forwarder
+        DB -->|SSH Tail Logs| Forwarder
+        DNS -->|SSH Tail Logs| Forwarder
+        LDAP -->|SSH Tail Logs| Forwarder
+    end
+
+    subgraph "Cloud Infrastructure"
+        API["AEGIS API Server<br/>(Express.js / Node.js)"]
+        Database[("Supabase<br/>(PostgreSQL)")]
+        
+        Forwarder -->|Authenticated POST| API
+        API <-->|Drizzle ORM| Database
+    end
+
+    subgraph "Presentation & Alerts"
+        Dashboard["AEGIS Dashboard<br/>(React / Vite)"]
+        Telegram["Telegram Bot<br/>(Alert Notifications)"]
+        
+        API -->|Server-Sent Events| Dashboard
+        Dashboard -->|REST API Calls| API
+        API -->|Bot API| Telegram
+    end
+
+    Attacker["Kali Linux<br/>(Red Team Attacks)"] -.->|Attack Traffic| pfSense
+    pfSense -.->|Forwarded Traffic| Web
+    pfSense -.->|Forwarded Traffic| DB
+    pfSense -.->|Forwarded Traffic| DNS
+    pfSense -.->|Forwarded Traffic| LDAP
+
+    style pfSense fill:#f96,stroke:#333,stroke-width:2px
+    style Forwarder fill:#bbf,stroke:#333,stroke-width:2px
+    style API fill:#dfd,stroke:#333,stroke-width:2px
+    style Database fill:#dfd,stroke:#333,stroke-width:2px
+    style Dashboard fill:#fff,stroke:#333,stroke-width:2px
+    style Telegram fill:#fff,stroke:#333,stroke-width:2px
+    style Attacker fill:#fbb,stroke:#333,stroke-dasharray: 5 5
