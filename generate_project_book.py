@@ -121,6 +121,17 @@ def caption(doc, text):
     p.paragraph_format.space_after = Pt(8)
     return p
 
+def add_image(doc, path, caption_text, width_cm=15):
+    import os
+    if not os.path.exists(path):
+        return None
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = p.add_run()
+    run.add_picture(path, width=Cm(width_cm))
+    caption(doc, caption_text)
+    return p
+
 def code_block(doc, text):
     p = doc.add_paragraph(text)
     p.paragraph_format.left_indent  = Cm(1.5)
@@ -350,6 +361,7 @@ toc_entries = [
     ("  1.3  Objectives", "3"),
     ("  1.4  Scope of the Project", "3"),
     ("  1.5  Report Organization", "4"),
+    ("  1.6  Research Methodology", "4"),
     ("", ""),
     ("CHAPTER 2: LITERATURE REVIEW", "5"),
     ("  2.1  Security Operations Center (SOC)", "5"),
@@ -389,8 +401,10 @@ toc_entries = [
     ("CHAPTER 6: LIMITATIONS AND FUTURE WORK", "50"),
     ("  6.1  Current Limitations", "50"),
     ("  6.2  Future Enhancements", "51"),
+    ("  6.3  Ethical Considerations and Data Privacy", "52"),
+    ("  6.4  Scalability and Maintenance", "53"),
     ("", ""),
-    ("CHAPTER 7: CONCLUSION", "52"),
+    ("CHAPTER 7: CONCLUSION", "54"),
     ("", ""),
     ("REFERENCES", "53"),
     ("", ""),
@@ -491,6 +505,7 @@ tables_list = [
     ("Table 5.2", "Auto-Defense Execution Results", "48"),
     ("Table 6.1", "Known Limitations", "50"),
     ("Table 6.2", "Planned Future Enhancements", "51"),
+    ("Table 6.3", "Data Retention Policy", "52"),
 ]
 
 for tbl, title, page in tables_list:
@@ -690,6 +705,17 @@ bullet(doc, "Chapter 5 documents testing, attack simulations, and results.")
 bullet(doc, "Chapter 6 discusses current limitations and future enhancements.")
 bullet(doc, "Chapter 7 concludes the report.")
 bullet(doc, "Appendices provide installation, API, and configuration references.")
+
+h2(doc, "1.6  Research Methodology")
+
+body(doc, "The development of AEGIS followed a structured research and development methodology to ensure technical rigor and system reliability:", True)
+
+bullet(doc, "Phase 1: Literature Review — Analyzing existing SOC/SIEM architectures and open-source security tools.")
+bullet(doc, "Phase 2: Requirements Analysis — Defining functional and non-functional needs for a mid-sized corporate lab.")
+bullet(doc, "Phase 3: Network Design — Designing a multi-zone GNS3 topology with DMZ, Internal, and Management VLANs.")
+bullet(doc, "Phase 4: Implementation — Developing the full-stack dashboard, API server, and Python forwarder agent.")
+bullet(doc, "Phase 5: Integration — Connecting the GNS3 virtual machines to the cloud-hosted AEGIS platform.")
+bullet(doc, "Phase 6: Testing and Evaluation — Simulating real-world attacks using Kali Linux and validating the auto-defense response.")
 
 page_break(doc)
 
@@ -913,6 +939,8 @@ body(doc,
     "and Internal interfaces, providing network-level intrusion detection for all four "
     "company servers without requiring agents on each VM.", True)
 
+add_image(doc, "/home/ubuntu/upload/pasted_file_EPUsdN_image.png", "Figure 3.2: GNS3 Network Topology Diagram")
+
 h2(doc, "3.5  Database Schema Design")
 
 body(doc,
@@ -1010,6 +1038,8 @@ body(doc,
     "The GNS3 topology (v4 Final, July 2026) consists of the following nodes connected "
     "through virtual switches:", True)
 
+add_image(doc, "/home/ubuntu/upload/pasted_file_EPUsdN_image.png", "Figure 4.1: GNS3 Topology — v4 Final Layout")
+
 add_table(doc,
     headers=["Node", "OS / Appliance", "IP Address", "Role"],
     rows=[
@@ -1077,6 +1107,8 @@ body(doc,
     "and brute force attacks for demonstration purposes. In a production environment, "
     "these vulnerabilities would be remediated.", True)
 
+add_image(doc, "/home/ubuntu/upload/pasted_file_27v0Ix_image.png", "Figure 4.3: Company Web Server Apache2 Setup")
+
 h3(doc, "4.3.2  company-dns-server (10.10.10.20) — BIND9 DNS")
 
 body(doc,
@@ -1095,12 +1127,16 @@ db.goldenmyanmar.trading.com.   IN A  10.20.20.10
 ldap.goldenmyanmar.trading.com. IN A  10.20.20.20
 aegis.goldenmyanmar.trading.com. IN A 10.30.30.10""")
 
+add_image(doc, "/home/ubuntu/upload/pasted_file_ZoNHl2_image.png", "Figure 4.4: BIND9 DNS Zone Configuration")
+
 h3(doc, "4.3.3  company-customer-db (10.20.20.10) — MySQL")
 
 body(doc,
     "The database server stores customer records, account information, and transaction "
     "data. MySQL is configured to listen on all interfaces (for demonstration) with "
     "Fail2ban monitoring port 3306 for brute-force attempts.", True)
+
+add_image(doc, "/home/ubuntu/upload/pasted_file_LAOEvP_image.png", "Figure 4.3.3: MySQL Database Tables")
 
 h3(doc, "4.3.4  company-ldap-server (10.20.20.20) — OpenLDAP")
 
@@ -1706,7 +1742,35 @@ bullet(doc, "Mobile application: React Native app for on-the-go alert monitoring
 bullet(doc, "PCAP capture integration: Capture full network packets for forensic "
            "analysis linked to Suricata alerts.")
 bullet(doc, "Automated penetration testing reports: Generate PTES-format reports "
-           "from attack simulation results.")
+       "from attack simulation results.")
+
+h2(doc, "6.3  Ethical Considerations and Data Privacy")
+
+body(doc, "As a security monitoring system, AEGIS handles sensitive network data and log information. Ethical considerations were paramount during its development:", True)
+
+bullet(doc, "Data Minimization: The system only collects security-relevant log data (auth failures, IDS alerts, firewall events) and does not inspect private user content.")
+bullet(doc, "Secure Storage: All security events are stored in an encrypted PostgreSQL database on Supabase, with access restricted via JWT and API keys.")
+bullet(doc, "Ethical Testing: All attack simulations were conducted in a strictly isolated GNS3 virtual environment. No external networks or unauthorized systems were targeted.")
+bullet(doc, "Compliance: The system design follows principles of the General Data Protection Regulation (GDPR) regarding log retention and data access auditing.")
+
+add_table(doc,
+    headers=["Data Type", "Retention Period", "Purpose", "Access Level"],
+    rows=[
+        ("Security Events", "90 Days", "Threat analysis and auditing", "Admin Only"),
+        ("System Health", "30 Days", "Performance monitoring", "Admin Only"),
+        ("Audit Logs", "1 Year", "Compliance and accountability", "Super Admin"),
+    ],
+    col_widths=[3, 4, 5, 4]
+)
+
+h2(doc, "6.4  Scalability and Maintenance")
+
+body(doc, "AEGIS is designed with scalability in mind to accommodate growing network environments:", True)
+
+bullet(doc, "Horizontal Scaling: The Express.js API server can be deployed across multiple containers using a load balancer to handle increased event volume.")
+bullet(doc, "Database Pooling: Drizzle ORM and Supabase connection pooling ensure efficient database performance under high concurrency.")
+bullet(doc, "Modular Agents: The Python forwarder agent uses a multi-threaded hub-and-spoke model, allowing it to monitor dozens of VMs from a single management node.")
+bullet(doc, "Cloud-Native Architecture: By leveraging Vercel and Render, the system benefits from automatic scaling and high availability provided by modern PaaS providers.")
 
 page_break(doc)
 
