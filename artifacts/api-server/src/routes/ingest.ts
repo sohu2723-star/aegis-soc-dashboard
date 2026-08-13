@@ -188,6 +188,10 @@ function classifyWebSignature(signature: string, category: string): string | nul
  */
 function classifyAttackTypeFromSuricata(signature: string, category: string): string {
   const t = `${signature} ${category}`.toLowerCase();
+  // Volumetric floods first: the attempted-dos classtype is authoritative, so an
+  // HTTP/DNS flood is reported as ddos instead of web_attack/dns_attack below.
+  if (t.includes("attempted-dos") || t.includes("denial of service") ||
+      t.includes("flood") || t.includes("ddos") || t.includes("udp storm")) return "ddos";
   // Database — must be checked BEFORE web_attack because "mysql" contains "sql"
   // and would otherwise be misclassified as web_attack by the sql/sqli check below.
   if (t.includes("mysql") || t.includes("mssql") || t.includes("postgres") ||
@@ -208,11 +212,8 @@ function classifyAttackTypeFromSuricata(signature: string, category: string): st
   // (e.g. "ET SCAN Nmap -sS SYN Scan"), so they are matched before the flood check.
   if (t.includes("nmap") || t.includes("masscan") || t.includes("zmap") ||
       t.includes("port sweep") || t.includes("port scan") || t.includes("portscan")) return "port_scan";
-  // DDoS / flood — the attempted-dos classtype is authoritative, so a volumetric
-  // rule is never demoted to recon by the generic "scan" keyword below.
-  if (t.includes("attempted-dos") || t.includes("denial of service") ||
-      t.includes("flood") || t.includes("ddos") || t.includes(" dos ") ||
-      t.includes(" dos:") || t.includes("udp storm")) return "ddos";
+  // Bare "DoS" wording, checked after the named scanner tools above
+  if (t.includes(" dos ") || t.includes(" dos:")) return "ddos";
   // Generic reconnaissance
   if (t.includes("probing") || t.includes("recon") ||
       (t.includes("scan") && !t.includes("sql"))) return "port_scan";
