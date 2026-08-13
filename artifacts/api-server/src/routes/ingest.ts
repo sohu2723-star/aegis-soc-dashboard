@@ -85,6 +85,27 @@ function shouldRateLimit(type: string, sourceIp: string, targetHost: string, sid
   return false;
 }
 
+// ── DDoS ↔ port-scan correlation ─────────────────────────────────────────────
+// A SYN/ICMP flood also trips the low-rate recon signatures (they only require
+// N SYN packets per window), so one DDoS produced a parallel stream of
+// "port scan" alerts. While a source is actively flooding, its recon alerts are
+// treated as part of that flood instead of a separate attack.
+const DDOS_CORRELATION_MS = 60_000;
+const _recentDdosBySrc = new Map<string, number>();
+
+function noteDdosSource(sourceIp: string) {
+  _recentDdosBySrc.set(sourceIp, Date.now());
+  if (_recentDdosBySrc.size > 1_000) {
+    const cutoff = Date.now() - DDOS_CORRELATION_MS;
+    for (const [k, v] of _recentDdosBySrc) if (v < cutoff) _recentDdosBySrc.delete(k);
+  }
+}
+
+function isFloodingSource(sourceIp: string): boolean {
+  const last = _recentDdosBySrc.get(sourceIp);
+  return last !== undefined && Date.now() - last < DDOS_CORRELATION_MS;
+}
+
 // ── stats_update debounce — avoid hammering the dashboard on every event ─────
 // During a port scan burst, insertEvent() fires 20+ times/s and each call
 // broadcasts stats_update, which makes every connected dashboard refetch
@@ -183,17 +204,18 @@ function classifyAttackTypeFromSuricata(signature: string, category: string): st
   if (t.includes("dns") || t.includes("domain") || t.includes("resolver")) return "dns_attack";
   // LDAP
   if (t.includes("ldap") || t.includes("slapd") || t.includes("directory")) return "ldap_attack";
-  // Port scan / reconnaissance — check BEFORE ddos because Suricata nmap rules often
-  // include "SYN" in the signature text (e.g. "ET SCAN Nmap -sS SYN Scan"), which would
-  // otherwise be caught by the "syn " ddos check below and misclassified as a flood.
-  if (t.includes("nmap") || t.includes("port sweep") || t.includes("port scan") ||
-      t.includes("portscan") || t.includes("probing") ||
-      (t.includes("scan") && !t.includes("sql")) ||
-      t.includes("recon") || t.includes("masscan") || t.includes("zmap")) return "port_scan";
-  // DDoS / flood
-  if (t.includes("flood") || t.includes(" dos ") || t.includes("ddos") ||
-      t.includes("syn flood") || t.includes("syn-flood") || t.includes("udp storm") ||
-      t.includes("icmp flood") || t.includes(" dos:") || t.includes("denial of service")) return "ddos";
+  // Named scanner tools are recon even when the signature mentions SYN packets
+  // (e.g. "ET SCAN Nmap -sS SYN Scan"), so they are matched before the flood check.
+  if (t.includes("nmap") || t.includes("masscan") || t.includes("zmap") ||
+      t.includes("port sweep") || t.includes("port scan") || t.includes("portscan")) return "port_scan";
+  // DDoS / flood — the attempted-dos classtype is authoritative, so a volumetric
+  // rule is never demoted to recon by the generic "scan" keyword below.
+  if (t.includes("attempted-dos") || t.includes("denial of service") ||
+      t.includes("flood") || t.includes("ddos") || t.includes(" dos ") ||
+      t.includes(" dos:") || t.includes("udp storm")) return "ddos";
+  // Generic reconnaissance
+  if (t.includes("probing") || t.includes("recon") ||
+      (t.includes("scan") && !t.includes("sql"))) return "port_scan";
   // MITM / ARP
   if (t.includes("arp") || t.includes("mitm") || t.includes("spoofing") ||
       t.includes("man-in-the-middle")) return "mitm";
@@ -430,6 +452,12 @@ router.post("/ingest/suricata", auth, async (req, res) => {
 
   const suricataType = classifyAttackTypeFromSuricata(subtype, alertCategory ?? "");
   const suricataTarget = resolveTargetHost(dest_ip, "internal-network");
+
+  if (suricataType === "ddos") noteDdosSource(src_ip ?? "unknown");
+  if (suricataType === "port_scan" && isFloodingSource(src_ip ?? "unknown")) {
+    res.status(200).json({ ok: true, skipped: "ddos_correlated" });
+    return;
+  }
 
   // Rate-limit high-volume Suricata events (port scans, repeated SID floods)
   if (shouldRateLimit(suricataType, src_ip ?? "unknown", suricataTarget, signatureId)) {
