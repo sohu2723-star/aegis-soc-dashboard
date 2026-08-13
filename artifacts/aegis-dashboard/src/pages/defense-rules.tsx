@@ -411,14 +411,8 @@ function RulesTab() {
                     <SelectTrigger className="bg-background border-border text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="auto">Auto Execute</SelectItem>
-                      <SelectItem value="suggest">Suggest (Manual Review)</SelectItem>
                     </SelectContent>
                   </Select>
-                  {actionType === "suggest" && (
-                    <p className="text-[10px] text-yellow-400/80 bg-yellow-950/30 border border-yellow-500/20 rounded px-2 py-1.5 mt-1">
-                      ⚠ Suggest mode — command ကို auto execute မလုပ်ဘဲ Active Alerts မှာ manual review အတွက် ပြသသည်။
-                    </p>
-                  )}
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs uppercase text-muted-foreground">
