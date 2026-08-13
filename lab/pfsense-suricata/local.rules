@@ -67,4 +67,34 @@ alert udp any any -> [10.10.10.0/24,10.20.20.0/24] any (msg:"AEGIS DDOS UDP floo
 alert icmp any any -> [10.10.10.0/24,10.20.20.0/24] any (msg:"AEGIS DDOS ICMP flood"; itype:8; threshold:type both,track by_dst,count 150,seconds 5; classtype:attempted-dos; sid:9900053; rev:1;)
 
 # HTTP request flood — slowloris / ab / GET flood against the public web server
-alert tcp any any -> 10.10.10.10 80 (msg:"AEGIS DDOS HTTP request flood"; flow:to_server,established; http.method; content:"GET"; threshold:type both,track by_dst,count 200,seconds 10; classtype:attempted-dos; sid:9900054; rev:1;)
+alert http any any -> 10.10.10.10 80 (msg:"AEGIS DDOS HTTP request flood"; flow:to_server,established; http.method; content:"GET"; threshold:type both,track by_dst,count 200,seconds 10; classtype:attempted-dos; sid:9900054; rev:1;)
+
+# ── dns-server (10.10.10.20) BIND9 Rules ──────────────────────────────────────
+# SID 9900060-9900069 reserved for DNS / dns-server.
+# Volumetric DNS query floods are already covered by sid:9900052 (UDP flood).
+
+# Zone transfer attempt — AXFR (qtype 252, class IN) over TCP, the transport dig -t AXFR uses
+alert tcp any any -> 10.10.10.20 53 (msg:"AEGIS DNS zone transfer attempt"; flow:to_server,established; content:"|00 fc 00 01|"; classtype:attempted-recon; sid:9900060; rev:1;)
+
+# ANY query burst — reflection/amplification probing (qtype 255, class IN)
+alert udp any any -> 10.10.10.20 53 (msg:"AEGIS DNS ANY query burst"; content:"|00 ff 00 01|"; threshold:type both,track by_src,count 10,seconds 30; classtype:attempted-recon; sid:9900061; rev:1;)
+
+# Subdomain enumeration — dnsenum/dnsrecon/fierce send many queries in a short burst.
+# Kept below the sid:9900052 UDP-flood rate so enumeration is not reported as a flood.
+alert udp any any -> 10.10.10.20 53 (msg:"AEGIS DNS enumeration burst"; threshold:type both,track by_src,count 50,seconds 10; classtype:attempted-recon; sid:9900062; rev:1;)
+
+# ── company-web-server (10.10.10.10) additional Apache rules ──────────────────
+# SID 9900013-9900019 continue the web block started at 9900010.
+
+# Command injection — ;id / |whoami / `cat` style payloads in the URI
+alert tcp any any -> 10.10.10.10 80 (msg:"AEGIS HTTP command injection"; flow:to_server,established; http.uri; pcre:"/(%3b|\;|%7c|\|)\s*(id|whoami|uname|cat\s|nc\s|bash|sh\s)/Ui"; classtype:web-application-attack; sid:9900013; rev:1;)
+
+# Scanner user-agent — nikto / sqlmap / wpscan / dirb / gobuster fingerprints
+alert http any any -> 10.10.10.10 80 (msg:"AEGIS HTTP scanner user-agent"; flow:to_server,established; http.user_agent; pcre:"/(nikto|sqlmap|wpscan|dirbuster|gobuster|nmap\s+scripting|masscan)/i"; classtype:web-application-attack; sid:9900014; rev:1;)
+
+# Login brute force — repeated POSTs to the auth endpoint
+alert http any any -> 10.10.10.10 80 (msg:"AEGIS HTTP login brute force"; flow:to_server,established; http.method; content:"POST"; http.uri; pcre:"/(login|signin|admin|wp-login)/i"; threshold:type both,track by_src,count 10,seconds 60; classtype:attempted-admin; sid:9900015; rev:1;)
+
+# Path brute force — burst of 404-generating requests (dirb/gobuster).
+# Named "HTTP" on purpose: AEGIS maps "directory"/"brute force" wording to LDAP/SSH.
+alert http 10.10.10.10 80 -> any any (msg:"AEGIS HTTP 404 enumeration burst"; flow:from_server,established; http.stat_code; content:"404"; threshold:type both,track by_dst,count 30,seconds 20; classtype:attempted-recon; sid:9900016; rev:1;)
