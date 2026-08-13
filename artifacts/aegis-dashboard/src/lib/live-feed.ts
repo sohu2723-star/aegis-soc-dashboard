@@ -21,9 +21,13 @@ function isBrowser() {
   return typeof window !== "undefined";
 }
 
+export function liveFeedCutoffMs() {
+  return Date.now() - LIVE_FEED_TTL_MS;
+}
+
 export function readLiveFeed(): StoredLiveFeedEntry[] {
   if (!isBrowser()) return [];
-  const cutoff = Date.now() - LIVE_FEED_TTL_MS;
+  const cutoff = liveFeedCutoffMs();
   try {
     const parsed = JSON.parse(localStorage.getItem(LIVE_FEED_STORAGE_KEY) ?? "[]");
     const entries = Array.isArray(parsed)

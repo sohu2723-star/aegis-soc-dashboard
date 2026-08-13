@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { securityEventsTable } from "@workspace/db";
-import { desc, eq, and } from "drizzle-orm";
+import { desc, eq, and, gte } from "drizzle-orm";
 
 const router = Router();
 
@@ -10,10 +10,19 @@ router.get("/events", async (req, res) => {
   const offset = Number(req.query.offset) || 0;
   const severity = req.query.severity as string | undefined;
   const type     = req.query.type     as string | undefined;
+  const since    = req.query.since    as string | undefined;
 
   const conditions = [];
   if (severity) conditions.push(eq(securityEventsTable.severity, severity));
   if (type)     conditions.push(eq(securityEventsTable.type, type));
+  if (since) {
+    const sinceDate = new Date(since);
+    if (Number.isNaN(sinceDate.getTime())) {
+      res.status(400).json({ error: "since must be an ISO timestamp" });
+      return;
+    }
+    conditions.push(gte(securityEventsTable.createdAt, sinceDate));
+  }
 
   const events = await db
     .select().from(securityEventsTable)
