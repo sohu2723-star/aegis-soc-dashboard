@@ -102,7 +102,7 @@ router.post("/ui/defense/rules", maybeAdmin, async (req, res) => {
     triggerSeverity:   z.enum(["any","critical","high","medium","low"]).default("any"),
     triggerThreshold:  z.number().int().min(1).max(10000).default(1),
     triggerWindowSecs: z.number().int().min(1).max(86400).default(60),
-    actionType:        z.enum(["auto","suggest"]).default("auto"),
+    actionType:        z.literal("auto").default("auto"),
     defenseType:       z.enum([
       "block_ip","null_route","rate_limit","port_block",
       "dns_block","waf_rule","pfsense_block","alert_only",
@@ -135,7 +135,7 @@ router.patch("/ui/defense/rules/:id", maybeAdmin, async (req, res) => {
     priority:          z.number().int().min(1).max(9999).optional(),
     triggerThreshold:  z.number().int().min(1).optional(),
     triggerWindowSecs: z.number().int().min(1).optional(),
-    actionType:        z.enum(["auto","suggest"]).optional(),
+    actionType:        z.literal("auto").optional(),
     defenseType:       z.string().optional(),
     actionParams:      z.string().optional(),
     targetVm:          z.enum(["company-web-server","company-customer-db","company-dns-server","company-ldap-server","aegis","pfsense","all"]).optional(),

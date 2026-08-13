@@ -2,9 +2,7 @@
  * AEGIS Auto-Defense Engine
  * =========================
  * Evaluates every ingest event against active defense rules.
- * When a rule fires:
- *   - "auto"    → queues a command for the Ubuntu/pfSense agent to execute
- *   - "suggest" → creates an incident with the recommended rule
+ * When a rule fires it queues a command for the Ubuntu/pfSense agent to execute.
  *
  * All values inserted into shell commands are sanitised through
  * defense-sanitize.ts before use — no raw user input reaches shell strings.
@@ -18,7 +16,6 @@ import {
   blockedIpsTable,
   defenseActionsTable,
   sshSessionsTable,
-  alertsTable,
   type DefenseRule,
 } from "@workspace/db";
 import { and } from "drizzle-orm";
@@ -206,11 +203,7 @@ export async function evaluateEvent(event: IngestEvent): Promise<void> {
     // local iptables rules (low priority number) AND pfSense WAN rules
     // (high priority number) can both execute for the same attack.
     try {
-      if (rule.actionType === "auto") {
-        await executeAutoDefense(rule, event);
-      } else {
-        await suggestManualDefense(rule, event);
-      }
+      await executeAutoDefense(rule, event);
     } catch (err: any) {
       // If sanitisation throws, log and skip — don't crash ingest
       console.error(`[AutoDefense] Rule "${rule.name}" skipped — sanitisation error: ${err?.message}`);
@@ -289,71 +282,6 @@ async function executeAutoDefense(rule: DefenseRule, event: IngestEvent) {
   }
 
   broadcaster.broadcast("stats_update", { timestamp: new Date().toISOString() });
-}
-
-// ─── Render a pfSense JSON action as human-readable GUI steps ─────────────────
-// Used when suggesting (not auto-executing) a pfSense defense — a person reads
-// this and applies it by hand in the pfSense web GUI, since no automated
-// executor may be running against the real router.
-function humanizePfSenseAction(commandText: string): string {
-  try {
-    const p = JSON.parse(commandText);
-    if (p.action === "block_ip") {
-      return (
-        `pfSense GUI steps:\n` +
-        `1. Firewall > Aliases > Add — Name: AEGIS_BLOCK, Type: Host(s), Address: ${p.ip}\n` +
-        `2. Firewall > Rules > [interface facing this attacker] > Add\n` +
-        `   Action: Block   Protocol: any   Source: AEGIS_BLOCK   Destination: any\n` +
-        `   Description: ${p.reason ?? "AEGIS suggested block"}\n` +
-        `3. Apply Changes\n` +
-        `CLI equivalent (pfSense shell): pfctl -t aegis_blocklist -T add ${p.ip}`
-      );
-    }
-    if (p.action === "block_port") {
-      return (
-        `pfSense GUI steps:\n` +
-        `1. Firewall > Rules > [interface facing this attacker] > Add\n` +
-        `   Action: Block   Protocol: ${String(p.protocol ?? "tcp").toUpperCase()}   Source: ${p.ip}\n` +
-        `   Destination port range: ${p.port} - ${p.port}\n` +
-        `   Description: ${p.reason ?? "AEGIS suggested block"}\n` +
-        `2. Apply Changes`
-      );
-    }
-  } catch { /* not JSON — fall through to raw text below */ }
-  return commandText;
-}
-
-// ─── Suggest manual defense ───────────────────────────────────────────────────
-async function suggestManualDefense(rule: DefenseRule, event: IngestEvent) {
-  const { commandText } = buildCommand(rule, event.sourceIp, event.id);
-  const readableCommand = rule.targetVm === "pfsense" ? humanizePfSenseAction(commandText) : commandText;
-
-  await db.insert(defenseActionsTable).values({
-    type: "manual",
-    action: "suggested",
-    targetIp: event.sourceIp,
-    targetHost: event.targetHost,
-    reason: `Rule ${rule.name}: ${readableCommand}`.slice(0, 2000),
-    performedBy: "aegis-auto-defense",
-    status: "suggested",
-    relatedEventId: String(event.id),
-  });
-
-  const [alertRow] = await db.insert(alertsTable).values({
-    message:      `MANUAL ACTION: ${rule.name} — ${event.sourceIp}`.slice(0, 255),
-    severity:     event.severity as any,
-    channel:      "dashboard",
-    acknowledged: false,
-    eventId:      event.id,
-  }).returning();
-
-  broadcaster.broadcast("alert", {
-    id: alertRow.id,
-    eventId: event.id,
-    severity: event.severity,
-    telegramSent: false,
-    manualAction: true,
-  });
 }
 
 // Defense rules are intentionally managed only through the dashboard CRUD API.
