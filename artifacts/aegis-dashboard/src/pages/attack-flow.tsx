@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { readLiveFeed, type StoredLiveFeedEntry } from "@/lib/live-feed";
+import {
+  liveFeedCutoffMs,
+  readLiveFeed,
+  type StoredLiveFeedEntry,
+} from "@/lib/live-feed";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -192,7 +196,7 @@ let _attackerIpCache = "* / any";
 export default function AttackFlowPage() {
   const [packets, setPackets]       = useState<Packet[]>(() => _packetCache);
   const [log, setLog]               = useState<LogEntry[]>(() => {
-    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    const cutoff = liveFeedCutoffMs();
     return readLiveFeed().map(toLogEntry).filter(e => e.tsMs >= cutoff);
   });
   const [alertNodes, setAlertNodes] = useState<Set<NodeKey>>(new Set());  // red border flash
@@ -216,7 +220,8 @@ export default function AttackFlowPage() {
   // produce an empty feed.
   useEffect(() => {
     let cancelled = false;
-    fetch(`${BASE}/api/events?limit=100`)
+    const since = new Date(liveFeedCutoffMs()).toISOString();
+    fetch(`${BASE}/api/events?limit=100&since=${encodeURIComponent(since)}`)
       .then(async response => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         return response.json();
@@ -239,9 +244,13 @@ export default function AttackFlowPage() {
           signatureText: row.signatureText ?? undefined,
         }));
         setLog(previous => {
+          const cutoff = liveFeedCutoffMs();
           const byId = new Map(serverLog.map(entry => [entry.id, entry]));
           for (const entry of previous) if (!byId.has(entry.id)) byId.set(entry.id, entry);
-          return [...byId.values()].sort((a, b) => Date.parse(b.ts) - Date.parse(a.ts)).slice(0, 200);
+          return [...byId.values()]
+            .filter(entry => entry.tsMs >= cutoff)
+            .sort((a, b) => Date.parse(b.ts) - Date.parse(a.ts))
+            .slice(0, 200);
         });
         const latestSource = serverLog.find(entry => entry.srcIp !== "?")?.srcIp;
         if (latestSource) setAttackerIp(latestSource);
@@ -403,11 +412,20 @@ export default function AttackFlowPage() {
   // ── 24 h auto-cleanup of log entries ─────────────────────────────────────
   useEffect(() => {
     const prune = () => {
-      const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-      setLog(prev => prev.filter(e => e.tsMs >= cutoff));
+      const cutoff = liveFeedCutoffMs();
+      setLog(prev => {
+        const next = prev.filter(e => e.tsMs >= cutoff);
+        return next.length === prev.length ? prev : next;
+      });
     };
-    const timer = setInterval(prune, 5 * 60 * 1000); // every 5 min
-    return () => clearInterval(timer);
+    prune();
+    const timer = setInterval(prune, 60 * 1000);
+    // A backgrounded tab throttles timers, so also prune when it becomes visible.
+    document.addEventListener("visibilitychange", prune);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", prune);
+    };
   }, []);
 
   // ── SSE connection ───────────────────────────────────────────────────────
