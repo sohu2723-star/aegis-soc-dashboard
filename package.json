@@ -12,5 +12,24 @@
   "devDependencies": {
     "prettier": "^3.8.4",
     "typescript": "~5.9.3"
+  },
+  "description": "Full-stack real-time SOC (Security Operations Center) dashboard for the GNS3 AEGIS-SecureCompany lab. Monitors live attacks and defenses — dashboard is monitoring-only; all real attack and defense happens on the GNS3 virtual machines.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "lib": "lib"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://x-access-token:kgh2.Pbq7xxofvwPYRz8zL0%2Fh1w%3D%3D%3AHeKXLc9XyKPHvrVntIGNFA%3D%3D%3ACzmcuZHrBzOIs0YfleDHKkjr50Hlw4BQa1eN7Ry%2FR6ynrKVq6xz%2FmMVun00F4cFfdcNnjkspCOAk6i5BKmk9Xv28lO2YazOQivNCcmZs+2RTeefKBT++Y49CEujp6x5TI0dU%2FO%2FEdHC5dZkROEqb+5mmqfyUNZOhV51oAISpRKx%2FdAYvc+spb8mi4XiquJG2cf4tjA2yoDINScPu54RmQlg0YXlA+vvrZmEjNb5Jpdb3byZURfL7VLG5Pnrt1etUd6KQHoucZ6ao986D7p9kC93LNjbUxC9%2FLSCINAA6MMFhcFgpx7Rc70biUjbqGp8PlwKauBz6FN2CcOGefzRvCgLEGiwhveaOY3gm%2Foh1flaZrFYaXNIXN9q+zYSdYCYunnKB2fXnVd%2Fm8vxeJbgaqJNjdgV61PE8FebWqdxb79aVFgWFoUZ3daj5JC3dbMnaiSlI2H4g11yeOM8olaG1Lk2Bmv7OobJbSIfyfRPlgOwCXpGqCqvcQJD%2FDdexIWzUT6ul0OMVYauYvVrgT7QbT1c8ZKCM3RaaoY1rUv0G6KHy+Gv%2FKqxJirKTlgZhftTvxsHB+cThgLoMZO84ot3PnOhhSO2KpWr%2Fq7EofLVPSdBAeVVRCJAzvplnqXXajfOx7eDuu24Gc2Me%2FolKLGwC0vwrownqHZ8aJET%2FBWduKi%2FQtq055qm11wPfiCKd8Hyt02epm6EQGa3gjGoFaBPi+CihaUz5ldLt6nTqZ4AOmZuCinmXeprbMrYqKMzC4PlIX%2FhMd86QEBGuzXfXAyYNydAgzkyhSQ%3D%3D@github.com/sohu2723-star/aegis-soc-dashboard.git"
+  },
+  "keywords": [],
+  "author": "",
+  "bugs": {
+    "url": "https://github.com/sohu2723-star/aegis-soc-dashboard/issues"
+  },
+  "homepage": "https://github.com/sohu2723-star/aegis-soc-dashboard#readme",
+  "dependencies": {
+    "pptxgenjs": "^4.0.1"
   }
 }
