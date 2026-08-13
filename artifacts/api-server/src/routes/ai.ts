@@ -557,7 +557,7 @@ TASK: Analyze the actual attack data above and recommend 4-6 defense rules that:
 Valid field values:
 - triggerAttackType: ssh_brute | web_attack | ddos | port_scan | mitm | dns_attack | db_attack | ldap_brute | ldap_enum | any
 - triggerSeverity: any | medium | high | critical
-- actionType: auto | suggest
+- actionType: auto
 - defenseType: block_ip | null_route | rate_limit | port_block | pfsense_block | alert_only
 - targetVm: company-web-server | company-customer-db | company-dns-server | company-ldap-server | pfsense | all
 
