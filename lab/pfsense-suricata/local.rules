@@ -1,7 +1,11 @@
 # AEGIS four-server lab local rules. SID 9900001-9900099 reserved here.
 # Supplement ET Open; connection-burst rules indicate suspicious behavior, not a proven login compromise.
+# Recon (SID 9900001-9900009) and volumetric DoS (SID 9900050-9900059) are kept
+# apart by rate: recon fires on a low packet count, DoS only at flood rates.
+# A flood also trips the recon rule, so AEGIS suppresses port_scan events from a
+# source that produced a ddos event in the last 60 s (see ingest.ts).
 alert tcp any any -> [10.10.10.0/24,10.20.20.0/24] any (msg:"AEGIS SCAN repeated SYN probes"; flags:S,12; flow:stateless; threshold:type both,track by_src,count 15,seconds 10; classtype:attempted-recon; sid:9900001; rev:1;)
-alert icmp any any -> [10.10.10.0/24,10.20.20.0/24] any (msg:"AEGIS ICMP burst"; itype:8; threshold:type both,track by_src,count 20,seconds 10; classtype:attempted-dos; sid:9900002; rev:1;)
+alert icmp any any -> [10.10.10.0/24,10.20.20.0/24] any (msg:"AEGIS ICMP sweep probes"; itype:8; threshold:type both,track by_src,count 20,seconds 10; classtype:attempted-recon; sid:9900002; rev:2;)
 alert tcp any any -> 10.10.10.10 80 (msg:"AEGIS WEB SQL injection keyword"; flow:to_server,established; http.uri; pcre:"/(union(%20|\\+)+select|%27(%20|\\+)*or(%20|\\+)+1=1)/Ui"; classtype:web-application-attack; sid:9900010; rev:1;)
 alert tcp any any -> 10.10.10.10 80 (msg:"AEGIS WEB XSS script tag"; flow:to_server,established; http.uri; pcre:"/(%3c|<)script/i"; classtype:web-application-attack; sid:9900011; rev:1;)
 alert tcp any any -> 10.10.10.10 80 (msg:"AEGIS WEB directory traversal"; flow:to_server,established; http.uri; pcre:"/(\\.\\.\\/|%2e%2e(%2f|\\/))/Ui"; classtype:web-application-attack; sid:9900012; rev:1;)
@@ -44,3 +48,23 @@ alert tcp any any -> 10.20.20.20 389 (msg:"AEGIS LDAP anonymous bind attempt"; f
 
 # LDAP enumeration — ldapsearch style (many SearchRequest PDUs 0x63)
 alert tcp any any -> 10.20.20.20 389 (msg:"AEGIS LDAP enumeration burst"; flow:to_server,established; content:"|63|"; threshold:type both,track by_src,count 20,seconds 30; classtype:attempted-recon; sid:9900043; rev:1;)
+
+# ── Volumetric DoS / DDoS (SID 9900050-9900059) ───────────────────────────────
+# Tracked by_dst so a distributed flood from many sources still fires, and rated
+# far above the recon thresholds so ordinary scanning never reaches them.
+# classtype attempted-dos makes AEGIS classify these as "ddos", not "port_scan".
+
+# SYN flood — hping3 --flood -S / synflood scripts
+alert tcp any any -> [10.10.10.0/24,10.20.20.0/24] any (msg:"AEGIS DDOS SYN flood"; flags:S,12; flow:stateless; threshold:type both,track by_dst,count 200,seconds 5; classtype:attempted-dos; sid:9900050; rev:1;)
+
+# ACK/RST flood — stateless reflection style floods
+alert tcp any any -> [10.10.10.0/24,10.20.20.0/24] any (msg:"AEGIS DDOS ACK flood"; flags:A,12; flow:stateless; threshold:type both,track by_dst,count 300,seconds 5; classtype:attempted-dos; sid:9900051; rev:1;)
+
+# UDP flood — hping3 --udp --flood, DNS amplification traffic
+alert udp any any -> [10.10.10.0/24,10.20.20.0/24] any (msg:"AEGIS DDOS UDP flood"; threshold:type both,track by_dst,count 300,seconds 5; classtype:attempted-dos; sid:9900052; rev:1;)
+
+# ICMP flood — ping -f / hping3 --icmp --flood
+alert icmp any any -> [10.10.10.0/24,10.20.20.0/24] any (msg:"AEGIS DDOS ICMP flood"; itype:8; threshold:type both,track by_dst,count 150,seconds 5; classtype:attempted-dos; sid:9900053; rev:1;)
+
+# HTTP request flood — slowloris / ab / GET flood against the public web server
+alert tcp any any -> 10.10.10.10 80 (msg:"AEGIS DDOS HTTP request flood"; flow:to_server,established; http.method; content:"GET"; threshold:type both,track by_dst,count 200,seconds 10; classtype:attempted-dos; sid:9900054; rev:1;)
