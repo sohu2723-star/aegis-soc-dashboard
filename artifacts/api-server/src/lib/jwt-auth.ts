@@ -2,12 +2,14 @@
  * JWT session auth — sign / verify / Express middleware
  * Session secret comes from SESSION_SECRET env var (already configured).
  */
-import jwt from "jsonwebtoken";
+import jwt, { type SignOptions } from "jsonwebtoken";
 import type { Request, Response, NextFunction } from "express";
 
+type Expiry = NonNullable<SignOptions["expiresIn"]>;
+
 const SECRET = () => process.env.SESSION_SECRET ?? "aegis-dev-fallback";
-const EXPIRY  = "24h";
-const DEMO_EXPIRY = "7d"; // Demo tokens last longer
+const EXPIRY: Expiry = "24h";
+const DEMO_EXPIRY: Expiry = "7d"; // Demo tokens last longer
 
 export interface SessionPayload {
   role:   "admin" | "demo";
@@ -15,7 +17,7 @@ export interface SessionPayload {
   // email intentionally omitted from token — not safe in base64-decodable JWT
 }
 
-export function signToken(payload: SessionPayload, expiry = EXPIRY): string {
+export function signToken(payload: SessionPayload, expiry: Expiry = EXPIRY): string {
   return jwt.sign(payload, SECRET(), { expiresIn: expiry });
 }
 
