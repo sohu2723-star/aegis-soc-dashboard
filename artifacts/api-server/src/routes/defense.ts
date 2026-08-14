@@ -61,7 +61,7 @@ router.post("/defense/block", requireAuth, async (req, res) => {
   // Queue pfSense block
   await db.insert(defenseCommandsTable).values({
     targetVm: "pfsense", commandType: "ssh_pfsense",
-    commandText: `easyrule block WAN ${safeIp} && pfctl -t EasyRuleBlockHosts -T show | grep -Fx ${safeIp}`,
+    commandText: `easyrule block WAN ${safeIp}`,
     targetIp: safeIp, status: "pending",
   });
 
@@ -125,8 +125,7 @@ router.delete("/defense/block/:ip", requireAuth, async (req, res) => {
       });
       const [pfCommand] = await db.insert(defenseCommandsTable).values({
         targetVm: "pfsense", commandType: "ssh_pfsense",
-        // Table may not exist if easyrule never ran — treat as success
-        commandText: `pfctl -t EasyRuleBlockHosts -T delete ${safeIp} 2>/dev/null || true`,
+        commandText: `easyrule unblock WAN ${safeIp}`,
         targetIp: safeIp, status: "pending",
       }).returning();
       await db.insert(defenseActionsTable).values({

@@ -101,8 +101,11 @@ function buildCommand(rule: DefenseRule, sourceIp: string, _eventId: number) {
       // SSH into pfSense via forwarder and run easyrule (no REST API package needed)
       return {
         commandType: "ssh_pfsense",
-        commandText: `easyrule block WAN ${safeIp} && pfctl -t EasyRuleBlockHosts -T show | grep -Fx ${safeIp}`,
-        undoCommand: `pfctl -t EasyRuleBlockHosts -T delete ${safeIp}`,
+        // Trust easyrule's own exit status. pfSense table names vary between
+        // releases, so an appended pfctl lookup could fail after the block had
+        // already succeeded and incorrectly mark the entire command failed.
+        commandText: `easyrule block WAN ${safeIp}`,
+        undoCommand: `easyrule unblock WAN ${safeIp}`,
       };
 
     case "alert_only":
