@@ -23,8 +23,6 @@ import { broadcaster } from "./broadcaster";
 import { recordAttack } from "./attack-tracker";
 import {
   sanitizeIp,
-  sanitizePort,
-  sanitizeProtocol,
   sanitizeRate,
   parseActionParams,
 } from "./defense-sanitize";
@@ -86,13 +84,6 @@ function buildCommand(rule: DefenseRule, sourceIp: string, _eventId: number) {
         undoCommand: `iptables -D INPUT -s ${safeIp} -j DROP`,
       };
 
-    case "null_route":
-      return {
-        commandType: "null_route",
-        commandText: `ip route add blackhole ${safeIp}/32`,
-        undoCommand: `ip route del blackhole ${safeIp}/32`,
-      };
-
     case "rate_limit": {
       const rate = sanitizeRate(params.rate ?? "10/min");
       return {
@@ -106,26 +97,6 @@ function buildCommand(rule: DefenseRule, sourceIp: string, _eventId: number) {
       };
     }
 
-    case "port_block": {
-      const port  = sanitizePort(params.port || "22");
-      const proto = sanitizeProtocol(params.protocol);
-      return {
-        commandType: "iptables",
-        commandText: `iptables -I INPUT -p ${proto} -s ${safeIp} --dport ${port} -j DROP`,
-        undoCommand: `iptables -D INPUT -p ${proto} -s ${safeIp} --dport ${port} -j DROP`,
-      };
-    }
-
-    case "dns_block": {
-      const domain = params.domain ?? safeIp;
-      return {
-        commandType: "custom",
-        // Use printf to avoid shell injection via domain (already validated as hostname)
-        commandText: `printf '0.0.0.0 %s\\n' ${domain} >> /etc/hosts`,
-        undoCommand: `sed -i '/0.0.0.0 ${domain}/d' /etc/hosts`,
-      };
-    }
-
     case "pfsense_block":
       // SSH into pfSense via forwarder and run easyrule (no REST API package needed)
       return {
@@ -134,24 +105,15 @@ function buildCommand(rule: DefenseRule, sourceIp: string, _eventId: number) {
         undoCommand: `pfctl -t EasyRuleBlockHosts -T delete ${safeIp}`,
       };
 
-    case "pfsense_port_block": {
-      throw new Error("pfsense_port_block is disabled; use a reviewed persistent pfSense rule");
-    }
-
-    case "waf_rule":
-      return {
-        commandType: "custom",
-        // modsec_ban.sh must be a hardened wrapper on the VM — no shell expansion
-        commandText: `modsec_ban.sh ${safeIp}`,
-        undoCommand: `modsec_unban.sh ${safeIp}`,
-      };
-
-    default: // alert_only
+    case "alert_only":
       return {
         commandType: "custom",
         commandText: `logger -t aegis "Rule ${rule.name} triggered for ${safeIp}"`,
         undoCommand: null,
       };
+
+    default:
+      throw new Error(`Unsupported defense type: ${rule.defenseType}`);
   }
 }
 
@@ -231,7 +193,7 @@ async function executeAutoDefense(rule: DefenseRule, event: IngestEvent) {
   // already actively blocked, skip queuing another command.  Without this,
   // every ingest event re-queues the same iptables/pfSense command for an IP
   // that is already blocked, causing an unbounded pile-up of "pending" rows.
-  const isHardBlock = ["block_ip", "null_route", "pfsense_block"].includes(rule.defenseType);
+  const isHardBlock = ["block_ip", "pfsense_block"].includes(rule.defenseType);
   if (isHardBlock) {
     const alreadyBlocked = await db.select({ id: blockedIpsTable.id })
       .from(blockedIpsTable)
@@ -251,7 +213,7 @@ async function executeAutoDefense(rule: DefenseRule, event: IngestEvent) {
   }))).returning();
 
   // Record in blocked_ips for IP-blocking defense types
-  if (["block_ip", "null_route", "pfsense_block"].includes(rule.defenseType)) {
+  if (["block_ip", "pfsense_block"].includes(rule.defenseType)) {
     const exists = await db.select().from(blockedIpsTable)
       .where(and(eq(blockedIpsTable.ip, event.sourceIp), eq(blockedIpsTable.isActive, true)));
     if (exists.length === 0) {

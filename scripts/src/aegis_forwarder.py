@@ -180,11 +180,6 @@ DEFENSE_HEADERS = {
 PFSENSE_SSH_KEY  = _cfg("PFSENSE_SSH_KEY",  "~/.ssh/pfsense_key")
 PFSENSE_SSH_USER = _cfg("PFSENSE_SSH_USER", "admin")
 
-# Legacy REST API vars (kept so old local.conf files don't break on read;
-# not used for execution — SSH is used instead)
-PFSENSE_API_URL = _cfg("PFSENSE_API_URL", f"http://{PFSENSE_IP}/api/v1")
-PFSENSE_API_KEY = _cfg("PFSENSE_API_KEY", "")
-
 try:
     DEFENSE_POLL_SECS = int(_cfg("DEFENSE_POLL_SECS", "5"))
 except ValueError:
@@ -531,80 +526,11 @@ def _exec_defense_pfsense_ssh(command: str, cmd_id: int):
         _report_defense_result(cmd_id, False, str(e))
 
 
-def _exec_defense_pfsense(payload_json: str, cmd_id: int):
-    """Execute pfSense firewall actions via SSH + easyrule/pfctl.
-    No REST API package needed on pfSense — plain SSH key auth.
-
-    Flow: forwarder (10.30.30.10) → SSH → pfSense (10.30.30.1) → easyrule / pfctl
-
-    Config (aegis_forwarder.local.conf):
-        PFSENSE_SSH_KEY  = /root/.ssh/pfsense_key
-        PFSENSE_SSH_USER = admin
-        PFSENSE_IP       = 10.30.30.1
-    """
-    try:
-        payload = json.loads(payload_json)
-        action  = payload.get("action")
-        ip      = payload.get("ip", "")
-        port    = str(payload.get("port", ""))
-        proto   = payload.get("protocol", "tcp")
-
-        ssh_key = os.path.expanduser(PFSENSE_SSH_KEY)
-        ssh_base = [
-            "ssh", "-T",
-            "-i", ssh_key,
-            "-o", "StrictHostKeyChecking=no",
-            "-o", "ConnectTimeout=10",
-            "-o", "BatchMode=yes",
-            "-o", "IdentityAgent=none",
-            f"{PFSENSE_SSH_USER}@{PFSENSE_IP}",
-        ]
-
-        if action == "block_ip":
-            # easyrule adds a block rule on WAN for the source IP
-            remote_cmd = f"easyrule block WAN {ip}"
-
-        elif action == "unblock_ip":
-            # easyrule has a built-in unblock — mirrors the block exactly
-            remote_cmd = f"easyrule unblock WAN {ip}"
-
-        elif action == "block_port":
-            # easyrule supports optional dest-port: easyrule block WAN <ip> <port> <proto>
-            if port:
-                remote_cmd = f"easyrule block WAN {ip} {port} {proto}"
-            else:
-                remote_cmd = f"easyrule block WAN {ip}"
-
-        else:
-            print(f"[defense] Unknown pfSense action: {action}")
-            _report_defense_result(cmd_id, False, f"Unknown action: {action}")
-            return
-
-        ssh_cmd = ssh_base + [remote_cmd]
-        print(f"[defense] pfSense SSH → {PFSENSE_SSH_USER}@{PFSENSE_IP}: {remote_cmd}")
-        result = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=30)
-
-        if result.returncode == 0:
-            print(f"[defense] ✓ pfSense {action} {ip} OK")
-            _report_defense_result(cmd_id, True)
-        else:
-            err = (result.stderr.strip() or result.stdout.strip())[:300]
-            print(f"[defense] ✗ pfSense {action} {ip}: {err}")
-            _report_defense_result(cmd_id, False, err)
-
-    except subprocess.TimeoutExpired:
-        print(f"[defense] ✗ pfSense SSH timeout")
-        _report_defense_result(cmd_id, False, "SSH timeout")
-    except Exception as e:
-        print(f"[defense] ✗ pfSense error: {e}")
-        _report_defense_result(cmd_id, False, str(e))
-
-
 def _dispatch_defense(cmd: dict):
     cmd_id, command_type, command_text = cmd["id"], cmd.get("commandType", ""), cmd.get("commandText", "")
     print(f"[defense] Command #{cmd_id}: [{command_type}] for {cmd.get('targetIp', '')}")
-    if command_type == "pfsense_api":
-        _exec_defense_pfsense(command_text, cmd_id)
+    if command_type == "ssh_pfsense":
+        _exec_defense_pfsense_ssh(command_text, cmd_id)
     else:
         _exec_defense_shell(command_text, cmd_id)
 
@@ -671,13 +597,11 @@ def _dispatch_defense_hub(cmd: dict):
     print(f"[defense-hub] Command #{cmd_id}: [{command_type}] vm={target_vm} ip={target_ip}")
 
     # Route to pfSense
-    if target_vm == "pfsense" or command_type in ("pfsense_api", "ssh_pfsense"):
-        if command_type == "ssh_pfsense":
-            # Plain-text easyrule/pfctl command — run directly via SSH
-            _exec_defense_pfsense_ssh(command_text, cmd_id)
-        else:
-            # JSON payload {"action":..., "ip":...} — pfSense REST API path
-            _exec_defense_pfsense(command_text, cmd_id)
+    if target_vm == "pfsense" or command_type == "ssh_pfsense":
+        if command_type != "ssh_pfsense":
+            _report_defense_result(cmd_id, False, "pfSense accepts ssh_pfsense commands only")
+            return
+        _exec_defense_pfsense_ssh(command_text, cmd_id)
         return
 
     # Route to company VMs via SSH
@@ -703,7 +627,7 @@ def _dispatch_defense_hub(cmd: dict):
             _exec_defense_ssh_remote(target_ip, command_text, cmd_id)
             return
         if target_ip == PFSENSE_IP:
-            _exec_defense_pfsense(command_text, cmd_id)
+            _report_defense_result(cmd_id, False, "pfSense command must use ssh_pfsense")
             return
 
     # Unknown target must fail closed; never execute a typo locally as root.

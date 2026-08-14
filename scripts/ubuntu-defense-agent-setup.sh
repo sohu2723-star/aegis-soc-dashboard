@@ -5,7 +5,7 @@
 # Starts aegis_forwarder.py in --mode hub:
 #   • SSHes into bank-web (10.10.10.10) → tails Suricata/Snort/Fail2ban/SSH/HTTP/FTP
 #   • SSHes into customer-db (10.20.20.20) → tails Suricata/Fail2ban/SSH/PostgreSQL
-#   • Calls pfSense REST API for dashboard firewall commands
+#   • SSHes into pfSense and runs built-in easyrule/pfctl firewall commands
 #   • Runs defense agent for ALL VMs from one place
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
