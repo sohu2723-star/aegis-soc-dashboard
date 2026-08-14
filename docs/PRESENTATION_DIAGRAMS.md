@@ -8,9 +8,20 @@ into diagrams.net (draw.io) without exposing credentials or deployment URLs.
 1. Open <https://app.diagrams.net/> and create a blank diagram.
 2. Select **Arrange → Insert → Advanced → Mermaid**.
 3. Paste one complete Mermaid block from this document.
-4. Select **Diagram**, click **Insert**, and use **File → Export as** to export
-   SVG or PNG for PowerPoint.
-5. Keep the aspect ratio locked when resizing the exported image.
+4. Select **Diagram** (not Image) and click **Insert**.
+5. In draw.io, open **File → Page Setup**, set **Background** to white
+   (`#FFFFFF`), and confirm the page preview is white.
+6. Use **File → Export as → SVG**. In the export dialog:
+   - set **Background** to `#FFFFFF`;
+   - turn **Transparent Background** off;
+   - leave **Dark** / **Dark Mode** off;
+   - enable **Include a copy of my diagram** only if future editing is needed.
+7. Keep the aspect ratio locked when resizing the exported image.
+
+If the draw.io editor itself is using a dark theme, open
+**Extras → Theme → Light** before importing. The Mermaid blocks below also set
+white fills and black strokes explicitly, so an editor theme cannot silently
+turn the nodes black.
 
 The diagrams deliberately use only white fills, black text, black borders, and
 dashed black monitoring/control links. Do not place secrets, database URLs,
@@ -23,8 +34,10 @@ the DMZ Web and DNS servers; the internal segment is included only to explain
 segmentation and scope boundaries.
 
 ```mermaid
-%%{init: {"theme":"base","themeVariables":{"primaryColor":"#ffffff","primaryTextColor":"#000000","primaryBorderColor":"#000000","lineColor":"#000000","secondaryColor":"#ffffff","tertiaryColor":"#ffffff","clusterBkg":"#ffffff","clusterBorder":"#000000","fontFamily":"Arial"},"flowchart":{"curve":"linear","htmlLabels":true}}}%%
+%%{init: {"theme":"base","themeVariables":{"background":"#ffffff","mainBkg":"#ffffff","primaryColor":"#ffffff","primaryTextColor":"#000000","primaryBorderColor":"#000000","lineColor":"#000000","secondaryColor":"#ffffff","tertiaryColor":"#ffffff","clusterBkg":"#ffffff","clusterBorder":"#000000","edgeLabelBackground":"#ffffff","fontFamily":"Arial"},"flowchart":{"curve":"linear","htmlLabels":true}}}%%
 flowchart LR
+    classDef default fill:#ffffff,stroke:#000000,stroke-width:1.5px,color:#000000;
+    linkStyle default stroke:#000000,stroke-width:1.5px,color:#000000;
     K["Kali Attacker<br/>DHCP: 192.168.10.x"] --> R["MikroTik Router<br/>192.168.10.1 / 10.0.23.1"]
     R --> P["pfSense Firewall + Suricata<br/>WAN: 10.0.23.2"]
 
@@ -56,6 +69,9 @@ flowchart LR
     HUB -. "SSH monitoring and defense control" .-> P
     HUB -. "SSH log collection" .-> WEB
     HUB -. "SSH log collection" .-> DNS
+    style DMZ fill:#ffffff,stroke:#000000,stroke-width:1.5px,color:#000000
+    style INT fill:#ffffff,stroke:#000000,stroke-width:1.5px,color:#000000
+    style MGMT fill:#ffffff,stroke:#000000,stroke-width:1.5px,color:#000000
 ```
 
 ## 2. Layered system architecture
@@ -64,8 +80,10 @@ Use this on the **System Architecture Design** slide. It explains which
 component detects, collects, processes, stores, displays, and responds.
 
 ```mermaid
-%%{init: {"theme":"base","themeVariables":{"primaryColor":"#ffffff","primaryTextColor":"#000000","primaryBorderColor":"#000000","lineColor":"#000000","secondaryColor":"#ffffff","tertiaryColor":"#ffffff","clusterBkg":"#ffffff","clusterBorder":"#000000","fontFamily":"Arial"},"flowchart":{"curve":"linear","htmlLabels":true}}}%%
+%%{init: {"theme":"base","themeVariables":{"background":"#ffffff","mainBkg":"#ffffff","primaryColor":"#ffffff","primaryTextColor":"#000000","primaryBorderColor":"#000000","lineColor":"#000000","secondaryColor":"#ffffff","tertiaryColor":"#ffffff","clusterBkg":"#ffffff","clusterBorder":"#000000","edgeLabelBackground":"#ffffff","fontFamily":"Arial"},"flowchart":{"curve":"linear","htmlLabels":true}}}%%
 flowchart TB
+    classDef default fill:#ffffff,stroke:#000000,stroke-width:1.5px,color:#000000;
+    linkStyle default stroke:#000000,stroke-width:1.5px,color:#000000;
     subgraph DETECT["1 — DETECTION LAYER"]
       SUR["pfSense Suricata<br/>EVE JSON"]
       F2B["Fail2ban"]
@@ -115,6 +133,12 @@ flowchart TB
     HUB -. "SSH command" .-> LINUX
     HUB -. "SSH command" .-> PFS
     HUB -->|"Execution result"| API
+    style DETECT fill:#ffffff,stroke:#000000,stroke-width:1.5px,color:#000000
+    style COLLECT fill:#ffffff,stroke:#000000,stroke-width:1.5px,color:#000000
+    style PROCESS fill:#ffffff,stroke:#000000,stroke-width:1.5px,color:#000000
+    style DATA fill:#ffffff,stroke:#000000,stroke-width:1.5px,color:#000000
+    style PRESENT fill:#ffffff,stroke:#000000,stroke-width:1.5px,color:#000000
+    style DEFEND fill:#ffffff,stroke:#000000,stroke-width:1.5px,color:#000000
 ```
 
 ## 3. End-to-end security data flow
@@ -124,8 +148,10 @@ order: persist the event before broadcasting it, then evaluate and execute any
 matching defense rule.
 
 ```mermaid
-%%{init: {"theme":"base","themeVariables":{"primaryColor":"#ffffff","primaryTextColor":"#000000","primaryBorderColor":"#000000","lineColor":"#000000","secondaryColor":"#ffffff","tertiaryColor":"#ffffff","clusterBkg":"#ffffff","clusterBorder":"#000000","fontFamily":"Arial"},"flowchart":{"curve":"linear","htmlLabels":true}}}%%
+%%{init: {"theme":"base","themeVariables":{"background":"#ffffff","mainBkg":"#ffffff","primaryColor":"#ffffff","primaryTextColor":"#000000","primaryBorderColor":"#000000","lineColor":"#000000","secondaryColor":"#ffffff","tertiaryColor":"#ffffff","clusterBkg":"#ffffff","clusterBorder":"#000000","edgeLabelBackground":"#ffffff","fontFamily":"Arial"},"flowchart":{"curve":"linear","htmlLabels":true}}}%%
 flowchart LR
+    classDef default fill:#ffffff,stroke:#000000,stroke-width:1.5px,color:#000000;
+    linkStyle default stroke:#000000,stroke-width:1.5px,color:#000000;
     A["1. Approved Lab Attack<br/>Nmap · HTTP Payload · AXFR · Flood"]
     S["2. Security Evidence<br/>Suricata / auth.log / Apache / BIND9"]
     F["3. AEGIS Forwarder<br/>Parse and Normalize"]
@@ -154,8 +180,10 @@ the dashboard/defense top-level types; the right-side nodes contain the public
 attack signatures or subtypes grouped under each type.
 
 ```mermaid
-%%{init: {"theme":"base","themeVariables":{"primaryColor":"#ffffff","primaryTextColor":"#000000","primaryBorderColor":"#000000","lineColor":"#000000","secondaryColor":"#ffffff","tertiaryColor":"#ffffff","clusterBkg":"#ffffff","clusterBorder":"#000000","fontFamily":"Arial"},"flowchart":{"curve":"linear","htmlLabels":true}}}%%
+%%{init: {"theme":"base","themeVariables":{"background":"#ffffff","mainBkg":"#ffffff","primaryColor":"#ffffff","primaryTextColor":"#000000","primaryBorderColor":"#000000","lineColor":"#000000","secondaryColor":"#ffffff","tertiaryColor":"#ffffff","clusterBkg":"#ffffff","clusterBorder":"#000000","edgeLabelBackground":"#ffffff","fontFamily":"Arial"},"flowchart":{"curve":"linear","htmlLabels":true}}}%%
 flowchart LR
+    classDef default fill:#ffffff,stroke:#000000,stroke-width:1.5px,color:#000000;
+    linkStyle default stroke:#000000,stroke-width:1.5px,color:#000000;
     PS["port_scan"] --> SYN["Nmap / Repeated SYN Probes"]
 
     SSH["ssh_brute"] --> SSHB["SSH Connection Burst"]
@@ -185,8 +213,10 @@ make it clear that detection does not automatically mean an unrestricted shell
 command will run.
 
 ```mermaid
-%%{init: {"theme":"base","themeVariables":{"primaryColor":"#ffffff","primaryTextColor":"#000000","primaryBorderColor":"#000000","lineColor":"#000000","secondaryColor":"#ffffff","tertiaryColor":"#ffffff","clusterBkg":"#ffffff","clusterBorder":"#000000","fontFamily":"Arial"},"flowchart":{"curve":"linear","htmlLabels":true}}}%%
+%%{init: {"theme":"base","themeVariables":{"background":"#ffffff","mainBkg":"#ffffff","primaryColor":"#ffffff","primaryTextColor":"#000000","primaryBorderColor":"#000000","lineColor":"#000000","secondaryColor":"#ffffff","tertiaryColor":"#ffffff","clusterBkg":"#ffffff","clusterBorder":"#000000","edgeLabelBackground":"#ffffff","fontFamily":"Arial"},"flowchart":{"curve":"linear","htmlLabels":true}}}%%
 flowchart TB
+    classDef default fill:#ffffff,stroke:#000000,stroke-width:1.5px,color:#000000;
+    linkStyle default stroke:#000000,stroke-width:1.5px,color:#000000;
     E["Persisted Security Event"] --> ON{"Auto-defense enabled?"}
     ON -->|"No"| STOP["Keep event and alert only"]
     ON -->|"Yes"| TYPE{"Attack type matches?"}
