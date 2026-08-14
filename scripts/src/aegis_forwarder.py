@@ -26,6 +26,7 @@ import sys
 import time
 import threading
 import requests
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from datetime import datetime
 from urllib.parse import urlparse
@@ -37,6 +38,12 @@ from urllib.parse import urlparse
 _suricata_connected_count: int = 0
 _suricata_count_lock = threading.Lock()
 _suricata_offline_timer: threading.Timer | None = None   # debounce timer
+
+# Heartbeats must finish well inside the API's stale-host window.  In
+# particular, never use a request timeout longer than the heartbeat interval:
+# one slow hosted-API request must not delay the following beat.
+HEARTBEAT_INTERVAL_SECS = 15
+HEARTBEAT_REQUEST_TIMEOUT_SECS = 8
 
 # ─── LOCAL CONFIG FILE (set-once, not committed to git) ───────────────────────
 # Real keys go in aegis_forwarder.local.conf next to this script (gitignored),
@@ -798,7 +805,7 @@ def _report_pfsense_online():
 
 def heartbeat_loop():
     """Send periodic heartbeat every 15s to keep host status ONLINE.
-    Auto-timeout on server is 45s, so 3 missed beats = offline.
+    Auto-timeout on server is 60s, so 4 missed beats = offline.
     When running on pfSense (VM_NAME=pfsense), also reports pfSense Firewall
     component as 'online' — no API key needed, just AEGIS_INGEST_KEY.
     """
@@ -807,6 +814,7 @@ def heartbeat_loop():
     os_name  = get_os_info()
     role     = "pfsense" if VM_NAME == "pfsense" else "ubuntu"
     while True:
+        round_started = time.monotonic()
         try:
             mac   = get_mac_address(ip)
             ports = get_open_ports()
@@ -817,10 +825,10 @@ def heartbeat_loop():
                       "openPorts": ports or None,
                       "status": "online", "isMonitored": True},
                 headers=HEADERS,
-                timeout=30,
+                timeout=HEARTBEAT_REQUEST_TIMEOUT_SECS,
             )
             if not 200 <= response.status_code < 300:
-                print(f"[HEARTBEAT] WARN HTTP {response.status_code} — retrying in 15s")
+                print(f"[HEARTBEAT] WARN HTTP {response.status_code} — retrying shortly")
             # pfSense: also report the global pfSense Firewall component as online
             if VM_NAME == "pfsense":
                 _report_pfsense_online()
@@ -829,7 +837,8 @@ def heartbeat_loop():
         # The first heartbeat is intentionally immediate.  This makes the
         # admin host ONLINE as soon as systemd starts the forwarder at boot,
         # rather than leaving it stale for at least one heartbeat interval.
-        time.sleep(15)
+        elapsed = time.monotonic() - round_started
+        time.sleep(max(0, HEARTBEAT_INTERVAL_SECS - elapsed))
 
 
 def send_offline():
@@ -1989,21 +1998,37 @@ def _watch_remote_slapd(host_name: str, host_ip: str):
 
 def _remote_heartbeat_loop(hosts: list):
     """Send online heartbeat for every remote company VM every 15s.
-    Without this they time out (server marks offline after 45s / 3 missed beats).
+    Without this they time out (server marks offline after 60s / 4 missed beats).
     """
-    while True:
-        for h in hosts:
-            try:
-                requests.post(
-                    f"{AEGIS_URL}/network/hosts",
-                    json={"ip": h["ip"], "hostname": h["name"],
-                          "role": "ubuntu", "status": "online", "isMonitored": True},
-                    headers=HEADERS,
-                    timeout=5,
-                )
-            except Exception:
-                pass
-        time.sleep(15)
+    if not hosts:
+        return
+
+    def send_heartbeat(h: dict) -> None:
+        try:
+            response = requests.post(
+                f"{AEGIS_URL}/network/hosts",
+                json={"ip": h["ip"], "hostname": h["name"],
+                      "role": "ubuntu", "status": "online", "isMonitored": True},
+                headers=HEADERS,
+                timeout=HEARTBEAT_REQUEST_TIMEOUT_SECS,
+            )
+            if not 200 <= response.status_code < 300:
+                print(f"[REMOTE HEARTBEAT] WARN {h['name']}: HTTP {response.status_code}")
+        except Exception as exc:
+            print(f"[REMOTE HEARTBEAT] WARN {h['name']}: {type(exc).__name__}")
+
+    # A sequential loop can take hosts × request-timeout seconds.  Send the
+    # independent VM heartbeats concurrently so one slow request cannot make
+    # every later host cross the server's offline threshold.
+    with ThreadPoolExecutor(max_workers=min(len(hosts), 8),
+                            thread_name_prefix="remote-heartbeat-post") as executor:
+        while True:
+            round_started = time.monotonic()
+            futures = [executor.submit(send_heartbeat, h) for h in hosts]
+            for future in futures:
+                future.result()  # send_heartbeat contains and logs its errors
+            elapsed = time.monotonic() - round_started
+            time.sleep(max(0, HEARTBEAT_INTERVAL_SECS - elapsed))
 
 
 def _remote_service_health_loop(hosts: list):
@@ -2229,7 +2254,7 @@ def run_hub_mode():
 
     threads = []
 
-    # Heartbeat — keeps remote VMs ONLINE (server marks offline after 45s / 3 misses)
+    # Heartbeat — keeps remote VMs ONLINE (server marks offline after 60s / 4 misses)
     hb = threading.Thread(target=_remote_heartbeat_loop, args=(REMOTE_HOSTS,),
                           daemon=True, name="remote-heartbeat")
     hb.start()

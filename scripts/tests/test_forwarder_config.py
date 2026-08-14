@@ -87,6 +87,7 @@ class ForwarderConfigTests(unittest.TestCase):
             patch.object(forwarder, "get_os_info", return_value="Ubuntu"),
             patch.object(forwarder.socket, "gethostname", return_value="aegis-admin"),
             patch.object(forwarder.requests, "post", return_value=response, create=True) as post,
+            patch.object(forwarder.time, "monotonic", side_effect=[100.0, 100.0]),
             patch.object(forwarder.time, "sleep", side_effect=RuntimeError("stop")) as sleep,
         ):
             with self.assertRaisesRegex(RuntimeError, "stop"):
@@ -94,7 +95,14 @@ class ForwarderConfigTests(unittest.TestCase):
 
         post.assert_called_once()
         self.assertEqual(post.call_args.kwargs["json"]["status"], "online")
-        sleep.assert_called_once_with(15)
+        sleep.assert_called_once_with(forwarder.HEARTBEAT_INTERVAL_SECS)
+
+    def test_heartbeat_timeout_is_shorter_than_interval(self):
+        """A single slow request must not consume the full heartbeat period."""
+        self.assertLess(
+            forwarder.HEARTBEAT_REQUEST_TIMEOUT_SECS,
+            forwarder.HEARTBEAT_INTERVAL_SECS,
+        )
 
 
 if __name__ == "__main__":
