@@ -36,6 +36,19 @@ export function toTriggerType(eventType: string, eventSubtype: string): string {
   const sub = (eventSubtype ?? "").toLowerCase();
   const typ = (eventType ?? "").toLowerCase();
 
+  // The ingest pipeline has already classified canonical event types. Treat
+  // that value as authoritative so a DDoS event whose signature also contains
+  // words such as "SYN scan" can never trigger a port_scan defense rule.
+  if (typ === "ddos")                                      return "ddos";
+  if (typ === "port_scan")                                 return "port_scan";
+  if (typ === "web_attack")                                return "web_attack";
+  if (typ === "ssh_brute")                                 return "ssh_brute";
+  if (typ === "dns_attack")                                return "dns_attack";
+  if (typ === "db_attack")                                 return "db_attack";
+  if (typ === "ldap_attack")                               return sub.includes("enum") ? "ldap_enum" : "ldap_brute";
+  if (typ === "mitm")                                      return "mitm";
+  if (typ === "auth_event")                                return "auth_event";
+
   // Service-specific checks must precede the generic network/SSH fallback.
   if (sub.includes("ldap"))                                 return sub.includes("enum") ? "ldap_enum" : "ldap_brute";
   if (sub.includes("mysql") || sub.includes("database") || sub.includes("db ")) return "db_attack";
@@ -52,9 +65,6 @@ export function toTriggerType(eventType: string, eventSubtype: string): string {
       sub.includes("xxe") || typ === "web_attack")          return "web_attack";
   if (sub.includes("dns"))                                  return "dns_attack";
   if (sub.includes("arp") || sub.includes("mitm"))         return "mitm";
-  // Auth events (SSH unauthorized access, single login success without prior brute force)
-  // keep "auth_event" as their trigger type so dedicated rules can target them.
-  if (typ === "auth_event")                                 return "auth_event";
   return "any";
 }
 
