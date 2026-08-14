@@ -17,7 +17,8 @@ function isPfsenseUnblockCommand(commandType: string, commandText: string): bool
   // New commands use easyrule, while commands queued before the migration may
   // still report the old pfctl delete text. Accept both result shapes so an
   // in-flight legacy unblock can finish updating blocked_ips after deployment.
-  return commandText.startsWith("easyrule unblock WAN ") ||
+  return commandText.startsWith("easyrule unblock wan ") ||
+    commandText.startsWith("easyrule unblock WAN ") ||
     commandText.startsWith("pfctl -t EasyRuleBlockHosts -T delete ");
 }
 

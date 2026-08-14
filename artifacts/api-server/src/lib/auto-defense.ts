@@ -80,8 +80,9 @@ function buildCommand(rule: DefenseRule, sourceIp: string, _eventId: number) {
         // Kill any active sessions from the attacker immediately after inserting the DROP rule.
         // Using -I (insert) ensures this rule takes precedence over any existing ACCEPT rules.
         // ss -K terminates established TCP connections so the block takes effect on live sessions too.
-        commandText: `iptables -I INPUT -s ${safeIp} -j DROP && ss -K dst ${safeIp} 2>/dev/null; ss -K src ${safeIp} 2>/dev/null; true`,
-        undoCommand: `iptables -D INPUT -s ${safeIp} -j DROP`,
+        commandText: `(iptables -C INPUT -s ${safeIp} -j DROP 2>/dev/null || iptables -I INPUT -s ${safeIp} -j DROP) && (ss -K dst ${safeIp} 2>/dev/null; ss -K src ${safeIp} 2>/dev/null; true)`,
+        // Remove every legacy duplicate, not only the first matching rule.
+        undoCommand: `while iptables -C INPUT -s ${safeIp} -j DROP 2>/dev/null; do iptables -D INPUT -s ${safeIp} -j DROP || exit 1; done; ! iptables -C INPUT -s ${safeIp} -j DROP 2>/dev/null`,
       };
 
     case "rate_limit": {
@@ -101,11 +102,10 @@ function buildCommand(rule: DefenseRule, sourceIp: string, _eventId: number) {
       // SSH into pfSense via forwarder and run easyrule (no REST API package needed)
       return {
         commandType: "ssh_pfsense",
-        // Trust easyrule's own exit status. pfSense table names vary between
-        // releases, so an appended pfctl lookup could fail after the block had
-        // already succeeded and incorrectly mark the entire command failed.
-        commandText: `easyrule block WAN ${safeIp}`,
-        undoCommand: `easyrule unblock WAN ${safeIp}`,
+        // easyrule can print a semantic failure while still exiting zero. Use
+        // its supported showblock command and accept pfSense's CIDR rendering.
+        commandText: `easyrule block wan ${safeIp} && easyrule showblock wan | grep -Fqx -e ${safeIp} -e ${safeIp}/32 -e ${safeIp}/128`,
+        undoCommand: `easyrule unblock wan ${safeIp} && ! easyrule showblock wan | grep -Fqx -e ${safeIp} -e ${safeIp}/32 -e ${safeIp}/128`,
       };
 
     case "alert_only":
