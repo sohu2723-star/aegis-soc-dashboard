@@ -11,6 +11,16 @@ import { broadcaster } from "../lib/broadcaster";
 
 const router = Router();
 
+function isPfsenseUnblockCommand(commandType: string, commandText: string): boolean {
+  if (commandType !== "ssh_pfsense") return false;
+
+  // New commands use easyrule, while commands queued before the migration may
+  // still report the old pfctl delete text. Accept both result shapes so an
+  // in-flight legacy unblock can finish updating blocked_ips after deployment.
+  return commandText.startsWith("easyrule unblock WAN ") ||
+    commandText.startsWith("pfctl -t EasyRuleBlockHosts -T delete ");
+}
+
 // ─── Command queue (agent polling) ────────────────────────────────────────────
 // Atomic claim: one UPDATE ... RETURNING statement with SKIP LOCKED.
 
@@ -66,7 +76,7 @@ router.post("/defense/commands/:id/result", requireAdmin, async (req, res) => {
   }
   const command = updated[0] as { commandType: string; commandText: string; targetIp: string | null };
   const confirmedUnblock = success && command.targetIp && (
-    (command.commandType === "ssh_pfsense" && command.commandText.startsWith("pfctl -t EasyRuleBlockHosts -T delete ")) ||
+    isPfsenseUnblockCommand(command.commandType, command.commandText) ||
     command.commandType === "fail2ban_unban"
   );
   if (confirmedUnblock && command.targetIp) {
@@ -76,7 +86,7 @@ router.post("/defense/commands/:id/result", requireAdmin, async (req, res) => {
       type: "manual", action: "unblock", targetIp: command.targetIp,
       reason: command.commandType === "fail2ban_unban"
         ? "Fail2ban unban executed"
-        : "pfSense EasyRuleBlockHosts removal executed",
+        : "pfSense easyrule unblock executed",
       performedBy: "aegis-defense-agent", status: "success",
     });
   }
