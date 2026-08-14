@@ -98,18 +98,27 @@ router.post("/ui/defense/rules", maybeAdmin, async (req, res) => {
   const schema = z.object({
     name:              z.string().min(1).max(128),
     description:       z.string().max(512).optional(),
-    triggerAttackType: z.string().default("any"),
+    triggerAttackType: z.enum([
+      "ssh_brute","auth_event","network_attack","web_attack","ddos",
+      "port_scan","dns_attack","db_attack","ldap_brute","ldap_enum","any",
+    ]).default("any"),
     triggerSeverity:   z.enum(["any","critical","high","medium","low"]).default("any"),
     triggerThreshold:  z.number().int().min(1).max(10000).default(1),
     triggerWindowSecs: z.number().int().min(1).max(86400).default(60),
     actionType:        z.literal("auto").default("auto"),
     defenseType:       z.enum([
-      "block_ip","null_route","rate_limit","port_block",
-      "dns_block","waf_rule","pfsense_block","alert_only",
+      "block_ip","rate_limit","pfsense_block","alert_only",
     ]),
     actionParams: z.string().optional(),
     targetVm:     z.enum(["company-web-server","company-customer-db","company-dns-server","company-ldap-server","aegis","pfsense","all"]).default("company-web-server"),
     priority:     z.number().int().min(1).max(9999).default(100),
+  }).superRefine((data, ctx) => {
+    if (data.defenseType === "pfsense_block" && data.targetVm !== "pfsense") {
+      ctx.addIssue({ code: "custom", path: ["targetVm"], message: "pfSense WAN Block must target pfsense" });
+    }
+    if (data.defenseType !== "pfsense_block" && data.targetVm === "pfsense") {
+      ctx.addIssue({ code: "custom", path: ["targetVm"], message: "Linux defenses cannot target pfSense" });
+    }
   });
 
   const body = schema.safeParse(req.body);
@@ -136,7 +145,7 @@ router.patch("/ui/defense/rules/:id", maybeAdmin, async (req, res) => {
     triggerThreshold:  z.number().int().min(1).optional(),
     triggerWindowSecs: z.number().int().min(1).optional(),
     actionType:        z.literal("auto").optional(),
-    defenseType:       z.string().optional(),
+    defenseType:       z.enum(["block_ip","rate_limit","pfsense_block","alert_only"]).optional(),
     actionParams:      z.string().optional(),
     targetVm:          z.enum(["company-web-server","company-customer-db","company-dns-server","company-ldap-server","aegis","pfsense","all"]).optional(),
   });
