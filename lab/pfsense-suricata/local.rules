@@ -2,8 +2,8 @@
 # Supplement ET Open; connection-burst rules indicate suspicious behavior, not a proven login compromise.
 # Recon (SID 9900001-9900009) and volumetric DoS (SID 9900050-9900059) are kept
 # apart by rate: recon fires on a low packet count, DoS only at flood rates.
-# A flood also trips the recon rule, so AEGIS suppresses port_scan events from a
-# source that produced a ddos event in the last 60 s (see ingest.ts).
+# A flood also reaches the recon threshold first. AEGIS briefly holds that scan
+# candidate and cancels it when the higher-rate DDoS signature arrives.
 alert tcp any any -> [10.10.10.0/24,10.20.20.0/24] any (msg:"AEGIS SCAN repeated SYN probes"; flags:S,12; flow:stateless; threshold:type both,track by_src,count 15,seconds 10; classtype:attempted-recon; sid:9900001; rev:1;)
 alert icmp any any -> [10.10.10.0/24,10.20.20.0/24] any (msg:"AEGIS ICMP sweep probes"; itype:8; threshold:type both,track by_src,count 20,seconds 10; classtype:attempted-recon; sid:9900002; rev:2;)
 alert tcp any any -> 10.10.10.10 80 (msg:"AEGIS WEB SQL injection keyword"; flow:to_server,established; http.uri; pcre:"/(union(%20|\\+)+select|%27(%20|\\+)*or(%20|\\+)+1=1)/Ui"; classtype:web-application-attack; sid:9900010; rev:1;)

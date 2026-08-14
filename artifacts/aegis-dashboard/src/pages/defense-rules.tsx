@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { Trash2, Plus, Download, Flame, Terminal, BookOpen, Shield, ChevronRight } from "lucide-react";
+import { Trash2, Plus, Flame, Terminal, BookOpen, Shield, ChevronRight } from "lucide-react";
 import { format } from "date-fns";
 import { HostLabel } from "@/lib/host-utils";
 import { useToast } from "@/hooks/use-toast";
@@ -33,6 +33,7 @@ interface FirewallRule {
   id: number; chain: string; action: string;
   protocol: string | null; sourceIp: string | null; destIp: string | null;
   sourcePort: string | null; destPort: string | null; iface: string | null;
+  targetVm: string;
   ruleText: string; isActive: boolean; createdBy: string; appliedAt: string;
 }
 
@@ -86,20 +87,15 @@ function VmBadge({ vm }: { vm: string }) {
 }
 
 const defenseTypeLabels: Record<string, string> = {
-  block_ip:      "Block IP (iptables DROP)",
-  null_route:    "Null Route (blackhole)",
-  rate_limit:    "Rate Limit (iptables limit)",
-  port_block:    "Port Block (iptables port)",
-  pfsense_block: "pfSense WAN Block (easyrule)",
-  dns_block:     "DNS Block (/etc/hosts)",
-  waf_rule:      "WAF Rule (modsec_ban)",
-  alert_only:    "Alert Only (log, no block)",
+  block_ip:      "Linux VM Block (iptables DROP)",
+  rate_limit:    "Linux VM Rate Limit (iptables, 10/min)",
+  pfsense_block: "pfSense WAN Block (SSH + easyrule)",
+  alert_only:    "Alert Only (Linux log, no block)",
 };
 
 // Certain defense types must target a specific VM — auto-enforce consistency.
 const DEFENSE_TYPE_FORCED_VM: Record<string, string> = {
   pfsense_block: "pfsense",
-  dns_block:     "company-dns-server",
 };
 
 const statusColors: Record<string, string> = {
@@ -120,74 +116,78 @@ const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
 const ATTACK_PRESETS: Record<string, {
   name: string; description: string; severity: string;
   threshold: number; windowSecs: number;
-  defenseType: string; targetVm: string; actionType: string;
+  defenseType: string; targetVm: string;
 }> = {
   ssh_brute: {
     name: "Block SSH Brute Force",
     description: "Auto-block IPs that trigger SSH brute-force alerts (fail2ban / auth.log watcher)",
     severity: "high", threshold: 3, windowSecs: 60,
-    defenseType: "block_ip", targetVm: "all", actionType: "auto",
+    defenseType: "block_ip", targetVm: "all",
   },
   auth_event: {
     name: "Block Unauthorized SSH Access",
     description: "Block IP immediately when unauthorized SSH login succeeds (stolen creds / single clean login)",
     severity: "critical", threshold: 1, windowSecs: 60,
-    defenseType: "block_ip", targetVm: "all", actionType: "auto",
+    defenseType: "block_ip", targetVm: "all",
   },
   web_attack: {
     name: "Block Web Attack",
     description: "Block IPs launching SQLi/XSS attacks against web server",
     severity: "high", threshold: 3, windowSecs: 120,
-    defenseType: "block_ip", targetVm: "company-web-server", actionType: "auto",
+    defenseType: "block_ip", targetVm: "company-web-server",
   },
   network_attack: {
-    name: "Block Suricata Network Attack",
-    description: "Block IPs triggering Suricata IDS alerts",
+    name: "Alert on Unclassified Network Attack",
+    description: "Log repeated high-severity Suricata alerts that do not match a specific attack category",
     severity: "high", threshold: 3, windowSecs: 60,
-    defenseType: "block_ip", targetVm: "all", actionType: "auto",
+    defenseType: "alert_only", targetVm: "aegis",
   },
   ddos: {
     name: "Block DDoS Source at pfSense WAN",
     description: "Block DDoS/SYN-flood source IP at pfSense WAN boundary — stops Suricata alerts at source",
     severity: "high", threshold: 1, windowSecs: 30,
-    defenseType: "pfsense_block", targetVm: "pfsense", actionType: "auto",
+    defenseType: "pfsense_block", targetVm: "pfsense",
   },
   port_scan: {
     name: "Block Port Scanner",
     description: "Block IPs performing nmap / port scans at pfSense WAN boundary",
     severity: "medium", threshold: 1, windowSecs: 60,
-    defenseType: "pfsense_block", targetVm: "pfsense", actionType: "auto",
+    defenseType: "pfsense_block", targetVm: "pfsense",
   },
   dns_attack: {
     name: "Block DNS Attack",
     description: "Block IPs attacking BIND9 DNS server",
     severity: "high", threshold: 3, windowSecs: 60,
-    defenseType: "block_ip", targetVm: "company-dns-server", actionType: "auto",
+    defenseType: "block_ip", targetVm: "company-dns-server",
   },
   db_attack: {
     name: "Block Database Attack",
     description: "Block IPs attacking MySQL / PostgreSQL database",
     severity: "high", threshold: 3, windowSecs: 60,
-    defenseType: "block_ip", targetVm: "company-customer-db", actionType: "auto",
+    defenseType: "block_ip", targetVm: "company-customer-db",
   },
   ldap_brute: {
     name: "Block LDAP Brute Force",
     description: "Block IPs attempting LDAP credential brute force (invalid bind credentials)",
     severity: "high", threshold: 3, windowSecs: 60,
-    defenseType: "block_ip", targetVm: "company-ldap-server", actionType: "auto",
+    defenseType: "block_ip", targetVm: "company-ldap-server",
   },
   ldap_enum: {
     name: "Block LDAP Enumeration",
     description: "Block IPs performing LDAP directory enumeration (DN enumeration)",
     severity: "medium", threshold: 5, windowSecs: 120,
-    defenseType: "block_ip", targetVm: "company-ldap-server", actionType: "auto",
+    defenseType: "block_ip", targetVm: "company-ldap-server",
   },
   any: {
-    name: "", description: "",
-    severity: "high", threshold: 5, windowSecs: 60,
-    defenseType: "block_ip", targetVm: "all", actionType: "auto",
+    name: "Alert on Repeated Any Attack",
+    description: "Log only after repeated high-severity events of any type; does not automatically block",
+    severity: "high", threshold: 10, windowSecs: 60,
+    defenseType: "alert_only", targetVm: "aegis",
   },
 };
+
+const DEFAULT_ATTACK_TYPE = "ssh_brute";
+const DEFAULT_PRESET = ATTACK_PRESETS[DEFAULT_ATTACK_TYPE];
 
 // ─── Auto-Defense Rules Tab ────────────────────────────────────────────────────
 
@@ -200,15 +200,14 @@ function RulesTab() {
   const [createOpen, setCreateOpen] = useState(false);
 
   // Create form state
-  const [name, setName]                         = useState("");
-  const [description, setDescription]           = useState("");
-  const [triggerAttackType, setTriggerAttack]   = useState("ssh_brute");
-  const [triggerSeverity, setTriggerSeverity]   = useState(ATTACK_PRESETS.ssh_brute.severity);
-  const [triggerThreshold, setTriggerThreshold] = useState(ATTACK_PRESETS.ssh_brute.threshold);
-  const [triggerWindow, setTriggerWindow]       = useState(ATTACK_PRESETS.ssh_brute.windowSecs);
-  const [actionType, setActionType]             = useState(ATTACK_PRESETS.ssh_brute.actionType);
-  const [defenseType, setDefenseType]           = useState(ATTACK_PRESETS.ssh_brute.defenseType);
-  const [targetVm, setTargetVm]                 = useState(ATTACK_PRESETS.ssh_brute.targetVm);
+  const [name, setName]                         = useState(DEFAULT_PRESET.name);
+  const [description, setDescription]           = useState(DEFAULT_PRESET.description);
+  const [triggerAttackType, setTriggerAttack]   = useState(DEFAULT_ATTACK_TYPE);
+  const [triggerSeverity, setTriggerSeverity]   = useState(DEFAULT_PRESET.severity);
+  const [triggerThreshold, setTriggerThreshold] = useState(DEFAULT_PRESET.threshold);
+  const [triggerWindow, setTriggerWindow]       = useState(DEFAULT_PRESET.windowSecs);
+  const [defenseType, setDefenseType]           = useState(DEFAULT_PRESET.defenseType);
+  const [targetVm, setTargetVm]                 = useState(DEFAULT_PRESET.targetVm);
   const [priority, setPriority]                 = useState(100);
 
   // When attack type changes, auto-fill all dependent fields
@@ -216,14 +215,22 @@ function RulesTab() {
     setTriggerAttack(v);
     const p = ATTACK_PRESETS[v];
     if (!p) return;
-    if (p.name)        setName(p.name);
-    if (p.description) setDescription(p.description);
+    setName(p.name);
+    setDescription(p.description);
     setTriggerSeverity(p.severity);
     setTriggerThreshold(p.threshold);
     setTriggerWindow(p.windowSecs);
     setDefenseType(p.defenseType);
     setTargetVm(p.targetVm);
-    setActionType(p.actionType);
+  }
+
+  function handleCreateOpenChange(open: boolean) {
+    if (isDemo) return;
+    if (open) {
+      handleAttackTypeChange(DEFAULT_ATTACK_TYPE);
+      setPriority(100);
+    }
+    setCreateOpen(open);
   }
 
   // When defense type changes, auto-enforce the required target VM
@@ -231,6 +238,7 @@ function RulesTab() {
     setDefenseType(v);
     const forced = DEFENSE_TYPE_FORCED_VM[v];
     if (forced) setTargetVm(forced);
+    else if (targetVm === "pfsense") setTargetVm("all");
   }
 
   const authHeaders = (): Record<string, string> => {
@@ -276,7 +284,8 @@ function RulesTab() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ui-rules"] });
       setCreateOpen(false);
-      setName(""); setDescription("");
+      handleAttackTypeChange(DEFAULT_ATTACK_TYPE);
+      setPriority(100);
       toast({ title: "Rule Created", description: "Auto-defense rule added." });
     },
     onError: (e: Error) => toast({ title: "Create Failed", description: e.message, variant: "destructive" }),
@@ -285,10 +294,7 @@ function RulesTab() {
   function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     createMutation.mutate({ name, description, triggerAttackType, triggerSeverity,
-      triggerThreshold, triggerWindowSecs: triggerWindow, actionType, defenseType, targetVm, priority });
-    // Reset to default preset after creation
-    handleAttackTypeChange("ssh_brute");
-    setPriority(100);
+      triggerThreshold, triggerWindowSecs: triggerWindow, actionType: "auto", defenseType, targetVm, priority });
   }
 
   return (
@@ -319,7 +325,7 @@ function RulesTab() {
         <p className="text-xs text-muted-foreground">
           {rules.filter(r => r.isActive).length} active / {rules.length} total rules
         </p>
-        <Dialog open={createOpen} onOpenChange={v => !isDemo && setCreateOpen(v)}>
+        <Dialog open={createOpen} onOpenChange={handleCreateOpenChange}>
           <DialogTrigger asChild>
             <Button size="sm" disabled={isDemo} title={isDemo ? "Demo mode — read only" : undefined}><Plus className="w-3.5 h-3.5 mr-1.5" /> New Rule</Button>
           </DialogTrigger>
@@ -359,6 +365,9 @@ function RulesTab() {
                       ))}
                     </SelectContent>
                   </Select>
+                  <p className="text-[10px] text-cyan-400/70">
+                    Selecting an attack type auto-fills name, description, minimum severity, threshold, window, defense, and target.
+                  </p>
                   {triggerAttackType === "any" && (
                     <p className="text-[10px] text-yellow-400/80 bg-yellow-950/30 border border-yellow-500/20 rounded px-2 py-1.5 mt-1">
                       ⚠ "any" fires on <strong>every</strong> ingest event regardless of type — including normal fail2ban, SSH, Suricata alerts. Set a high threshold (≥10) to avoid false positives.
@@ -366,7 +375,7 @@ function RulesTab() {
                   )}
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs uppercase text-muted-foreground">Trigger Severity</Label>
+                  <Label className="text-xs uppercase text-muted-foreground">Minimum Trigger Severity</Label>
                   <Select value={triggerSeverity} onValueChange={setTriggerSeverity}>
                     <SelectTrigger className="bg-background border-border text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
@@ -375,6 +384,9 @@ function RulesTab() {
                       ))}
                     </SelectContent>
                   </Select>
+                  <p className="text-[10px] text-muted-foreground">
+                    critical only; high includes critical; medium includes high/critical; low matches every severity.
+                  </p>
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs uppercase text-muted-foreground">Threshold (hits)</Label>
@@ -406,15 +418,6 @@ function RulesTab() {
                   )}
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs uppercase text-muted-foreground">Action Mode</Label>
-                  <Select value={actionType} onValueChange={setActionType}>
-                    <SelectTrigger className="bg-background border-border text-xs"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="auto">Auto Execute</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
                   <Label className="text-xs uppercase text-muted-foreground">
                     Target VM
                     {DEFENSE_TYPE_FORCED_VM[defenseType] && (
@@ -433,8 +436,10 @@ function RulesTab() {
                       <SelectItem value="company-customer-db">company-customer-db (10.20.20.10)</SelectItem>
                       <SelectItem value="company-ldap-server">company-ldap-server (10.20.20.20)</SelectItem>
                       <SelectItem value="aegis">aegis-company-admin (10.30.30.10)</SelectItem>
-                      <SelectItem value="pfsense">pfsense (WAN firewall — SSH)</SelectItem>
-                      <SelectItem value="all">all (every VM)</SelectItem>
+                      <SelectItem value="pfsense" disabled={defenseType !== "pfsense_block"}>
+                        pfsense (WAN firewall — SSH + easyrule)
+                      </SelectItem>
+                      <SelectItem value="all">all Linux VMs (pfSense excluded)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -541,13 +546,26 @@ function FirewallTab() {
   // Form state
   const [chain, setChain]       = useState("INPUT");
   const [action, setAction]     = useState("DROP");
-  const [protocol, setProtocol] = useState("");
+  const [protocol, setProtocol] = useState("all");
   const [sourceIp, setSourceIp] = useState("");
   const [destIp, setDestIp]     = useState("");
   const [sourcePort, setSrcPort] = useState("");
   const [destPort, setDstPort]  = useState("");
   const [iface, setIface]       = useState("");
+  const [firewallTarget, setFirewallTarget] = useState("company-web-server");
   const supportsPorts = protocol === "tcp" || protocol === "udp";
+
+  function resetFirewallForm() {
+    setChain("INPUT"); setAction("DROP"); setProtocol("all");
+    setSourceIp(""); setDestIp(""); setSrcPort(""); setDstPort(""); setIface("");
+    setFirewallTarget("company-web-server");
+  }
+
+  function handleFirewallOpenChange(open: boolean) {
+    if (isDemo) return;
+    if (open) resetFirewallForm();
+    setCreateOpen(open);
+  }
 
   const fwAuthHeaders = (): Record<string, string> => {
     const tok = getToken();
@@ -566,7 +584,7 @@ function FirewallTab() {
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ui-fw"] });
-      toast({ title: "Rule Removal Queued", description: "Undo command was queued for all four company servers." });
+      toast({ title: "Rule Removal Queued", description: "Undo command was queued only for the rule's configured target." });
     },
     onError: () => toast({ title: "Remove Failed", variant: "destructive" }),
   });
@@ -581,19 +599,11 @@ function FirewallTab() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ui-fw"] });
       setCreateOpen(false);
-      setSourceIp(""); setDestIp(""); setSrcPort(""); setDstPort(""); setIface(""); setProtocol("");
-      toast({ title: "Firewall Rule Queued", description: "The rule was queued separately for all four company servers." });
+      resetFirewallForm();
+      toast({ title: "Firewall Rule Queued", description: `Rule queued for ${firewallTarget === "all" ? "all four company servers" : firewallTarget}.` });
     },
     onError: (e: Error) => toast({ title: "Create Failed", description: e.message, variant: "destructive" }),
   });
-
-  function handleExport() {
-    const a = document.createElement("a");
-    a.href = `${BASE}/api/ui/firewall/rules/export`;
-    a.download = "aegis-firewall.sh";
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    toast({ title: "Exporting", description: "aegis-firewall.sh download ကို စတင်နေပြီ။" });
-  }
 
   function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -605,12 +615,21 @@ function FirewallTab() {
       });
       return;
     }
+    if (!sourceIp && !destIp && !sourcePort && !destPort) {
+      toast({
+        title: "Rule Too Broad",
+        description: "Enter at least one source/destination IP or port. An unrestricted rule is blocked for safety.",
+        variant: "destructive",
+      });
+      return;
+    }
     createMutation.mutate({
       chain, action,
-      protocol: protocol || undefined,
+      protocol: protocol === "all" ? undefined : protocol,
       sourceIp: sourceIp || undefined, destIp: destIp || undefined,
       sourcePort: sourcePort || undefined, destPort: destPort || undefined,
       iface: iface || undefined,
+      targetVm: firewallTarget,
     });
   }
 
@@ -621,10 +640,7 @@ function FirewallTab() {
           {rules.filter(r => r.isActive).length} active rules
         </p>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={handleExport} className="border-border">
-            <Download className="w-3.5 h-3.5 mr-1.5" /> Export .sh
-          </Button>
-          <Dialog open={createOpen} onOpenChange={v => !isDemo && setCreateOpen(v)}>
+          <Dialog open={createOpen} onOpenChange={handleFirewallOpenChange}>
             <DialogTrigger asChild>
               <Button size="sm" disabled={isDemo} title={isDemo ? "Demo mode — read only" : undefined}><Plus className="w-3.5 h-3.5 mr-1.5" /> Add Rule</Button>
             </DialogTrigger>
@@ -648,7 +664,7 @@ function FirewallTab() {
                     <Select value={action} onValueChange={setAction}>
                       <SelectTrigger className="bg-background border-border text-xs"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        {["DROP","ACCEPT","LOG"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                        {["DROP","ACCEPT"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
@@ -663,13 +679,13 @@ function FirewallTab() {
                     }}>
                       <SelectTrigger className="bg-background border-border text-xs"><SelectValue placeholder="any" /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">any</SelectItem>
+                        <SelectItem value="all">any</SelectItem>
                         {["tcp","udp"].map(v => <SelectItem key={v} value={v}>{v.toUpperCase()}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
                   <div className="space-y-1.5">
-                    <Label className="text-xs uppercase text-muted-foreground">Interface (optional)</Label>
+                    <Label className="text-xs uppercase text-muted-foreground">{chain === "OUTPUT" ? "Output Interface (-o)" : "Input Interface (-i)"} (optional)</Label>
                     <Input value={iface} onChange={e => setIface(e.target.value)} className="bg-background border-border" placeholder="e.g. ens3" />
                   </div>
                   <div className="space-y-1.5">
@@ -688,7 +704,26 @@ function FirewallTab() {
                     <Label className="text-xs uppercase text-muted-foreground">Dest Port</Label>
                     <Input value={destPort} onChange={e => setDstPort(e.target.value)} disabled={!supportsPorts} className="bg-background border-border" placeholder={supportsPorts ? "e.g. 22" : "Select TCP or UDP"} />
                   </div>
+                  <div className="space-y-1.5 col-span-2">
+                    <Label className="text-xs uppercase text-muted-foreground">Target Linux VM</Label>
+                    <Select value={firewallTarget} onValueChange={setFirewallTarget}>
+                      <SelectTrigger className="bg-background border-border text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="company-web-server">company-web-server (10.10.10.10)</SelectItem>
+                        <SelectItem value="company-dns-server">company-dns-server (10.10.10.20)</SelectItem>
+                        <SelectItem value="company-customer-db">company-customer-db (10.20.20.10)</SelectItem>
+                        <SelectItem value="company-ldap-server">company-ldap-server (10.20.20.20)</SelectItem>
+                        <SelectItem value="all">all four company Linux VMs</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {firewallTarget === "all" && <p className="text-[10px] text-yellow-400">⚠ This queues the same rule on all four company servers.</p>}
+                  </div>
                 </div>
+                {action === "ACCEPT" && (
+                  <p className="text-[10px] text-yellow-400 bg-yellow-950/30 border border-yellow-500/20 rounded px-2 py-1.5">
+                    ⚠ ACCEPT is inserted at the top of the selected chain. Use a narrow IP/port selector to avoid exposing services.
+                  </p>
+                )}
                 <div className="flex justify-end pt-2">
                   <Button type="submit" disabled={createMutation.isPending} size="sm">
                     {createMutation.isPending ? "Adding…" : "Add Rule"}
@@ -707,6 +742,7 @@ function FirewallTab() {
               <TableHead>Chain</TableHead>
               <TableHead>Action</TableHead>
               <TableHead>iptables Command</TableHead>
+              <TableHead>Target</TableHead>
               <TableHead>Created By</TableHead>
               <TableHead>Time</TableHead>
               <TableHead>Status</TableHead>
@@ -715,9 +751,9 @@ function FirewallTab() {
           </TableHeader>
           <TableBody>
             {isLoading ? (
-              <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Loading firewall rules…</TableCell></TableRow>
+              <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Loading firewall rules…</TableCell></TableRow>
             ) : rules.length === 0 ? (
-              <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No firewall rules yet.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">No firewall rules yet.</TableCell></TableRow>
             ) : rules.map(r => (
               <TableRow key={r.id} className={`border-border hover:bg-muted/10 ${!r.isActive ? "opacity-40" : ""}`}>
                 <TableCell>
@@ -731,6 +767,7 @@ function FirewallTab() {
                 <TableCell className="font-mono text-xs text-muted-foreground max-w-[280px] truncate" title={r.ruleText}>
                   {r.ruleText}
                 </TableCell>
+                <TableCell><VmBadge vm={r.targetVm} /></TableCell>
                 <TableCell className="text-xs text-muted-foreground">{r.createdBy}</TableCell>
                 <TableCell><span className="font-mono text-xs text-muted-foreground">{format(new Date(r.appliedAt), "MM/dd HH:mm")}</span></TableCell>
                 <TableCell>

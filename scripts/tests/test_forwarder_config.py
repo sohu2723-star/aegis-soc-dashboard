@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 import types
 import unittest
+from unittest.mock import Mock, patch
 
 
 MODULE_PATH = Path(__file__).parents[1] / "src" / "aegis_forwarder.py"
@@ -75,6 +76,51 @@ class ForwarderConfigTests(unittest.TestCase):
             forwarder._pfsense_suricata_log_paths("", "/var/log/suricata/eve.json"),
             forwarder._pfsense_suricata_log_paths(),
         )
+
+    def test_heartbeat_posts_before_first_sleep(self):
+        """Boot recovery must not wait 15 seconds before reporting online."""
+        response = Mock(status_code=200)
+        with (
+            patch.object(forwarder, "get_local_ip", return_value="10.30.30.10"),
+            patch.object(forwarder, "get_mac_address", return_value="00:00:00:00:00:01"),
+            patch.object(forwarder, "get_open_ports", return_value="22"),
+            patch.object(forwarder, "get_os_info", return_value="Ubuntu"),
+            patch.object(forwarder.socket, "gethostname", return_value="aegis-admin"),
+            patch.object(forwarder.requests, "post", return_value=response, create=True) as post,
+            patch.object(forwarder.time, "monotonic", side_effect=[100.0, 100.0]),
+            patch.object(forwarder.time, "sleep", side_effect=RuntimeError("stop")) as sleep,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "stop"):
+                forwarder.heartbeat_loop()
+
+        post.assert_called_once()
+        self.assertEqual(post.call_args.kwargs["json"]["status"], "online")
+        sleep.assert_called_once_with(forwarder.HEARTBEAT_INTERVAL_SECS)
+
+    def test_heartbeat_timeout_is_shorter_than_interval(self):
+        """A single slow request must not consume the full heartbeat period."""
+        self.assertLess(
+            forwarder.HEARTBEAT_REQUEST_TIMEOUT_SECS,
+            forwarder.HEARTBEAT_INTERVAL_SECS,
+        )
+
+    def test_defense_result_retries_after_transient_api_failure(self):
+        """A completed SSH command must not remain sent after one lost callback."""
+        response = Mock(status_code=200)
+        with (
+            patch.object(
+                forwarder.requests,
+                "post",
+                side_effect=[RuntimeError("temporary outage"), response],
+                create=True,
+            ) as post,
+            patch.object(forwarder.time, "sleep") as sleep,
+        ):
+            reported = forwarder._report_defense_result(42, True)
+
+        self.assertTrue(reported)
+        self.assertEqual(post.call_count, 2)
+        sleep.assert_called_once_with(1)
 
 
 if __name__ == "__main__":

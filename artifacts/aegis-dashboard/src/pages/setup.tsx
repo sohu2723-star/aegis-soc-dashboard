@@ -296,9 +296,10 @@ COMPANY_WEB_SSH_USER=sithu
 COMPANY_DB_IP=10.20.20.10
 COMPANY_DB_SSH_USER=sithu
 
-# pfSense (for defense block commands)
+# pfSense (defense uses SSH + built-in easyrule; no REST API package/key)
 PFSENSE_IP=10.30.30.1
-PFSENSE_API_KEY=your-pfsense-api-key-here`} />
+PFSENSE_SSH_USER=admin
+PFSENSE_SSH_KEY=/root/.ssh/pfsense_key`} />
 
               <CodeBlock language="bash" code={`# 4. Setup SSH key auth (AEGIS VM → all 4 company VMs)
 ssh-keygen -t ed25519 -f ~/.ssh/aegis_hub -N ""
@@ -403,7 +404,7 @@ ssh sithu@10.20.20.20 "sudo systemctl status slapd"`} />
               <h2 className="text-xl font-bold uppercase text-primary border-b border-border/50 pb-2">
                 6. pfSense Configuration
               </h2>
-              <p className="text-foreground">pfSense manages all zone routing and WAN firewall rules. AEGIS integrates via REST API for auto-block.</p>
+              <p className="text-foreground">pfSense manages all zone routing and WAN firewall rules. AEGIS uses SSH key authentication and built-in easyrule/pfctl commands for auto-block; no REST API package is required.</p>
 
               <div className="bg-muted/20 p-4 rounded border border-border space-y-3 text-sm">
                 <div>
@@ -425,8 +426,8 @@ ssh sithu@10.20.20.20 "sudo systemctl status slapd"`} />
                   </div>
                 </div>
                 <div>
-                  <p className="font-bold text-primary mb-1">REST API Key (for AEGIS auto-block)</p>
-                  <p className="text-xs text-muted-foreground">pfSense → System → API → Generate key → copy to <code className="text-primary">PFSENSE_API_KEY</code> in config</p>
+                  <p className="font-bold text-primary mb-1">SSH Key (for AEGIS auto-block)</p>
+                  <p className="text-xs text-muted-foreground">Enable pfSense Secure Shell, add the AEGIS public key to the admin account, and configure <code className="text-primary">PFSENSE_SSH_KEY</code>. Auto-block runs <code className="text-primary">easyrule block WAN &lt;IP&gt;</code> remotely.</p>
                 </div>
               </div>
             </section>
@@ -547,7 +548,7 @@ TELEGRAM_CHAT_ID=your-chat-id       # your Telegram user/group ID`} />
     │
 aegis_forwarder.py (hub) defense_agent_loop — polls every 5s
     ├── iptables -I INPUT -s <ATTACKER_IP> -j DROP    (company VM via SSH)
-    └── pfSense REST API block_ip                     (pfsense)
+    └── SSH → pfSense easyrule block WAN &lt;IP&gt;         (pfsense)
     │
     PATCH /api/defense/commands/:id/result
     │
