@@ -269,15 +269,16 @@ router.get("/ui/firewall/rules", async (_req, res) => {
 
 router.post("/ui/firewall/rules", maybeAdmin, async (req, res) => {
   const schema = z.object({
-    chain:      z.enum(["INPUT","OUTPUT","FORWARD"]).default("INPUT"),
-    action:     z.enum(["DROP","ACCEPT","REJECT","LOG"]),
-    protocol:   z.enum(["tcp","udp","icmp","all"]).optional(),
+    chain:      z.enum(["INPUT","OUTPUT"]).default("INPUT"),
+    action:     z.enum(["DROP","ACCEPT"]),
+    protocol:   z.enum(["tcp","udp","all"]).optional(),
     sourceIp:   z.string().optional(),
     destIp:     z.string().optional(),
     sourcePort: z.string().optional(),
     destPort:   z.string().optional(),
     iface:      z.string().optional(),
     createdBy:  z.string().default("admin"),
+    targetVm:   z.enum([...FIREWALL_TARGETS, "all"]).default("company-web-server"),
   });
 
   const body = schema.safeParse(req.body);
@@ -304,6 +305,9 @@ router.post("/ui/firewall/rules", maybeAdmin, async (req, res) => {
     if ((sourcePort || destPort) && protocol !== "tcp" && protocol !== "udp") {
       throw new Error("Source and destination ports require protocol tcp or udp");
     }
+    if (!sourceIp && !destIp && !sourcePort && !destPort) {
+      throw new Error("At least one IP address or port is required; refusing an unrestricted firewall rule");
+    }
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : "Invalid firewall rule" });
     return;
@@ -313,39 +317,54 @@ router.post("/ui/firewall/rules", maybeAdmin, async (req, res) => {
   // any existing ACCEPT rules already in the chain.  -A (append) places
   // the rule at the bottom, so Ubuntu's default ACCEPT rules fire first
   // and DROP/REJECT rules are never reached.
-  const parts = ["iptables", "-I", chain, "1"];
-  if (protocol)   parts.push("-p", protocol);
-  if (sourceIp)   parts.push("-s", sourceIp);
-  if (destIp)     parts.push("-d", destIp);
-  if (sourcePort) parts.push("--sport", sourcePort);
-  if (destPort)   parts.push("--dport", destPort);
-  if (iface)      parts.push("-i", iface);
-  parts.push("-j", action);
-  const ruleText = parts.join(" ");
+  const ruleSpec = [chain];
+  if (protocol)   ruleSpec.push("-p", protocol);
+  if (sourceIp)   ruleSpec.push("-s", sourceIp);
+  if (destIp)     ruleSpec.push("-d", destIp);
+  if (sourcePort) ruleSpec.push("--sport", sourcePort);
+  if (destPort)   ruleSpec.push("--dport", destPort);
+  if (iface)      ruleSpec.push(chain === "OUTPUT" ? "-o" : "-i", iface);
+  ruleSpec.push("-j", action);
+  const ruleText = ["iptables", "-I", chain, "1", ...ruleSpec.slice(1)].join(" ");
+
+  const duplicate = await db.select({ id: firewallRulesTable.id }).from(firewallRulesTable)
+    .where(and(
+      eq(firewallRulesTable.ruleText, ruleText),
+      eq(firewallRulesTable.targetVm, d.targetVm),
+      eq(firewallRulesTable.isActive, true),
+    ));
+  if (duplicate.length > 0) {
+    res.status(409).json({ error: "An identical active firewall rule already exists for this target" });
+    return;
+  }
 
   const [rule] = await db.insert(firewallRulesTable).values({
     chain, action, protocol, sourceIp, destIp, sourcePort, destPort, iface,
+    targetVm: d.targetVm,
     ruleText, isActive: true, createdBy: d.createdBy,
   }).returning();
 
   await db.insert(defenseActionsTable).values({
     type: "manual", action: "firewall_rule_add",
     targetIp: sourceIp ?? "any",
-    reason: `Firewall rule queued on ${FIREWALL_TARGETS.length} company servers: ${ruleText}`,
+    targetHost: d.targetVm,
+    reason: `Firewall rule queued on ${d.targetVm === "all" ? FIREWALL_TARGETS.length + " company servers" : d.targetVm}: ${ruleText}`,
     performedBy: d.createdBy, status: "queued",
   });
 
-  // Create one row per real target. A single targetVm="all" row can only be
-  // claimed once, so it would apply to whichever agent polls first instead of
-  // all four servers.
+  // Create one row per selected target. A single targetVm="all" row can only
+  // be claimed once, so the explicit all selection is expanded here.
   // Undo: -I 1 → -D (delete by rule specification, strip position arg "1")
-  const undoText = ruleText.replace(" -I ", " -D ").replace(/^(iptables -D \S+) 1 /, "$1 ");
-  const commands = await db.insert(defenseCommandsTable).values(FIREWALL_TARGETS.map(targetVm => ({
+  const checkText = ["iptables", "-C", ...ruleSpec].join(" ");
+  const commandText = `${checkText} 2>/dev/null || ${ruleText}`;
+  const undoText = ["iptables", "-D", ...ruleSpec].join(" ") + " 2>/dev/null || true";
+  const targets = d.targetVm === "all" ? [...FIREWALL_TARGETS] : [d.targetVm];
+  const commands = await db.insert(defenseCommandsTable).values(targets.map(targetVm => ({
     targetVm,
     commandType: "iptables",
-    commandText: ruleText,
+    commandText,
     undoCommand: undoText,
-    targetIp: d.sourceIp ?? null,
+    targetIp: sourceIp,
     status: "pending",
   }))).returning({ id: defenseCommandsTable.id, targetVm: defenseCommandsTable.targetVm });
 
@@ -360,19 +379,17 @@ router.delete("/ui/firewall/rules/:id", maybeAdmin, async (req, res) => {
   if (existing.length === 0) { res.status(404).json({ error: "Rule not found" }); return; }
 
   const rule = existing[0];
-  // Remove an unapplied add command, then queue the inverse so agents remove
-  // a rule that was already applied on the VMs.
-  await db.delete(defenseCommandsTable).where(and(
-    eq(defenseCommandsTable.commandText, rule.ruleText),
-    eq(defenseCommandsTable.status, "pending"),
-  ));
+  // Always queue the inverse after any pending add. Deleting pending commands
+  // by command text is unsafe because two independently-managed rules can have
+  // identical iptables text but different targets.
   // Handle both old rules (-A) and new rules (-I 1); strip the position
   // argument "1" from -I so iptables -D matches by rule specification.
   const deleteCmd = rule.ruleText
     .replace(" -A ", " -D ")
     .replace(" -I ", " -D ")
-    .replace(/^(iptables -D \S+) 1 /, "$1 ");
-  const commands = await db.insert(defenseCommandsTable).values(FIREWALL_TARGETS.map(targetVm => ({
+    .replace(/^(iptables -D \S+) 1 /, "$1 ") + " 2>/dev/null || true";
+  const targets = rule.targetVm === "all" ? [...FIREWALL_TARGETS] : [rule.targetVm];
+  const commands = await db.insert(defenseCommandsTable).values(targets.map(targetVm => ({
     targetVm,
     commandType: "iptables",
     commandText: deleteCmd,
@@ -385,32 +402,12 @@ router.delete("/ui/firewall/rules/:id", maybeAdmin, async (req, res) => {
   await db.insert(defenseActionsTable).values({
     type: "manual", action: "firewall_rule_remove",
     targetIp: rule.sourceIp ?? "any",
-    reason: `Firewall rule removal queued on ${FIREWALL_TARGETS.length} company servers: ${rule.ruleText}`,
+    targetHost: rule.targetVm,
+    reason: `Firewall rule removal queued on ${rule.targetVm === "all" ? FIREWALL_TARGETS.length + " company servers" : rule.targetVm}: ${rule.ruleText}`,
     performedBy: "admin", status: "queued",
   });
 
   res.json({ queued: true, id, targets: commands });
-});
-
-router.get("/ui/firewall/rules/export", async (_req, res) => {
-  const rules = await db.select().from(firewallRulesTable)
-    .where(eq(firewallRulesTable.isActive, true))
-    .orderBy(firewallRulesTable.appliedAt);
-
-  const lines = [
-    "#!/bin/bash",
-    "# AEGIS Firewall Rules Export",
-    `# Generated: ${new Date().toISOString()}`,
-    "# Additive export: existing firewall rules are intentionally NOT flushed.",
-    "",
-    ...rules.map(r => r.ruleText),
-    "",
-    "echo 'AEGIS firewall rules applied.'",
-  ];
-
-  res.setHeader("Content-Type", "text/plain");
-  res.setHeader("Content-Disposition", "attachment; filename=aegis-firewall.sh");
-  res.send(lines.join("\n"));
 });
 
 export default router;

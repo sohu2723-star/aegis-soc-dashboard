@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { Trash2, Plus, Download, Flame, Terminal, BookOpen, Shield, ChevronRight } from "lucide-react";
+import { Trash2, Plus, Flame, Terminal, BookOpen, Shield, ChevronRight } from "lucide-react";
 import { format } from "date-fns";
 import { HostLabel } from "@/lib/host-utils";
 import { useToast } from "@/hooks/use-toast";
@@ -33,6 +33,7 @@ interface FirewallRule {
   id: number; chain: string; action: string;
   protocol: string | null; sourceIp: string | null; destIp: string | null;
   sourcePort: string | null; destPort: string | null; iface: string | null;
+  targetVm: string;
   ruleText: string; isActive: boolean; createdBy: string; appliedAt: string;
 }
 
@@ -545,13 +546,26 @@ function FirewallTab() {
   // Form state
   const [chain, setChain]       = useState("INPUT");
   const [action, setAction]     = useState("DROP");
-  const [protocol, setProtocol] = useState("");
+  const [protocol, setProtocol] = useState("all");
   const [sourceIp, setSourceIp] = useState("");
   const [destIp, setDestIp]     = useState("");
   const [sourcePort, setSrcPort] = useState("");
   const [destPort, setDstPort]  = useState("");
   const [iface, setIface]       = useState("");
+  const [firewallTarget, setFirewallTarget] = useState("company-web-server");
   const supportsPorts = protocol === "tcp" || protocol === "udp";
+
+  function resetFirewallForm() {
+    setChain("INPUT"); setAction("DROP"); setProtocol("all");
+    setSourceIp(""); setDestIp(""); setSrcPort(""); setDstPort(""); setIface("");
+    setFirewallTarget("company-web-server");
+  }
+
+  function handleFirewallOpenChange(open: boolean) {
+    if (isDemo) return;
+    if (open) resetFirewallForm();
+    setCreateOpen(open);
+  }
 
   const fwAuthHeaders = (): Record<string, string> => {
     const tok = getToken();
@@ -570,7 +584,7 @@ function FirewallTab() {
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ui-fw"] });
-      toast({ title: "Rule Removal Queued", description: "Undo command was queued for all four company servers." });
+      toast({ title: "Rule Removal Queued", description: "Undo command was queued only for the rule's configured target." });
     },
     onError: () => toast({ title: "Remove Failed", variant: "destructive" }),
   });
@@ -585,19 +599,11 @@ function FirewallTab() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ui-fw"] });
       setCreateOpen(false);
-      setSourceIp(""); setDestIp(""); setSrcPort(""); setDstPort(""); setIface(""); setProtocol("");
-      toast({ title: "Firewall Rule Queued", description: "The rule was queued separately for all four company servers." });
+      resetFirewallForm();
+      toast({ title: "Firewall Rule Queued", description: `Rule queued for ${firewallTarget === "all" ? "all four company servers" : firewallTarget}.` });
     },
     onError: (e: Error) => toast({ title: "Create Failed", description: e.message, variant: "destructive" }),
   });
-
-  function handleExport() {
-    const a = document.createElement("a");
-    a.href = `${BASE}/api/ui/firewall/rules/export`;
-    a.download = "aegis-firewall.sh";
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    toast({ title: "Exporting", description: "aegis-firewall.sh download ကို စတင်နေပြီ။" });
-  }
 
   function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -609,12 +615,21 @@ function FirewallTab() {
       });
       return;
     }
+    if (!sourceIp && !destIp && !sourcePort && !destPort) {
+      toast({
+        title: "Rule Too Broad",
+        description: "Enter at least one source/destination IP or port. An unrestricted rule is blocked for safety.",
+        variant: "destructive",
+      });
+      return;
+    }
     createMutation.mutate({
       chain, action,
-      protocol: protocol || undefined,
+      protocol: protocol === "all" ? undefined : protocol,
       sourceIp: sourceIp || undefined, destIp: destIp || undefined,
       sourcePort: sourcePort || undefined, destPort: destPort || undefined,
       iface: iface || undefined,
+      targetVm: firewallTarget,
     });
   }
 
@@ -625,10 +640,7 @@ function FirewallTab() {
           {rules.filter(r => r.isActive).length} active rules
         </p>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={handleExport} className="border-border">
-            <Download className="w-3.5 h-3.5 mr-1.5" /> Export .sh
-          </Button>
-          <Dialog open={createOpen} onOpenChange={v => !isDemo && setCreateOpen(v)}>
+          <Dialog open={createOpen} onOpenChange={handleFirewallOpenChange}>
             <DialogTrigger asChild>
               <Button size="sm" disabled={isDemo} title={isDemo ? "Demo mode — read only" : undefined}><Plus className="w-3.5 h-3.5 mr-1.5" /> Add Rule</Button>
             </DialogTrigger>
@@ -652,7 +664,7 @@ function FirewallTab() {
                     <Select value={action} onValueChange={setAction}>
                       <SelectTrigger className="bg-background border-border text-xs"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        {["DROP","ACCEPT","LOG"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                        {["DROP","ACCEPT"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
@@ -667,13 +679,13 @@ function FirewallTab() {
                     }}>
                       <SelectTrigger className="bg-background border-border text-xs"><SelectValue placeholder="any" /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">any</SelectItem>
+                        <SelectItem value="all">any</SelectItem>
                         {["tcp","udp"].map(v => <SelectItem key={v} value={v}>{v.toUpperCase()}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
                   <div className="space-y-1.5">
-                    <Label className="text-xs uppercase text-muted-foreground">Interface (optional)</Label>
+                    <Label className="text-xs uppercase text-muted-foreground">{chain === "OUTPUT" ? "Output Interface (-o)" : "Input Interface (-i)"} (optional)</Label>
                     <Input value={iface} onChange={e => setIface(e.target.value)} className="bg-background border-border" placeholder="e.g. ens3" />
                   </div>
                   <div className="space-y-1.5">
@@ -692,7 +704,26 @@ function FirewallTab() {
                     <Label className="text-xs uppercase text-muted-foreground">Dest Port</Label>
                     <Input value={destPort} onChange={e => setDstPort(e.target.value)} disabled={!supportsPorts} className="bg-background border-border" placeholder={supportsPorts ? "e.g. 22" : "Select TCP or UDP"} />
                   </div>
+                  <div className="space-y-1.5 col-span-2">
+                    <Label className="text-xs uppercase text-muted-foreground">Target Linux VM</Label>
+                    <Select value={firewallTarget} onValueChange={setFirewallTarget}>
+                      <SelectTrigger className="bg-background border-border text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="company-web-server">company-web-server (10.10.10.10)</SelectItem>
+                        <SelectItem value="company-dns-server">company-dns-server (10.10.10.20)</SelectItem>
+                        <SelectItem value="company-customer-db">company-customer-db (10.20.20.10)</SelectItem>
+                        <SelectItem value="company-ldap-server">company-ldap-server (10.20.20.20)</SelectItem>
+                        <SelectItem value="all">all four company Linux VMs</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {firewallTarget === "all" && <p className="text-[10px] text-yellow-400">⚠ This queues the same rule on all four company servers.</p>}
+                  </div>
                 </div>
+                {action === "ACCEPT" && (
+                  <p className="text-[10px] text-yellow-400 bg-yellow-950/30 border border-yellow-500/20 rounded px-2 py-1.5">
+                    ⚠ ACCEPT is inserted at the top of the selected chain. Use a narrow IP/port selector to avoid exposing services.
+                  </p>
+                )}
                 <div className="flex justify-end pt-2">
                   <Button type="submit" disabled={createMutation.isPending} size="sm">
                     {createMutation.isPending ? "Adding…" : "Add Rule"}
@@ -711,6 +742,7 @@ function FirewallTab() {
               <TableHead>Chain</TableHead>
               <TableHead>Action</TableHead>
               <TableHead>iptables Command</TableHead>
+              <TableHead>Target</TableHead>
               <TableHead>Created By</TableHead>
               <TableHead>Time</TableHead>
               <TableHead>Status</TableHead>
@@ -719,9 +751,9 @@ function FirewallTab() {
           </TableHeader>
           <TableBody>
             {isLoading ? (
-              <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Loading firewall rules…</TableCell></TableRow>
+              <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Loading firewall rules…</TableCell></TableRow>
             ) : rules.length === 0 ? (
-              <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No firewall rules yet.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">No firewall rules yet.</TableCell></TableRow>
             ) : rules.map(r => (
               <TableRow key={r.id} className={`border-border hover:bg-muted/10 ${!r.isActive ? "opacity-40" : ""}`}>
                 <TableCell>
@@ -735,6 +767,7 @@ function FirewallTab() {
                 <TableCell className="font-mono text-xs text-muted-foreground max-w-[280px] truncate" title={r.ruleText}>
                   {r.ruleText}
                 </TableCell>
+                <TableCell><VmBadge vm={r.targetVm} /></TableCell>
                 <TableCell className="text-xs text-muted-foreground">{r.createdBy}</TableCell>
                 <TableCell><span className="font-mono text-xs text-muted-foreground">{format(new Date(r.appliedAt), "MM/dd HH:mm")}</span></TableCell>
                 <TableCell>
