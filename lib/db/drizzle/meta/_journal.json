@@ -36,6 +36,20 @@
       "when": 1753315200000,
       "tag": "0004_add_connection_log_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1786698000000,
+      "tag": "0005_add_firewall_rule_target",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786705000000,
+      "tag": "0006_remove_legacy_ftp_sessions",
+      "breakpoints": true
     }
   ]
 }
