@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 import types
 import unittest
+from unittest.mock import Mock, patch
 
 
 MODULE_PATH = Path(__file__).parents[1] / "src" / "aegis_forwarder.py"
@@ -75,6 +76,25 @@ class ForwarderConfigTests(unittest.TestCase):
             forwarder._pfsense_suricata_log_paths("", "/var/log/suricata/eve.json"),
             forwarder._pfsense_suricata_log_paths(),
         )
+
+    def test_heartbeat_posts_before_first_sleep(self):
+        """Boot recovery must not wait 15 seconds before reporting online."""
+        response = Mock(status_code=200)
+        with (
+            patch.object(forwarder, "get_local_ip", return_value="10.30.30.10"),
+            patch.object(forwarder, "get_mac_address", return_value="00:00:00:00:00:01"),
+            patch.object(forwarder, "get_open_ports", return_value="22"),
+            patch.object(forwarder, "get_os_info", return_value="Ubuntu"),
+            patch.object(forwarder.socket, "gethostname", return_value="aegis-admin"),
+            patch.object(forwarder.requests, "post", return_value=response, create=True) as post,
+            patch.object(forwarder.time, "sleep", side_effect=RuntimeError("stop")) as sleep,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "stop"):
+                forwarder.heartbeat_loop()
+
+        post.assert_called_once()
+        self.assertEqual(post.call_args.kwargs["json"]["status"], "online")
+        sleep.assert_called_once_with(15)
 
 
 if __name__ == "__main__":
