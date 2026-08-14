@@ -765,7 +765,9 @@ def register_host():
                 "isMonitored": True,
             },
             headers=HEADERS,
-            timeout=60,
+            # Do not hold up the rest of hub startup while a hosted API is
+            # waking up.  The heartbeat thread keeps retrying in parallel.
+            timeout=10,
         )
         if r.status_code in (200, 201):
             print(f"  ✓ Host registered: {hostname} ({ip})  MAC={mac or '?'}  Ports={ports or '?'}")
@@ -805,11 +807,10 @@ def heartbeat_loop():
     os_name  = get_os_info()
     role     = "pfsense" if VM_NAME == "pfsense" else "ubuntu"
     while True:
-        time.sleep(15)
         try:
             mac   = get_mac_address(ip)
             ports = get_open_ports()
-            requests.post(
+            response = requests.post(
                 f"{AEGIS_URL}/network/hosts",
                 json={"ip": ip, "hostname": hostname, "role": role,
                       "os": os_name, "mac": mac or None,
@@ -818,11 +819,17 @@ def heartbeat_loop():
                 headers=HEADERS,
                 timeout=30,
             )
+            if not 200 <= response.status_code < 300:
+                print(f"[HEARTBEAT] WARN HTTP {response.status_code} — retrying in 15s")
             # pfSense: also report the global pfSense Firewall component as online
             if VM_NAME == "pfsense":
                 _report_pfsense_online()
         except Exception:
             pass
+        # The first heartbeat is intentionally immediate.  This makes the
+        # admin host ONLINE as soon as systemd starts the forwarder at boot,
+        # rather than leaving it stale for at least one heartbeat interval.
+        time.sleep(15)
 
 
 def send_offline():
@@ -1985,7 +1992,6 @@ def _remote_heartbeat_loop(hosts: list):
     Without this they time out (server marks offline after 45s / 3 missed beats).
     """
     while True:
-        time.sleep(15)
         for h in hosts:
             try:
                 requests.post(
@@ -1997,6 +2003,7 @@ def _remote_heartbeat_loop(hosts: list):
                 )
             except Exception:
                 pass
+        time.sleep(15)
 
 
 def _remote_service_health_loop(hosts: list):
@@ -2351,13 +2358,15 @@ Modes:
         print(f"  PF key  : {PFSENSE_SSH_KEY}  (pfSense only — should be ~/.ssh/pfsense_key)")
     print()
 
+    # Start the retrying heartbeat before the richer one-shot registration.
+    # If the API is cold/unreachable, registration can take several seconds;
+    # the daemon must still begin recovering its ONLINE state immediately.
+    hb = threading.Thread(target=heartbeat_loop, daemon=True, name="heartbeat")
+    hb.start()
+
     # Register this AEGIS VM in Network Monitor on startup
     print("  [*] Registering host with AEGIS...")
     register_host()
-
-    # Heartbeat — server marks host offline after 45s / 3 missed beats
-    hb = threading.Thread(target=heartbeat_loop, daemon=True, name="heartbeat")
-    hb.start()
 
     # Local service health:
     #   NON-hub mode → run SERVICE_MAP checks (fail2ban/ssh) on THIS VM
