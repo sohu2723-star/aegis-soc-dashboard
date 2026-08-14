@@ -54,14 +54,14 @@ router.post("/defense/block", requireAuth, async (req, res) => {
   // ss -K terminates live connections so the block hits active sessions immediately.
   await db.insert(defenseCommandsTable).values({
     targetVm: "all", commandType: "iptables",
-    commandText: `iptables -I INPUT -s ${safeIp} -j DROP && ss -K dst ${safeIp} 2>/dev/null; ss -K src ${safeIp} 2>/dev/null; true`,
+    commandText: `(iptables -C INPUT -s ${safeIp} -j DROP 2>/dev/null || iptables -I INPUT -s ${safeIp} -j DROP) && (ss -K dst ${safeIp} 2>/dev/null; ss -K src ${safeIp} 2>/dev/null; true)`,
     targetIp: safeIp, status: "pending",
   });
 
   // Queue pfSense block
   await db.insert(defenseCommandsTable).values({
     targetVm: "pfsense", commandType: "ssh_pfsense",
-    commandText: `pfctl -t EasyRuleBlockHosts -T add ${safeIp}`,
+    commandText: `easyrule block wan ${safeIp} && easyrule showblock wan | grep -Fqx -e ${safeIp} -e ${safeIp}/32 -e ${safeIp}/128`,
     targetIp: safeIp, status: "pending",
   });
 
@@ -107,7 +107,7 @@ router.delete("/defense/block/:ip", requireAuth, async (req, res) => {
       // succeeds even if no matching rule exists.
       await db.insert(defenseCommandsTable).values({
         targetVm, commandType: "iptables",
-        commandText: `iptables -D INPUT -s ${safeIp} -j DROP 2>/dev/null || true`,
+        commandText: `while iptables -C INPUT -s ${safeIp} -j DROP 2>/dev/null; do iptables -D INPUT -s ${safeIp} -j DROP || exit 1; done; ! iptables -C INPUT -s ${safeIp} -j DROP 2>/dev/null`,
         targetIp: safeIp, status: "pending",
       });
       await db.insert(defenseActionsTable).values({
@@ -120,13 +120,12 @@ router.delete("/defense/block/:ip", requireAuth, async (req, res) => {
       await db.insert(defenseCommandsTable).values({
         targetVm: "all", commandType: "iptables",
         // Use both -D and -F variants to handle rules added with -I or -A
-        commandText: `iptables -D INPUT -s ${safeIp} -j DROP 2>/dev/null || true`,
+        commandText: `while iptables -C INPUT -s ${safeIp} -j DROP 2>/dev/null; do iptables -D INPUT -s ${safeIp} -j DROP || exit 1; done; ! iptables -C INPUT -s ${safeIp} -j DROP 2>/dev/null`,
         targetIp: safeIp, status: "pending",
       });
       const [pfCommand] = await db.insert(defenseCommandsTable).values({
         targetVm: "pfsense", commandType: "ssh_pfsense",
-        // Table may not exist if easyrule never ran — treat as success
-        commandText: `pfctl -t EasyRuleBlockHosts -T delete ${safeIp} 2>/dev/null || true`,
+        commandText: `easyrule unblock wan ${safeIp} && ! easyrule showblock wan | grep -Fqx -e ${safeIp} -e ${safeIp}/32 -e ${safeIp}/128`,
         targetIp: safeIp, status: "pending",
       }).returning();
       await db.insert(defenseActionsTable).values({
