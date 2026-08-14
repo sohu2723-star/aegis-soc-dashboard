@@ -34,24 +34,27 @@ export function recordTrafficStats(stats: { inbound: number; outbound: number; b
 }
 
 // ─── Auto-timeout: mark hosts offline if heartbeat stopped ────────────────────
-const OFFLINE_TIMEOUT_MS = 45_000; // 45s — forwarder heartbeats every 15s, so 3 missed = offline
+// Four missed 15-second beats are required before a host is considered down.
+// This absorbs one transient hosted-API/network stall without hiding a real
+// outage for long. The frequent sweep below keeps the transition responsive.
+const OFFLINE_TIMEOUT_MS = 60_000;
 
 async function markStaleHostsOffline() {
   const cutoff = new Date(Date.now() - OFFLINE_TIMEOUT_MS);
   try {
-    const stale = await db
-      .select()
-      .from(networkHostsTable)
+    // Update and re-check lastSeen atomically. Previously the code selected a
+    // stale snapshot first and then updated by id; a heartbeat arriving between
+    // those statements could set ONLINE and immediately be overwritten back to
+    // OFFLINE, which caused the dashboard flapping seen in Network Monitor.
+    const stale = await db.update(networkHostsTable)
+      .set({ status: "offline" })
       .where(and(
         eq(networkHostsTable.status, "online"),
         lt(networkHostsTable.lastSeen, cutoff),
-      ));
+      ))
+      .returning();
 
     for (const host of stale) {
-      await db.update(networkHostsTable)
-        .set({ status: "offline" })
-        .where(eq(networkHostsTable.id, host.id));
-
       broadcaster.broadcast("host_status_change", {
         id:       host.id,
         ip:       host.ip,
@@ -65,10 +68,9 @@ async function markStaleHostsOffline() {
   }
 }
 
-// Run on interval (background). Previously this also ran inline on every GET,
-// but that added 400-700ms latency to every dashboard poll. The 30s background
-// interval is fast enough — hosts only need to flip offline within ~45s anyway.
-setInterval(markStaleHostsOffline, 30_000);
+// Run on a short background interval. Previously this also ran inline on every
+// GET, but that added 400-700ms latency to every dashboard poll.
+setInterval(markStaleHostsOffline, 5_000);
 // Also run once at startup so cold-start gaps don't leave stale "online" entries.
 void markStaleHostsOffline();
 
