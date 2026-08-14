@@ -61,7 +61,7 @@ router.post("/defense/block", requireAuth, async (req, res) => {
   // Queue pfSense block
   await db.insert(defenseCommandsTable).values({
     targetVm: "pfsense", commandType: "ssh_pfsense",
-    commandText: `pfctl -t EasyRuleBlockHosts -T add ${safeIp}`,
+    commandText: `easyrule block WAN ${safeIp} && pfctl -t EasyRuleBlockHosts -T show | grep -Fx ${safeIp}`,
     targetIp: safeIp, status: "pending",
   });
 
