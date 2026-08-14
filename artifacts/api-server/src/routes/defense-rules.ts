@@ -30,14 +30,23 @@ router.get("/defense/commands/pending", requireAdmin, async (req, res) => {
   const claimed = await db.execute(sql`
     WITH claim AS (
       SELECT id FROM defense_commands
-      WHERE status = 'pending'
+      WHERE (
+          status = 'pending'
+          OR (
+            status = 'sent'
+            AND command_type = 'ssh_pfsense'
+            AND executed_at < NOW() - INTERVAL '90 seconds'
+          )
+        )
         AND (target_vm = ${vm} OR target_vm = 'all')
       ORDER BY created_at
       FOR UPDATE SKIP LOCKED
       LIMIT 20
     )
     UPDATE defense_commands AS dc
-    SET status = 'sent'
+    -- executed_at acts as the claim lease timestamp while status is sent. The
+    -- result endpoint overwrites it with the actual completion timestamp.
+    SET status = 'sent', executed_at = NOW()
     FROM claim
     WHERE dc.id = claim.id
     RETURNING
@@ -71,6 +80,17 @@ router.post("/defense/commands/:id/result", requireAdmin, async (req, res) => {
     RETURNING command_type AS "commandType", command_text AS "commandText", target_ip AS "targetIp"
   `);
   if (updated.length === 0) {
+    // Result callbacks are retried by the forwarder. If the first response was
+    // lost after the DB update, acknowledge the duplicate instead of turning a
+    // successfully completed command into a permanent reporting warning.
+    const existing = await db.execute(sql`
+      SELECT status FROM defense_commands WHERE id = ${id} LIMIT 1
+    `);
+    const expectedStatus = success ? "executed" : "failed";
+    if (existing[0]?.status === expectedStatus) {
+      res.json({ ok: true, alreadyReported: true });
+      return;
+    }
     res.status(409).json({ error: "Command was not in sent state" });
     return;
   }

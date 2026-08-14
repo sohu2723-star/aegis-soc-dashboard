@@ -451,17 +451,34 @@ def get_os_info() -> str:
 # command targets VM "pfsense". Runs as its own thread alongside the log-forwarding sensors.
 
 def _report_defense_result(cmd_id: int, success: bool, error: str = None):
-    try:
-        response = requests.post(
-            f"{AEGIS_URL}/defense/commands/{cmd_id}/result",
-            json={"success": success, "error": error},
-            headers=DEFENSE_HEADERS,
-            timeout=5,
-        )
-        if not 200 <= response.status_code < 300:
-            print(f"[defense] [WARN] result for cmd {cmd_id} rejected: HTTP {response.status_code}")
-    except Exception as e:
-        print(f"[defense] [WARN] could not report result for cmd {cmd_id}: {e}")
+    """Report completion reliably so claimed commands do not remain `sent`.
+
+    A transient Render/API timeout used to lose the only result callback even
+    after the SSH command had finished. Retry the same idempotent callback a
+    few times; the API also leases stale pfSense claims as a final safeguard.
+    """
+    for attempt in range(1, 4):
+        try:
+            response = requests.post(
+                f"{AEGIS_URL}/defense/commands/{cmd_id}/result",
+                json={"success": success, "error": error},
+                headers=DEFENSE_HEADERS,
+                timeout=10,
+            )
+            if 200 <= response.status_code < 300:
+                return True
+            print(
+                f"[defense] [WARN] result for cmd {cmd_id} rejected: "
+                f"HTTP {response.status_code} (attempt {attempt}/3)"
+            )
+        except Exception as e:
+            print(
+                f"[defense] [WARN] could not report result for cmd {cmd_id}: "
+                f"{e} (attempt {attempt}/3)"
+            )
+        if attempt < 3:
+            time.sleep(attempt)
+    return False
 
 
 def _exec_defense_shell(command: str, cmd_id: int):

@@ -104,6 +104,24 @@ class ForwarderConfigTests(unittest.TestCase):
             forwarder.HEARTBEAT_INTERVAL_SECS,
         )
 
+    def test_defense_result_retries_after_transient_api_failure(self):
+        """A completed SSH command must not remain sent after one lost callback."""
+        response = Mock(status_code=200)
+        with (
+            patch.object(
+                forwarder.requests,
+                "post",
+                side_effect=[RuntimeError("temporary outage"), response],
+                create=True,
+            ) as post,
+            patch.object(forwarder.time, "sleep") as sleep,
+        ):
+            reported = forwarder._report_defense_result(42, True)
+
+        self.assertTrue(reported)
+        self.assertEqual(post.call_count, 2)
+        sleep.assert_called_once_with(1)
+
 
 if __name__ == "__main__":
     unittest.main()
