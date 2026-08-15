@@ -25,7 +25,7 @@ router.get("/reports", async (_req, res) => {
 });
 
 const generateReportSchema = z.object({
-  title:  z.string().min(3).max(255)
+  title:  z.string().trim().min(3).max(255)
     .regex(/^[\x20-\x7e]+$/, "Report title must use English/ASCII characters only"),
   type:   z.enum(["daily", "weekly", "incident", "custom"]),
   format: z.enum(["html", "pdf"]),

@@ -19,6 +19,11 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 // ── Module-level AI briefing cache: 5-minute TTL, survives route changes ──────
 let _aiBriefingCache: { data: ThreatAnalysis; fetchedAt: number } | null = null;
 const AI_BRIEFING_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const REPORT_TITLES: Record<string, string> = {
+  daily: "AEGIS Daily Security Report",
+  weekly: "AEGIS Weekly Security Analysis",
+  custom: "AEGIS Custom Security Report",
+};
 
 interface ThreatAnalysis {
   analysis: string;
@@ -308,9 +313,10 @@ function VoiceReader({ text }: { text: string }) {
 export default function Reports() {
   const { isDemo } = useAuth();
   const [isGenerateOpen, setIsGenerateOpen] = useState(false);
-  const [title, setTitle] = useState("");
+  const [title, setTitle] = useState(REPORT_TITLES.daily);
   const [type, setType] = useState("daily");
   const [formatType, setFormatType] = useState("html");
+  const [generateError, setGenerateError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; title: string } | null>(null);
@@ -366,20 +372,36 @@ export default function Reports() {
 
   const handleGenerate = (e: React.FormEvent) => {
     e.preventDefault();
+    const cleanTitle = title.trim();
+    if (cleanTitle.length < 3) {
+      setGenerateError("Report title must contain at least 3 English characters.");
+      return;
+    }
+    if (!/^[\x20-\x7e]+$/.test(cleanTitle)) {
+      setGenerateError("Report title must use English characters only.");
+      return;
+    }
+    setGenerateError(null);
     generateReport.mutate(
-      { data: { title, type: type as any, format: formatType as any } },
+      { data: { title: cleanTitle, type: type as any, format: formatType as any } },
       {
         onSuccess: (data: any) => {
           queryClient.invalidateQueries({ queryKey: getListReportsQueryKey() });
           setIsGenerateOpen(false);
-          setTitle("");
+          setTitle(REPORT_TITLES.daily);
+          setType("daily");
           toast({
             title: data?.aiGenerated ? "✨ AI Report Generated" : "Report Generated",
             description: data?.aiGenerated
               ? "Report compiled with Groq AI security analysis."
               : "Security report compiled.",
           });
-        }
+        },
+        onError: (error: any) => {
+          const message = error?.body?.error ?? error?.message ?? "Report generation failed. Please try again.";
+          setGenerateError(message);
+          toast({ title: "Report Generation Failed", description: message, variant: "destructive" });
+        },
       }
     );
   };
@@ -459,7 +481,11 @@ export default function Reports() {
           <h1 className="text-2xl font-bold tracking-tight text-primary uppercase">Security Reports</h1>
           <p className="text-sm text-muted-foreground">Historical analysis and compliance documentation.</p>
         </div>
-        <Dialog open={isGenerateOpen} onOpenChange={v => !isDemo && setIsGenerateOpen(v)}>
+        <Dialog open={isGenerateOpen} onOpenChange={v => {
+          if (isDemo) return;
+          setIsGenerateOpen(v);
+          if (!v) setGenerateError(null);
+        }}>
           <DialogTrigger asChild>
             <Button disabled={isDemo} title={isDemo ? "Demo mode — read only" : undefined}>
               <Plus className="w-4 h-4 mr-2" />
@@ -473,12 +499,26 @@ export default function Reports() {
             <form onSubmit={handleGenerate} className="space-y-4 pt-4">
               <div className="space-y-2">
                 <Label htmlFor="title" className="text-xs uppercase text-muted-foreground">Report Title</Label>
-                <Input id="title" value={title} onChange={e => setTitle(e.target.value)} required className="bg-background border-border" placeholder="e.g. Q3 Security Summary" />
+                <Input
+                  id="title"
+                  value={title}
+                  onChange={e => { setTitle(e.target.value); setGenerateError(null); }}
+                  required
+                  minLength={3}
+                  maxLength={255}
+                  pattern="[ -~]+"
+                  className="bg-background border-border"
+                  placeholder="e.g. Daily Public Security Report"
+                />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label className="text-xs uppercase text-muted-foreground">Report Type</Label>
-                  <Select value={type} onValueChange={setType}>
+                  <Select value={type} onValueChange={value => {
+                    setType(value);
+                    setTitle(REPORT_TITLES[value] ?? REPORT_TITLES.daily);
+                    setGenerateError(null);
+                  }}>
                     <SelectTrigger className="bg-background border-border"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="daily">Daily Summary</SelectItem>
@@ -500,8 +540,13 @@ export default function Reports() {
               </div>
               <div className="flex items-center gap-2 text-xs text-muted-foreground bg-primary/5 border border-primary/20 rounded p-2">
                 <Sparkles className="w-3.5 h-3.5 text-primary flex-shrink-0" />
-                <span>AI ကို သုံး၍ report summary ကို auto-generate လုပ်မည်</span>
+                <span>Groq AI will generate a complete English security analysis. If AI is unavailable, AEGIS will use a verified English template.</span>
               </div>
+              {generateError && (
+                <div className="text-xs text-red-400 bg-red-950/30 border border-red-500/30 rounded p-2" role="alert">
+                  {generateError}
+                </div>
+              )}
               <div className="flex justify-end pt-2">
                 <Button type="submit" disabled={generateReport.isPending}>
                   {generateReport.isPending ? (
