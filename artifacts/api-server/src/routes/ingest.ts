@@ -91,10 +91,58 @@ function shouldRateLimit(type: string, sourceIp: string, targetHost: string, sid
 // "port scan" alerts. While a source is actively flooding, its recon alerts are
 // treated as part of that flood instead of a separate attack.
 const DDOS_CORRELATION_MS = 60_000;
+// Recon signatures have lower packet thresholds than flood signatures, so the
+// same SYN/ICMP flood naturally emits a scan alert first. Hold scan persistence
+// just long enough for Suricata's 5-second flood window to complete. The ingest
+// request itself returns immediately, allowing the forwarder to send the later
+// DDoS event that cancels the pending scan.
+const PORT_SCAN_SETTLE_MS = 6_000;
 const _recentDdosBySrc = new Map<string, number>();
+const _pendingPortScans = new Map<string, {
+  timer: ReturnType<typeof setTimeout>;
+  persist: () => Promise<unknown>;
+}>();
+
+function pendingPortScanKey(sourceIp: string, targetHost: string): string {
+  return `${sourceIp}::${targetHost}`;
+}
+
+function queuePortScan(
+  sourceIp: string,
+  targetHost: string,
+  persist: () => Promise<unknown>,
+): void {
+  const key = pendingPortScanKey(sourceIp, targetHost);
+  const existing = _pendingPortScans.get(key);
+  if (existing) clearTimeout(existing.timer);
+
+  const timer = setTimeout(() => {
+    _pendingPortScans.delete(key);
+    void persist().catch((error) => {
+      logger.warn(
+        { err: error instanceof Error ? error.message : String(error), sourceIp, targetHost },
+        "Could not persist settled Suricata port-scan event",
+      );
+    });
+  }, PORT_SCAN_SETTLE_MS);
+  timer.unref();
+  _pendingPortScans.set(key, { timer, persist });
+}
+
+function cancelPendingPortScans(sourceIp: string): number {
+  let cancelled = 0;
+  for (const [key, pending] of _pendingPortScans) {
+    if (!key.startsWith(`${sourceIp}::`)) continue;
+    clearTimeout(pending.timer);
+    _pendingPortScans.delete(key);
+    cancelled += 1;
+  }
+  return cancelled;
+}
 
 function noteDdosSource(sourceIp: string) {
   _recentDdosBySrc.set(sourceIp, Date.now());
+  cancelPendingPortScans(sourceIp);
   if (_recentDdosBySrc.size > 1_000) {
     const cutoff = Date.now() - DDOS_CORRELATION_MS;
     for (const [k, v] of _recentDdosBySrc) if (v < cutoff) _recentDdosBySrc.delete(k);
@@ -208,8 +256,8 @@ function classifyAttackTypeFromSuricata(signature: string, category: string): st
   if (t.includes("dns") || t.includes("domain") || t.includes("resolver")) return "dns_attack";
   // LDAP
   if (t.includes("ldap") || t.includes("slapd") || t.includes("directory")) return "ldap_attack";
-  // Named scanner tools are recon even when the signature mentions SYN packets
-  // (e.g. "ET SCAN Nmap -sS SYN Scan"), so they are matched before the flood check.
+  // Named scanner tools are recon when no authoritative flood indicator above
+  // matched (for example "ET SCAN Nmap -sS SYN Scan").
   if (t.includes("nmap") || t.includes("masscan") || t.includes("zmap") ||
       t.includes("port sweep") || t.includes("port scan") || t.includes("portscan")) return "port_scan";
   // Bare "DoS" wording, checked after the named scanner tools above
@@ -454,36 +502,50 @@ router.post("/ingest/suricata", auth, async (req, res) => {
   const suricataType = classifyAttackTypeFromSuricata(subtype, alertCategory ?? "");
   const suricataTarget = resolveTargetHost(dest_ip, "internal-network");
 
-  if (suricataType === "ddos") noteDdosSource(src_ip ?? "unknown");
-  if (suricataType === "port_scan" && isFloodingSource(src_ip ?? "unknown")) {
+  const sourceIp = src_ip ?? "unknown";
+  if (suricataType === "ddos") noteDdosSource(sourceIp);
+  if (suricataType === "port_scan" && isFloodingSource(sourceIp)) {
     res.status(200).json({ ok: true, skipped: "ddos_correlated" });
     return;
   }
 
   // Rate-limit high-volume Suricata events (port scans, repeated SID floods)
-  if (shouldRateLimit(suricataType, src_ip ?? "unknown", suricataTarget, signatureId)) {
+  if (shouldRateLimit(suricataType, sourceIp, suricataTarget, signatureId)) {
     res.status(200).json({ ok: true, skipped: "rate_limited" });
     return;
   }
 
-  const event = await insertEvent({
-    type: suricataType,
-    subtype,
-    severity: s,
-    sourceIp: src_ip ?? "unknown",
-    targetHost: suricataTarget,
-    toolUsed: "suricata",
-    description: `Suricata ${event_type ?? "alert"}: ${a.signature ?? "Unknown"} | ${a.category ?? ""} | ${proto ?? "TCP"}`,
-    status: "detected",
-    layer: "perimeter",
-    signatureId,
-    alertRev,
-    alertAction,
-    alertCategory,
-    signatureText,
-  });
-  if (s === "critical" || s === "high") await mkAlert(event.id, s, `SURICATA: ${a.signature} (SID:${signatureId ?? "?"}) — ${src_ip} → ${suricataTarget}`);
-  res.status(201).json({ id: event.id });
+  const persistEvent = async (): Promise<number> => {
+    const event = await insertEvent({
+      type: suricataType,
+      subtype,
+      severity: s,
+      sourceIp,
+      targetHost: suricataTarget,
+      toolUsed: "suricata",
+      description: `Suricata ${event_type ?? "alert"}: ${a.signature ?? "Unknown"} | ${a.category ?? ""} | ${proto ?? "TCP"}`,
+      status: "detected",
+      layer: "perimeter",
+      signatureId,
+      alertRev,
+      alertAction,
+      alertCategory,
+      signatureText,
+    });
+    if (s === "critical" || s === "high") {
+      await mkAlert(event.id, s, `SURICATA: ${a.signature} (SID:${signatureId ?? "?"}) — ${sourceIp} → ${suricataTarget}`);
+    }
+    return event.id;
+  };
+
+  if (suricataType === "port_scan") {
+    queuePortScan(sourceIp, suricataTarget, persistEvent);
+    res.status(202).json({ ok: true, queued: "port_scan_correlation" });
+    return;
+  }
+
+  const eventId = await persistEvent();
+  res.status(201).json({ id: eventId });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

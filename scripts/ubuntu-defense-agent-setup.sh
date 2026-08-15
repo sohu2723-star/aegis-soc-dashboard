@@ -1,38 +1,33 @@
 #!/bin/bash
 # ─────────────────────────────────────────────────────────────────────────────
-# AEGIS Hub Setup — Run on AEGIS VM (10.30.30.10) as root.
+# AEGIS Hub Setup — Run on AEGIS VM (10.30.30.10) with sudo.
 #
 # Starts aegis_forwarder.py in --mode hub:
 #   • SSHes into bank-web (10.10.10.10) → tails Suricata/Snort/Fail2ban/SSH/HTTP/FTP
 #   • SSHes into customer-db (10.20.20.20) → tails Suricata/Fail2ban/SSH/PostgreSQL
-#   • Calls pfSense REST API for dashboard firewall commands
+#   • SSHes into pfSense and runs built-in easyrule/pfctl firewall commands
 #   • Runs defense agent for ALL VMs from one place
 # ─────────────────────────────────────────────────────────────────────────────
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/src"
+SERVICE_FILE="/etc/systemd/system/aegis-forwarder.service"
+
+if [ "${EUID}" -ne 0 ]; then
+  echo "[!] Run this installer as root: sudo $0"
+  exit 1
+fi
 
 echo "=== AEGIS Hub Setup (aegis_forwarder.py --mode hub) ==="
 echo ""
 
 # 1. Install requirements
-pip3 install requests --quiet
+if ! python3 -c 'import requests' 2>/dev/null; then
+  apt-get update
+  apt-get install -y python3-requests openssh-client
+fi
 
-# 2. SSH key check
-echo "[*] Checking SSH key auth to bank VMs..."
-for IP in 10.10.10.10 10.20.20.20; do
-  if ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no "sithu@$IP" exit 2>/dev/null; then
-    echo "  ✓ SSH OK → $IP"
-  else
-    echo "  ✗ SSH FAILED → $IP"
-    echo "    Fix: ssh-copy-id sithu@$IP"
-    echo "    Then re-run this script."
-    exit 1
-  fi
-done
-echo ""
-
-# 3. Create local config if missing
+# 2. Create local config if missing
 CONF="$SCRIPT_DIR/aegis_forwarder.local.conf"
 if [ ! -f "$CONF" ]; then
   cp "$SCRIPT_DIR/aegis_forwarder.local.conf.example" "$CONF"
@@ -44,18 +39,43 @@ if [ ! -f "$CONF" ]; then
   exit 1
 fi
 
-# 4. Check for empty keys
-if grep -q "^AEGIS_KEY=$" "$CONF" || grep -q '^AEGIS_KEY=""' "$CONF"; then
-  echo "[!] AEGIS_KEY is empty in $CONF — fill it in first."
+# 3. Check for empty keys
+if grep -Eq '^AEGIS_KEY=(|"")$' "$CONF" || grep -Eq '^AEGIS_ADMIN_KEY=(|"")$' "$CONF"; then
+  echo "[!] AEGIS_KEY or AEGIS_ADMIN_KEY is empty in $CONF — fill both in first."
   exit 1
 fi
 
 echo "[✓] Config found: $CONF"
 echo ""
 
-# 5. Start hub
-echo "[+] Starting AEGIS hub (--mode hub, polling every 5s)..."
-echo "    Covers: bank-web, customer-db, pfSense, AEGIS VM"
-echo "    Press Ctrl+C to stop."
-echo ""
-sudo python3 "$SCRIPT_DIR/aegis_forwarder.py" --mode hub
+# 4. Install a boot-persistent, self-healing systemd service.  network-online
+# avoids a failed first request during boot; Restart=always recovers from both
+# unexpected errors and clean exits.
+cat > "$SERVICE_FILE" <<EOF
+[Unit]
+Description=AEGIS Hub Forwarder
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=$SCRIPT_DIR
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 $SCRIPT_DIR/aegis_forwarder.py --mode hub
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable aegis-forwarder.service
+systemctl restart aegis-forwarder.service
+
+echo "[✓] aegis-forwarder is installed, enabled at boot, and started."
+echo "    Status:  systemctl status aegis-forwarder --no-pager"
+echo "    Logs:    journalctl -u aegis-forwarder -f"
