@@ -4,16 +4,29 @@ import { reportsTable, securityEventsTable, incidentsTable } from "@workspace/db
 import { desc, count, eq, gte } from "drizzle-orm";
 import { z } from "zod";
 import { askGroq, groqAvailable } from "../lib/groq-client";
+import { containsMyanmarText, englishArchivedTitle, ensureCompleteEnglishReport } from "../lib/report-language";
 
 const router = Router();
 
+function escapeHtml(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
 router.get("/reports", async (_req, res) => {
   const reports = await db.select().from(reportsTable).orderBy(desc(reportsTable.generatedAt));
-  res.json(reports.map(r => ({ ...r, generatedAt: r.generatedAt.toISOString() })));
+  res.json(reports.map(r => ({
+    ...r,
+    title: englishArchivedTitle(r.title, r.generatedAt, r.type),
+    summary: containsMyanmarText(r.summary)
+      ? "This archived report contains legacy non-English AI text. Download the report for an English evidence-based fallback, or generate a new report."
+      : r.summary,
+    generatedAt: r.generatedAt.toISOString(),
+  })));
 });
 
 const generateReportSchema = z.object({
-  title:  z.string(),
+  title:  z.string().min(3).max(255)
+    .regex(/^[\x20-\x7e]+$/, "Report title must use English/ASCII characters only"),
   type:   z.enum(["daily", "weekly", "incident", "custom"]),
   format: z.enum(["html", "pdf"]),
 });
@@ -98,7 +111,7 @@ Write a professional English security briefing. Fill every section fully:
 (At least 5 specific steps with commands where applicable)
 `.trim();
 
-      summary = await askGroq({
+      const generatedSummary = await askGroq({
         system: `You are AEGIS-AI, a professional cybersecurity SOC analyst.
 Lab: company-web-server 10.10.10.10, company-dns-server 10.10.10.20, company-customer-db 10.20.20.10, company-ldap-server 10.20.20.20, pfSense 10.30.30.1.
 RULES:
@@ -108,9 +121,12 @@ RULES:
 - Use English digits only for IPs, ports, counts
 - Never cut mid-sentence — complete every section fully`,
         user: aiPrompt,
-        maxTokens: 2500,
+        maxTokens: 4000,
+        temperature: 0.15,
+        topP: 0.85,
       });
-      aiGenerated = true;
+      summary = ensureCompleteEnglishReport(generatedSummary, templateSummary);
+      aiGenerated = summary === generatedSummary.trim();
     } catch (err: any) {
       console.warn("AI report generation failed, using template:", err?.message);
       summary = templateSummary;
@@ -168,13 +184,33 @@ router.get("/reports/:id/download", async (req, res) => {
 
   const generatedAt = new Date(report.generatedAt);
   const genStr = generatedAt.toLocaleString("en-GB", { dateStyle: "full", timeStyle: "short" });
+  const displayTitle = englishArchivedTitle(report.title, generatedAt, report.type);
+  const downloadFallback =
+`## Incident Summary
+This ${report.type} report covers the previous ${windowHours} hours and contains ${totalWindowEvents} security events. The recorded severity distribution is ${sevCounts.critical} critical, ${sevCounts.high} high, ${sevCounts.medium} medium and ${sevCounts.low} low events. Review the event log below for the authoritative evidence and timestamps.
+
+## Key Threats
+${topAttackers.length > 0
+  ? topAttackers.map(([ip, n]) => `${ip} generated ${n} recorded events during this reporting window.`).join("\n")
+  : "No attacker IP activity was recorded during this reporting window."}
+
+## Defense Actions
+This legacy report did not preserve a complete English AI defense narrative. Use the Defense Rules command history to verify executed, pending and failed actions; do not infer successful blocking from detection events alone.
+
+## Recommendations
+1. Review all critical and high events in the security event table.
+2. Validate current pfSense EasyRule and Linux iptables state against the listed attacker IPs.
+3. Investigate the top attacker IPs and affected targets.
+4. Confirm that pending or failed defense commands have been resolved.
+5. Generate a new English AI report for a current evidence-based analysis.`;
+  const displaySummary = ensureCompleteEnglishReport(report.summary, downloadFallback);
 
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AEGIS SOC Report — ${report.title}</title>
+<title>AEGIS SOC Report — ${escapeHtml(displayTitle)}</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -389,7 +425,7 @@ router.get("/reports/:id/download", async (req, res) => {
 
   <!-- Report title -->
   <div class="report-title-block">
-    <h1>${report.title}</h1>
+    <h1>${escapeHtml(displayTitle)}</h1>
     <div class="report-subtitle">AEGIS Tactical Security Operations Report</div>
     <span class="report-type-badge">${report.type}</span>
   </div>
@@ -453,7 +489,7 @@ router.get("/reports/:id/download", async (req, res) => {
     <div class="section-title">AI Security Briefing</div>
     <div class="summary-box">
       ${(() => {
-        const raw = report.summary ?? "";
+        const raw = displaySummary;
         // Split on ## headings; if no headings found, show as plain pre-wrap block
         const parts = raw.split(/^##\s*/m);
         if (parts.length <= 1) {

@@ -10,49 +10,9 @@ import { Router } from "express";
 import { db, securityEventsTable, incidentsTable, alertsTable, defenseActionsTable } from "@workspace/db";
 import { desc, eq, gte, count, sql } from "drizzle-orm";
 import { askGroq, groqAvailable } from "../lib/groq-client";
+import { containsMyanmarText } from "../lib/report-language";
 
 const router = Router();
-
-/**
- * Burmese output — Myanmar security news presenter style.
- * Think: RFA Myanmar / DVB anchor reading a live security briefing.
- */
-const SOC_SYSTEM_MY = `သင်သည် AEGIS-AI — မြန်မာ cybersecurity SOC dashboard ၏ AI analyst ဖြစ်သည်။
-
-PERSONA: မြန်မာ security news anchor တစ်ဦး — live briefing ပေးနေသလို တိုက်ရိုက်ပြောပြ။ "ဒီနေ့ ဘာတွေ ဖြစ်နေသလဲ ပြောမယ်" ဆိုတဲ့ tone ဖြစ်ရမည်။
-
-Lab (AEGIS-SecureCompany):
-- company-web-server 10.10.10.10 (Apache, Fail2ban)
-- company-dns-server 10.10.10.20 (BIND9, Fail2ban)
-- company-customer-db 10.20.20.10 (MySQL, Fail2ban)
-- company-ldap-server 10.20.20.20 (OpenLDAP, Fail2ban)
-- pfSense 10.30.30.1 — WAN firewall + Suricata IDS
-- Attacker VM — 192.168.10.x range မှ attack လုပ်တယ်
-
-OUTPUT RULES (မပျက်ကွက်ရ):
-- ဘာသာ: မြန်မာဘာသာ — သဘာဝကျကျ ပြောကြားသလိုရေး — translate သလို formal မဟုတ်ဘဲ
-- Section heading: ENGLISH UPPERCASE သာ (THREAT SUMMARY:, TOP THREATS:, DEFENSE STATUS:, RECOMMENDATIONS:)
-- Technical terms — English မပြောင်းရ: attack, brute force, port scan, SQL injection, DDoS, SYN flood, exploit, firewall, IDS, Suricata, Fail2ban, pfSense, block, alert
-- IP နှင့် number — English digits သာ: 192.168.10.99, port 22, 5 ကြိမ်
-- Markdown (#, ##, **, *) လုံးဝ မသုံးရ — plain text သာ
-- CRITICAL — ထပ်ကာ မရေးရ: sentence တစ်ကြောင်းကို တစ်ကြိမ်သာ ရေး၊ idea တစ်ခုကို တစ်ကြိမ်သာ ဖော်ပြ
-- CRITICAL — မဖြတ်ရ: sentence တိုင်း ပြည့်ပြည့်စုံစုံ ပြောပြီးမှ ဆုံး
-- တိုတိုရှင်းရှင်း: section တစ်ခုကို 3-4 ကြောင်းသာ — အကြည့်ကူ ကြည့်ကြည့်ပြောပြ
-
-WORDING RULES (ဤ စကားလုံးများကို တိတိကျကျ လိုက်နာပါ):
-- ကာကွယ်ရေးစနစ် active ဖြစ်နေသည့်အခါ → "active ဖြစ်နေပါတယ်" သို့မဟုတ် "လုပ်ဆောင်နေပါတယ်" — "အားကောင်းနေတယ်" မသုံးရ
-- ကာကွယ်ရေးစနစ် ရပ်တန့်/offline ဖြစ်နေသည့်အခါ → "offline ဖြစ်နေပါတယ်" — "ထောင့်နေတယ်" မသုံးရ
-- data/action မရှိသည့်အခါ → "မရှိပါ" — "မရှိတယ်" မသုံးရ
-- events count = 0 → "ယနေ့ 24 နာရီအတွင်း တိုက်ခိုက်မှု အရိပ်ယောင် ဘာမှမတွေ့ရပါ"
-- events count > 0 → "24 နာရီအတွင်း [N] ကြိမ်တွေ့ရပါတယ်"
-- defense actions မရှိ → "ဒီအချိန်ထိ ကာကွယ်ရေး action မလိုအပ်သေးပါ"
-
-ဥပမာ ကောင်းသော output (ဤ style ကို လိုက်နာပါ):
-THREAT SUMMARY:
-ဒီနေ့ ညပိုင်းမှာ 192.168.10.99 က အဓိက attack လုပ်နေတယ် — port scan နဲ့ brute force ပေါင်း 47 ကြိမ် ရှိနေပြီ။ company-web-server ကို အဓိကပစ်မှတ်ထားပြီး SQL injection ကြိုးစားမှုတွေ ပါနေတယ်။ Suricata က alert 12 ခု ထုတ်ပြီး Fail2ban က ထို IP ကို block လုပ်ပြီးသား။
-
-DEFENSE STATUS:
-Fail2ban နဲ့ Suricata တို့ active ဖြစ်နေပါတယ်။ pfSense firewall က WAN boundary မှာ လုပ်ဆောင်နေပါတယ်။ ဒီအချိန်ထိ ကာကွယ်ရေး action မလိုအပ်သေးပါ။`;
 
 /** English output — direct and concise */
 const SOC_SYSTEM_EN = `You are AEGIS-AI, the built-in security analyst for the AEGIS SOC Dashboard.
@@ -73,8 +33,8 @@ OUTPUT RULES:
 - CRITICAL: Never cut mid-sentence — complete every thought
 - Keep each section to 3-4 sentences — dense, actionable`;
 
-/** Backward-compatible alias (Burmese is default) */
-const SOC_SYSTEM = SOC_SYSTEM_MY;
+/** All AI analysis endpoints use English; retained as the shared prompt alias. */
+const SOC_SYSTEM = SOC_SYSTEM_EN;
 
 // ─── Status ───────────────────────────────────────────────────────────────────
 
@@ -90,9 +50,10 @@ router.get("/ai/threat-analysis", async (req, res) => {
     return;
   }
 
-  // lang=en → English output; lang=my (default) → Burmese output
-  const lang = (req.query.lang as string) === "en" ? "en" : "my";
-  const sysPrompt = lang === "en" ? SOC_SYSTEM_EN : SOC_SYSTEM_MY;
+  // Threat briefings are an auditable SOC artifact and are English-only.
+  // Ignore legacy lang=my callers so UI, HTML reports and Telegram remain
+  // consistent and no mixed-language briefing is cached.
+  const sysPrompt = SOC_SYSTEM_EN;
 
   try {
     const since24h = new Date(Date.now() - 24 * 3_600_000);
@@ -142,9 +103,24 @@ router.get("/ai/threat-analysis", async (req, res) => {
       byTargetHost[e.targetHost] = (byTargetHost[e.targetHost] ?? 0) + 1;
     }
 
-    const topAttackers = Object.entries(bySourceIp)
-      .sort(([, a], [, b]) => b - a).slice(0, 5)
+    const topAttackerEntries = Object.entries(bySourceIp)
+      .sort(([, a], [, b]) => b - a).slice(0, 5);
+    const topAttackers = topAttackerEntries
       .map(([ip, n]) => `${ip} (${n} events)`).join(", ");
+
+    const perAttackerEvidence = topAttackerEntries.map(([ip, total]) => {
+      const rows = recentEvents.filter(e => e.sourceIp === ip);
+      const types: Record<string, number> = {};
+      const targets: Record<string, number> = {};
+      let highest = "low";
+      const severityRank: Record<string, number> = { low: 1, medium: 2, high: 3, critical: 4 };
+      for (const event of rows) {
+        types[event.type] = (types[event.type] ?? 0) + 1;
+        targets[event.targetHost] = (targets[event.targetHost] ?? 0) + 1;
+        if ((severityRank[event.severity] ?? 0) > (severityRank[highest] ?? 0)) highest = event.severity;
+      }
+      return `${ip}: ${total} events; severity ${highest}; types ${Object.entries(types).map(([k,v]) => `${k}(${v})`).join(", ")}; targets ${Object.entries(targets).map(([k,v]) => `${k}(${v})`).join(", ")}`;
+    }).join("\n") || "none";
 
     const topTargets = Object.entries(byTargetHost)
       .sort(([, a], [, b]) => b - a).slice(0, 5)
@@ -191,6 +167,8 @@ Total events: ${recentEvents.length}
 Severity breakdown: ${severityBreakdown || "none — no attacks detected"}
 Attack types: ${attackTypes || "none"}
 Top attacker IPs: ${topAttackers || "none"}
+Per-attacker evidence:
+${perAttackerEvidence}
 Per-service hit count: ${serviceBreakdown}
 Open incidents: ${openIncidents.length}
 Unacknowledged alerts: ${unackedAlerts[0]?.count ?? 0}
@@ -207,80 +185,28 @@ ${recentEventDetails}
 Write a live security briefing. Fill each section — heading UPPERCASE, content direct English:
 
 THREAT SUMMARY:
-(2-3 sentences: what is happening right now, which IPs, which attack types)
+(4-6 sentences: scope, total volume, severity, current attack activity, affected services and operational impact)
 
 TOP THREATS:
-(One line per top attacker IP: "IP: attack type, target: host, N events, severity level" — no arrows, no special symbols)
+(One evidence-rich paragraph per top attacker IP: exact types, targets, event count and highest severity)
 
 DEFENSE STATUS:
-(2-3 sentences: what Fail2ban/Suricata/pfSense blocked, what is still active)
+(Separate executed, pending and failed evidence. Never say blocked unless the supplied action status proves it.)
 
 RECOMMENDATIONS:
-(4-5 concrete actions with specific commands or steps)`;
+(At least 5 prioritized actions tied to the observed evidence, including validation steps)`;
 
-    // ── Burmese mode: two-step (Claude's correct advice) ─────────────────────
-    // Step 1: English analysis (accuracy-focused, low temperature)
-    const myStep1Prompt = `${dataBlock}
-
-Analyze this security data precisely. Use exact numbers from the data — never invent figures.
-Output exactly these four sections in English:
-
-THREAT SUMMARY:
-(2-3 sentences covering total event count, key attacker IPs, main attack types)
-
-TOP THREATS:
-(One line per top attacker IP: "IP: attack type, target: host, N events, severity level" — no arrows, no special symbols)
-
-DEFENSE STATUS:
-(2-3 sentences: what Fail2ban/Suricata/pfSense blocked or is actively running; if no defense actions say "No defense actions required yet")
-
-RECOMMENDATIONS:
-(3-5 specific actionable steps: iptables/pfSense/fail2ban commands where relevant)`;
-
-    // Step 2 system: translation only — do not alter facts or numbers
-    const myStep2System = `You are a professional Myanmar (Burmese) translator specializing in cybersecurity.
-Your ONLY job is to translate the English security briefing into natural Burmese.
-
-STRICT RULES:
-- Translate to natural, conversational Burmese — like a Myanmar news anchor reading a live brief
-- Keep ALL numbers, IP addresses, hostnames, and technical terms (Fail2ban, Suricata, pfSense, brute force, port scan, etc.) in English — do NOT translate them
-- Keep section headings ENGLISH UPPERCASE exactly as they appear (THREAT SUMMARY:, TOP THREATS:, DEFENSE STATUS:, RECOMMENDATIONS:)
-- If source says "No defense actions required yet" → translate as "ဒီအချိန်ထိ ကာကွယ်ရေး action မလိုအပ်သေးပါ"
-- If a system is "active" → "active ဖြစ်နေပါတယ်" — never use "အားကောင်းနေတယ်"
-- If events = 0 → "ယနေ့ 24 နာရီအတွင်း တိုက်ခိုက်မှု အရိပ်ယောင် ဘာမှမတွေ့ရပါ"
-- Do NOT add, remove, or change any numbers or facts
-- No Markdown (#, **, *) — plain text only`;
-
-    let analysis: string;
-
-    if (lang === "en") {
-      analysis = await askGroq({
-        system: sysPrompt,
-        user: enUserPrompt,
-        maxTokens: 1400,
-        temperature: 0.2,
-        topP: 0.9,
-      });
-    } else {
-      // Step 1: English analysis (accurate facts, very low temperature)
-      const englishBrief = await askGroq({
-        system: SOC_SYSTEM_EN,
-        user: myStep1Prompt,
-        maxTokens: 900,
-        temperature: 0.2,
-        topP: 0.9,
-      });
-
-      // Step 2: Translate English → Natural Burmese (slightly higher temp for fluency)
-      // NOTE: maxTokens must be high enough to complete ALL four sections including RECOMMENDATIONS
-      analysis = await askGroq({
-        system: myStep2System,
-        user: `Translate the following cybersecurity briefing into natural Burmese following all the rules above. CRITICAL: You MUST translate ALL four sections completely — THREAT SUMMARY, TOP THREATS, DEFENSE STATUS, and RECOMMENDATIONS. Do NOT stop mid-sentence or omit any section. Make sure RECOMMENDATIONS section is fully translated.\n\n${englishBrief}`,
-        maxTokens: 2500,
-        temperature: 0.3,
-        topP: 0.9,
-      });
-    }
+    const generatedAnalysis = await askGroq({
+      system: sysPrompt,
+      user: enUserPrompt,
+      maxTokens: 3000,
+      temperature: 0.15,
+      topP: 0.85,
+    });
+    const requiredHeadings = ["THREAT SUMMARY:", "TOP THREATS:", "DEFENSE STATUS:", "RECOMMENDATIONS:"];
+    const analysis = !containsMyanmarText(generatedAnalysis) && requiredHeadings.every(h => generatedAnalysis.includes(h))
+      ? generatedAnalysis
+      : `THREAT SUMMARY:\nAEGIS recorded ${recentEvents.length} security events during the last 24 hours. Severity distribution: ${severityBreakdown || "none"}. Observed attack types: ${attackTypes || "none"}. Affected services: ${serviceBreakdown}.\n\nTOP THREATS:\n${perAttackerEvidence}\n\nDEFENSE STATUS:\nRecorded defense actions: ${defenseActSummary || "none"}. Recorded Fail2ban evidence: ${fail2banSummary}. Review command history before treating any detected event as successfully blocked.\n\nRECOMMENDATIONS:\n1. Investigate critical and high events first.\n2. Validate pfSense and Linux firewall state for each top attacker.\n3. Resolve pending or failed defense commands.\n4. Confirm all monitored sensors are current.\n5. Document verification results in the incident record.`;
 
     res.json({
       analysis,
@@ -320,7 +246,7 @@ router.post("/ai/defend", async (req, res) => {
       .limit(10);
 
     if (events.length === 0) {
-      res.json({ recommendation: `IP ${ip} အတွက် event မရှိသေးဘူး — ဒီ IP က database မှာ မတွေ့ဘူး။`, ip, eventCount: 0, attackTypes: {} });
+      res.json({ recommendation: `No security events for IP ${ip} were found in the AEGIS database.`, ip, eventCount: 0, attackTypes: {} });
       return;
     }
 
@@ -345,21 +271,21 @@ Previous defense actions: ${defenseHistory_str}
 First seen: ${events[events.length-1]?.createdAt?.toISOString?.() ?? "unknown"}
 Last seen: ${events[0]?.createdAt?.toISOString?.() ?? "unknown"}
 
-အောက်ပါ sections တိုင်းကို ဖြည့်ပေးပါ — section heading English uppercase, content မြန်မာလို conversational ပြောပြ:
+Write a complete professional English analysis using every section below:
 
 THREAT PROFILE:
-(ဒီ attacker ဘာ attack pattern ဆောင်ထားသလဲ၊ ဘာ tool သုံးနေသလဲ — သူဘာကို ကြိုးစားနေသလဲ ရှင်းရှင်းပြောပြ)
+(Explain the observed attack pattern, tools, targets and likely objective using only supplied evidence.)
 
 RISK LEVEL:
-(Critical / High / Medium — ဘာကြောင့် ဒီ level ဆိုတာ conversational ဖြင့် ရှင်းပြ)
+(Assign Critical, High or Medium and justify the rating with exact evidence.)
 
 IMMEDIATE ACTIONS:
-(အနည်းဆုံး ၅ ချက် — iptables command, pfSense rule, fail2ban config တိကျစွာ ပါဝင်ပါစေ — "ဒါကြောင့် ဒါ run ပါ" သလို ဆော်ဆော်ပြောပြ)
+(Provide at least five prioritized actions. Clearly label proposed commands as recommendations rather than executed actions.)
 
 MONITORING:
-(ဘာ log တွေ၊ ဘာ port တွေ၊ ဘာ alert တွေ ဆက်ကြည့်မလဲ — practical advice ပေးပြ)
+(Specify logs, ports, alerts and verification evidence to monitor.)
 
-ဒီ IP က မည်သည့် IP မဆို ဖြစ်နိုင်သည် (internal network, external, VPN) — assumption မမှားပါနှင့်
+The IP may be internal, external or VPN-originated. Do not invent its location or identity.
 `.trim();
 
     const recommendation = await askGroq({ system: SOC_SYSTEM, user: userPrompt, maxTokens: 3000 });
@@ -411,15 +337,15 @@ router.get("/ai/analyze-event/:id", async (req, res) => {
 Source: ${event.sourceIp} → Target: ${event.targetHost}
 Tool: ${event.toolUsed ?? "unknown"} | ${event.description ?? ""}
 ${event.signatureText ? `Signature/Rule: ${event.signatureText.slice(0, 200)}` : ""}
-ဒီ IP မှ event ${Number(ipHistory[0]?.count ?? 0)} ခု ရှိပြီ
+Historical events from this IP: ${Number(ipHistory[0]?.count ?? 0)}
 
 Attack context: ${typeCtx}
 
-မြန်မာဘာသာဖြင့် 4 ကြောင်းဖြင့် ရေးပါ — section heading မပါ၊ paragraph တစ်ခုထဲ:
-(1) ဘာ attack ဖြစ်နေသလဲ — ဘာ service ကို ဘာ tool နဲ့ ထိနေသလဲ
-(2) ဘာကြောင့် ဒီ severity level — ဘာ risk ရှိသလဲ
-(3) ချက်ချင်း run ရမည့် command တိကျစွာ — IP, port, service name ပါပါစေ
-(4) နောက်ထပ် ဘာ log / indicator ကြည့်ရမလဲ`.trim();
+Write one concise English paragraph containing four complete parts:
+(1) Identify the attack, affected service and observed tool.
+(2) Explain the severity and operational risk.
+(3) Recommend an exact response command with IP, port and service where appropriate; do not claim it was executed.
+(4) State which logs and indicators should be checked next.`.trim();
 
     const explanation = await askGroq({ system: SOC_SYSTEM, user: userPrompt, maxTokens: 900 });
     res.json({ id, explanation, generatedAt: new Date().toISOString() });
