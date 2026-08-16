@@ -16,10 +16,13 @@ alert udp 192.168.10.0/24 any -> [10.10.10.0/24,10.20.20.0/24] any (msg:"AEGIS N
 alert tcp any any -> 10.10.10.10 80 (msg:"AEGIS WEB SQL injection keyword"; flow:to_server,established; http.uri; pcre:"/(union(%20|\\+)+select|%27(%20|\\+)*or(%20|\\+)+1=1)/Ui"; classtype:web-application-attack; sid:9900010; rev:1;)
 alert tcp any any -> 10.10.10.10 80 (msg:"AEGIS WEB XSS script tag"; flow:to_server,established; http.uri; pcre:"/(%3c|<)script/i"; classtype:web-application-attack; sid:9900011; rev:1;)
 alert tcp any any -> 10.10.10.10 80 (msg:"AEGIS WEB directory traversal"; flow:to_server,established; http.uri; pcre:"/(\\.\\.\\/|%2e%2e(%2f|\\/))/Ui"; classtype:web-application-attack; sid:9900012; rev:1;)
-alert tcp any any -> 10.10.10.10 22 (msg:"AEGIS SSH connection burst WEB"; flags:S,12; threshold:type both,track by_src,count 8,seconds 30; classtype:attempted-admin; sid:9900020; rev:1;)
-alert tcp any any -> 10.10.10.20 22 (msg:"AEGIS SSH connection burst DNS"; flags:S,12; threshold:type both,track by_src,count 8,seconds 30; classtype:attempted-admin; sid:9900021; rev:1;)
-alert tcp any any -> 10.20.20.10 22 (msg:"AEGIS SSH connection burst DB"; flags:S,12; threshold:type both,track by_src,count 8,seconds 30; classtype:attempted-admin; sid:9900022; rev:1;)
-alert tcp any any -> 10.20.20.20 22 (msg:"AEGIS SSH connection burst LDAP"; flags:S,12; threshold:type both,track by_src,count 8,seconds 30; classtype:attempted-admin; sid:9900023; rev:1;)
+# A port scanner may retransmit SYNs to port 22, especially through a filtering
+# firewall. Require a sustained per-source burst so one Nmap run remains a scan;
+# auth.log/Fail2ban remains the authoritative evidence for failed SSH logins.
+alert tcp 192.168.10.0/24 any -> 10.10.10.10 22 (msg:"AEGIS SSH connection burst WEB"; flags:S,12; threshold:type both,track by_src,count 30,seconds 30; classtype:attempted-admin; sid:9900020; rev:2;)
+alert tcp 192.168.10.0/24 any -> 10.10.10.20 22 (msg:"AEGIS SSH connection burst DNS"; flags:S,12; threshold:type both,track by_src,count 30,seconds 30; classtype:attempted-admin; sid:9900021; rev:2;)
+alert tcp 192.168.10.0/24 any -> 10.20.20.10 22 (msg:"AEGIS SSH connection burst DB"; flags:S,12; threshold:type both,track by_src,count 30,seconds 30; classtype:attempted-admin; sid:9900022; rev:2;)
+alert tcp 192.168.10.0/24 any -> 10.20.20.20 22 (msg:"AEGIS SSH connection burst LDAP"; flags:S,12; threshold:type both,track by_src,count 30,seconds 30; classtype:attempted-admin; sid:9900023; rev:2;)
 # ── company-customer-db (10.20.20.10) MySQL Rules ─────────────────────────────
 # SID 9900030-9900039 reserved for MySQL / customer-db
 
