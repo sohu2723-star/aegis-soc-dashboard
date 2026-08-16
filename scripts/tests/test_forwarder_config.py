@@ -86,7 +86,7 @@ class ForwarderConfigTests(unittest.TestCase):
             patch.object(forwarder, "get_open_ports", return_value="22"),
             patch.object(forwarder, "get_os_info", return_value="Ubuntu"),
             patch.object(forwarder.socket, "gethostname", return_value="aegis-admin"),
-            patch.object(forwarder.requests, "post", return_value=response, create=True) as post,
+            patch.object(forwarder, "_http_post", return_value=response) as post,
             patch.object(forwarder.time, "monotonic", side_effect=[100.0, 100.0]),
             patch.object(forwarder.time, "sleep", side_effect=RuntimeError("stop")) as sleep,
         ):
@@ -109,8 +109,8 @@ class ForwarderConfigTests(unittest.TestCase):
         response = Mock(status_code=200)
         with (
             patch.object(
-                forwarder.requests,
-                "post",
+                forwarder,
+                "_http_post",
                 side_effect=[RuntimeError("temporary outage"), response],
                 create=True,
             ) as post,

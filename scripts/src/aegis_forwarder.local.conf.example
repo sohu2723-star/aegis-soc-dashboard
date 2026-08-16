@@ -86,7 +86,7 @@ PFSENSE_SSH_USER=admin
 # PFSENSE_SURICATA_LOGS=/var/log/suricata/suricata_em1.*/eve.json,/var/log/suricata/suricata_em2.*/eve.json
 
 # Defense poll interval (seconds)
-DEFENSE_POLL_SECS=5
+DEFENSE_POLL_SECS=2
 
 # ── Remote log paths (Ubuntu defaults; override for your distro) ──────────────
 REMOTE_AUTH_LOG=/var/log/auth.log

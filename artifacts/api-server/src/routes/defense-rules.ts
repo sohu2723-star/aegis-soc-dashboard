@@ -28,6 +28,13 @@ function isPfsenseUnblockCommand(commandType: string, commandText: string): bool
 router.get("/defense/commands/pending", requireAdmin, async (req, res) => {
   const vm = (req.query.vm as string) ?? "company-web-server";
 
+  // One hub forwarder owns every lab target. Let it claim all target VMs in a
+  // single request instead of making six sequential HTTPS/DB round trips per
+  // poll. Standalone agents keep the original target-specific behavior.
+  const targetCondition = vm === "__hub__"
+    ? sql`target_vm IN ('aegis', 'pfsense', 'company-web-server', 'company-dns-server', 'company-customer-db', 'company-ldap-server', 'all')`
+    : sql`(target_vm = ${vm} OR target_vm = 'all')`;
+
   const claimed = await db.execute(sql`
     WITH claim AS (
       SELECT id FROM defense_commands
@@ -39,7 +46,7 @@ router.get("/defense/commands/pending", requireAdmin, async (req, res) => {
             AND executed_at < NOW() - INTERVAL '90 seconds'
           )
         )
-        AND (target_vm = ${vm} OR target_vm = 'all')
+        AND ${targetCondition}
       ORDER BY created_at
       FOR UPDATE SKIP LOCKED
       LIMIT 20
