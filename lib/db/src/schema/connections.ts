@@ -87,43 +87,21 @@ export const ldapAttacksTable = pgTable("ldap_attacks", {
   createdAt:   timestamp("created_at").defaultNow().notNull(),
 });
 
-// ─── Legacy FTP Sessions ───────────────────────────────────────────────────────
-// Runtime ingest/API/UI support was removed because FTP is not part of the
-// four-server lab. Keep this schema mapping temporarily so existing production
-// rows and historical migrations are not destructively dropped.
-export const ftpSessionsTable = pgTable("ftp_sessions", {
-  id:          integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  sourceIp:    varchar("source_ip", { length: 45 }).notNull(),
-  username:    varchar("username", { length: 64 }),
-  status:      varchar("status", { length: 16 }).notNull(),          // failed | success | upload | download
-  command:     varchar("command", { length: 32 }),                   // LOGIN | UPLOAD | DOWNLOAD | DELETE
-  filename:    varchar("filename", { length: 512 }),                 // file path accessed
-  filesize:    integer("filesize"),                                   // bytes, for DOWNLOAD/UPLOAD
-  failures:    integer("failures").notNull().default(0),
-  bannedBy:    varchar("banned_by", { length: 32 }),
-  logSource:   varchar("log_source", { length: 128 }),               // e.g. /var/log/vsftpd.log
-  matchedRule: varchar("matched_rule", { length: 256 }),             // e.g. "vsftpd: FAIL LOGIN" or "fail2ban[vsftpd]"
-  createdAt:   timestamp("created_at").defaultNow().notNull(),
-});
-
 // ─── Schemas & Types ───────────────────────────────────────────────────────────
 export const insertSshSessionSchema  = createInsertSchema(sshSessionsTable).omit({ createdAt: true });
 export const insertHttpAttackSchema  = createInsertSchema(httpAttacksTable).omit({ createdAt: true });
 export const insertDbAttackSchema    = createInsertSchema(dbAttacksTable).omit({ createdAt: true });
 export const insertDnsAttackSchema   = createInsertSchema(dnsAttacksTable).omit({ createdAt: true });
 export const insertLdapAttackSchema  = createInsertSchema(ldapAttacksTable).omit({ createdAt: true });
-export const insertFtpSessionSchema  = createInsertSchema(ftpSessionsTable).omit({ createdAt: true });
 
 export type SshSession   = typeof sshSessionsTable.$inferSelect;
 export type HttpAttack   = typeof httpAttacksTable.$inferSelect;
 export type DbAttack     = typeof dbAttacksTable.$inferSelect;
 export type DnsAttack    = typeof dnsAttacksTable.$inferSelect;
 export type LdapAttack   = typeof ldapAttacksTable.$inferSelect;
-export type FtpSession   = typeof ftpSessionsTable.$inferSelect;
 
 export type InsertSshSession  = z.infer<typeof insertSshSessionSchema>;
 export type InsertHttpAttack  = z.infer<typeof insertHttpAttackSchema>;
 export type InsertDbAttack    = z.infer<typeof insertDbAttackSchema>;
 export type InsertDnsAttack   = z.infer<typeof insertDnsAttackSchema>;
 export type InsertLdapAttack  = z.infer<typeof insertLdapAttackSchema>;
-export type InsertFtpSession  = z.infer<typeof insertFtpSessionSchema>;

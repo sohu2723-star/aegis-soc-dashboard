@@ -85,12 +85,8 @@ PFSENSE_SSH_USER=admin
 # To monitor multiple interface logs explicitly (comma-separated):
 # PFSENSE_SURICATA_LOGS=/var/log/suricata/suricata_em1.*/eve.json,/var/log/suricata/suricata_em2.*/eve.json
 
-# Legacy REST API vars — no longer used for execution; kept for backward compat.
-# PFSENSE_API_URL=http://10.30.30.1/api/v1
-# PFSENSE_API_KEY=
-
 # Defense poll interval (seconds)
-DEFENSE_POLL_SECS=5
+DEFENSE_POLL_SECS=2
 
 # ── Remote log paths (Ubuntu defaults; override for your distro) ──────────────
 REMOTE_AUTH_LOG=/var/log/auth.log
@@ -105,5 +101,5 @@ REMOTE_SLAPD_LOG=/var/log/syslog
 # ── Local mode settings (--mode all, not hub) ─────────────────────────────────
 # VM_NAME controls defense command execution when running locally:
 #   ubuntu  → runs iptables commands locally
-#   pfsense → calls the pfSense REST API (needs PFSENSE_API_KEY above)
+#   pfsense → identifies a local pfSense sensor; hub defense still uses SSH
 VM_NAME=ubuntu

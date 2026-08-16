@@ -26,6 +26,7 @@ import sys
 import time
 import threading
 import requests
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from datetime import datetime
 from urllib.parse import urlparse
@@ -37,6 +38,42 @@ from urllib.parse import urlparse
 _suricata_connected_count: int = 0
 _suricata_count_lock = threading.Lock()
 _suricata_offline_timer: threading.Timer | None = None   # debounce timer
+
+# Heartbeats must finish well inside the API's stale-host window.  In
+# particular, never use a request timeout longer than the heartbeat interval:
+# one slow hosted-API request must not delay the following beat.
+HEARTBEAT_INTERVAL_SECS = 15
+HEARTBEAT_REQUEST_TIMEOUT_SECS = 5
+
+# Every sensor, heartbeat and defense thread used to call requests.post/get
+# directly, creating a fresh TCP/TLS connection for most requests. Keep one
+# Session per thread: Sessions are not shared across threads, while each thread
+# still reuses its own Render HTTPS connection.
+_http_local = threading.local()
+
+
+def _http_session():
+    session = getattr(_http_local, "session", None)
+    if session is None:
+        session = requests.Session()
+        adapter = requests.adapters.HTTPAdapter(
+            pool_connections=4,
+            pool_maxsize=8,
+            max_retries=0,
+            pool_block=False,
+        )
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+        _http_local.session = session
+    return session
+
+
+def _http_post(*args, **kwargs):
+    return _http_session().post(*args, **kwargs)
+
+
+def _http_get(*args, **kwargs):
+    return _http_session().get(*args, **kwargs)
 
 # ─── LOCAL CONFIG FILE (set-once, not committed to git) ───────────────────────
 # Real keys go in aegis_forwarder.local.conf next to this script (gitignored),
@@ -173,13 +210,8 @@ DEFENSE_HEADERS = {
 PFSENSE_SSH_KEY  = _cfg("PFSENSE_SSH_KEY",  "~/.ssh/pfsense_key")
 PFSENSE_SSH_USER = _cfg("PFSENSE_SSH_USER", "admin")
 
-# Legacy REST API vars (kept so old local.conf files don't break on read;
-# not used for execution — SSH is used instead)
-PFSENSE_API_URL = _cfg("PFSENSE_API_URL", f"http://{PFSENSE_IP}/api/v1")
-PFSENSE_API_KEY = _cfg("PFSENSE_API_KEY", "")
-
 try:
-    DEFENSE_POLL_SECS = int(_cfg("DEFENSE_POLL_SECS", "5"))
+    DEFENSE_POLL_SECS = int(_cfg("DEFENSE_POLL_SECS", "2"))
 except ValueError:
     # Preserve fail-closed startup and let validate_runtime_config() emit a
     # non-sensitive, actionable error instead of crashing during import.
@@ -449,17 +481,34 @@ def get_os_info() -> str:
 # command targets VM "pfsense". Runs as its own thread alongside the log-forwarding sensors.
 
 def _report_defense_result(cmd_id: int, success: bool, error: str = None):
-    try:
-        response = requests.post(
-            f"{AEGIS_URL}/defense/commands/{cmd_id}/result",
-            json={"success": success, "error": error},
-            headers=DEFENSE_HEADERS,
-            timeout=5,
-        )
-        if not 200 <= response.status_code < 300:
-            print(f"[defense] [WARN] result for cmd {cmd_id} rejected: HTTP {response.status_code}")
-    except Exception as e:
-        print(f"[defense] [WARN] could not report result for cmd {cmd_id}: {e}")
+    """Report completion reliably so claimed commands do not remain `sent`.
+
+    A transient Render/API timeout used to lose the only result callback even
+    after the SSH command had finished. Retry the same idempotent callback a
+    few times; the API also leases stale pfSense claims as a final safeguard.
+    """
+    for attempt in range(1, 4):
+        try:
+            response = _http_post(
+                f"{AEGIS_URL}/defense/commands/{cmd_id}/result",
+                json={"success": success, "error": error},
+                headers=DEFENSE_HEADERS,
+                timeout=5,
+            )
+            if 200 <= response.status_code < 300:
+                return True
+            print(
+                f"[defense] [WARN] result for cmd {cmd_id} rejected: "
+                f"HTTP {response.status_code} (attempt {attempt}/3)"
+            )
+        except Exception as e:
+            print(
+                f"[defense] [WARN] could not report result for cmd {cmd_id}: "
+                f"{e} (attempt {attempt}/3)"
+            )
+        if attempt < 3:
+            time.sleep(attempt)
+    return False
 
 
 def _exec_defense_shell(command: str, cmd_id: int):
@@ -474,7 +523,7 @@ def _exec_defense_shell(command: str, cmd_id: int):
         run_cmd = command
     print(f"[defense] Executing: {run_cmd}")
     try:
-        result = subprocess.run(run_cmd, shell=True, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(run_cmd, shell=True, capture_output=True, text=True, timeout=15)
         if result.returncode == 0:
             print(f"[defense] ✓ Success: {result.stdout.strip()}")
             _report_defense_result(cmd_id, True)
@@ -499,7 +548,7 @@ def _exec_defense_pfsense_ssh(command: str, cmd_id: int):
         "ssh", "-T",
         "-i", ssh_key,
         "-o", "StrictHostKeyChecking=no",
-        "-o", "ConnectTimeout=10",
+        "-o", "ConnectTimeout=5",
         "-o", "BatchMode=yes",
         "-o", "IdentityAgent=none",
         f"{PFSENSE_SSH_USER}@{PFSENSE_IP}",
@@ -507,7 +556,7 @@ def _exec_defense_pfsense_ssh(command: str, cmd_id: int):
     ]
     print(f"[defense] pfSense SSH → {PFSENSE_SSH_USER}@{PFSENSE_IP}: {command}")
     try:
-        result = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=15)
         if result.returncode == 0:
             out = result.stdout.strip()
             print(f"[defense] ✓ pfSense SSH OK: {out}")
@@ -524,80 +573,11 @@ def _exec_defense_pfsense_ssh(command: str, cmd_id: int):
         _report_defense_result(cmd_id, False, str(e))
 
 
-def _exec_defense_pfsense(payload_json: str, cmd_id: int):
-    """Execute pfSense firewall actions via SSH + easyrule/pfctl.
-    No REST API package needed on pfSense — plain SSH key auth.
-
-    Flow: forwarder (10.30.30.10) → SSH → pfSense (10.30.30.1) → easyrule / pfctl
-
-    Config (aegis_forwarder.local.conf):
-        PFSENSE_SSH_KEY  = /root/.ssh/pfsense_key
-        PFSENSE_SSH_USER = admin
-        PFSENSE_IP       = 10.30.30.1
-    """
-    try:
-        payload = json.loads(payload_json)
-        action  = payload.get("action")
-        ip      = payload.get("ip", "")
-        port    = str(payload.get("port", ""))
-        proto   = payload.get("protocol", "tcp")
-
-        ssh_key = os.path.expanduser(PFSENSE_SSH_KEY)
-        ssh_base = [
-            "ssh", "-T",
-            "-i", ssh_key,
-            "-o", "StrictHostKeyChecking=no",
-            "-o", "ConnectTimeout=10",
-            "-o", "BatchMode=yes",
-            "-o", "IdentityAgent=none",
-            f"{PFSENSE_SSH_USER}@{PFSENSE_IP}",
-        ]
-
-        if action == "block_ip":
-            # easyrule adds a block rule on WAN for the source IP
-            remote_cmd = f"easyrule block WAN {ip}"
-
-        elif action == "unblock_ip":
-            # easyrule has a built-in unblock — mirrors the block exactly
-            remote_cmd = f"easyrule unblock WAN {ip}"
-
-        elif action == "block_port":
-            # easyrule supports optional dest-port: easyrule block WAN <ip> <port> <proto>
-            if port:
-                remote_cmd = f"easyrule block WAN {ip} {port} {proto}"
-            else:
-                remote_cmd = f"easyrule block WAN {ip}"
-
-        else:
-            print(f"[defense] Unknown pfSense action: {action}")
-            _report_defense_result(cmd_id, False, f"Unknown action: {action}")
-            return
-
-        ssh_cmd = ssh_base + [remote_cmd]
-        print(f"[defense] pfSense SSH → {PFSENSE_SSH_USER}@{PFSENSE_IP}: {remote_cmd}")
-        result = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=30)
-
-        if result.returncode == 0:
-            print(f"[defense] ✓ pfSense {action} {ip} OK")
-            _report_defense_result(cmd_id, True)
-        else:
-            err = (result.stderr.strip() or result.stdout.strip())[:300]
-            print(f"[defense] ✗ pfSense {action} {ip}: {err}")
-            _report_defense_result(cmd_id, False, err)
-
-    except subprocess.TimeoutExpired:
-        print(f"[defense] ✗ pfSense SSH timeout")
-        _report_defense_result(cmd_id, False, "SSH timeout")
-    except Exception as e:
-        print(f"[defense] ✗ pfSense error: {e}")
-        _report_defense_result(cmd_id, False, str(e))
-
-
 def _dispatch_defense(cmd: dict):
     cmd_id, command_type, command_text = cmd["id"], cmd.get("commandType", ""), cmd.get("commandText", "")
     print(f"[defense] Command #{cmd_id}: [{command_type}] for {cmd.get('targetIp', '')}")
-    if command_type == "pfsense_api":
-        _exec_defense_pfsense(command_text, cmd_id)
+    if command_type == "ssh_pfsense":
+        _exec_defense_pfsense_ssh(command_text, cmd_id)
     else:
         _exec_defense_shell(command_text, cmd_id)
 
@@ -626,7 +606,7 @@ def _exec_defense_ssh_remote(target_ip: str, command: str, cmd_id: int):
         "ssh", "-T",
         "-i", REMOTE_SSH_KEY,
         "-o", "StrictHostKeyChecking=no",
-        "-o", "ConnectTimeout=10",
+        "-o", "ConnectTimeout=5",
         "-o", "BatchMode=yes",
         "-o", "IdentityAgent=none",
         f"{REMOTE_SSH_USER}@{target_ip}",
@@ -634,7 +614,7 @@ def _exec_defense_ssh_remote(target_ip: str, command: str, cmd_id: int):
     ]
     print(f"[defense] SSH → {target_ip}: {command}")
     try:
-        result = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=15)
         if result.returncode == 0:
             print(f"[defense] ✓ SSH {target_ip}: {result.stdout.strip()}")
             _report_defense_result(cmd_id, True)
@@ -664,13 +644,11 @@ def _dispatch_defense_hub(cmd: dict):
     print(f"[defense-hub] Command #{cmd_id}: [{command_type}] vm={target_vm} ip={target_ip}")
 
     # Route to pfSense
-    if target_vm == "pfsense" or command_type in ("pfsense_api", "ssh_pfsense"):
-        if command_type == "ssh_pfsense":
-            # Plain-text easyrule/pfctl command — run directly via SSH
-            _exec_defense_pfsense_ssh(command_text, cmd_id)
-        else:
-            # JSON payload {"action":..., "ip":...} — pfSense REST API path
-            _exec_defense_pfsense(command_text, cmd_id)
+    if target_vm == "pfsense" or command_type == "ssh_pfsense":
+        if command_type != "ssh_pfsense":
+            _report_defense_result(cmd_id, False, "pfSense accepts ssh_pfsense commands only")
+            return
+        _exec_defense_pfsense_ssh(command_text, cmd_id)
         return
 
     # Route to company VMs via SSH
@@ -696,7 +674,7 @@ def _dispatch_defense_hub(cmd: dict):
             _exec_defense_ssh_remote(target_ip, command_text, cmd_id)
             return
         if target_ip == PFSENSE_IP:
-            _exec_defense_pfsense(command_text, cmd_id)
+            _report_defense_result(cmd_id, False, "pfSense command must use ssh_pfsense")
             return
 
     # Unknown target must fail closed; never execute a typo locally as root.
@@ -713,8 +691,10 @@ def defense_agent_loop(hub_mode: bool = False):
     In normal mode: polls only for VM_NAME and runs commands locally.
     """
     if hub_mode:
-        vms_to_poll = HUB_DEFENSE_VMS
-        print(f"[defense-hub] started — polling for VMs: {vms_to_poll} every {DEFENSE_POLL_SECS}s")
+        # The API understands the private __hub__ selector and atomically
+        # claims commands for every managed VM in one request.
+        vms_to_poll = ["__hub__"]
+        print(f"[defense-hub] started — polling all managed VMs every {DEFENSE_POLL_SECS}s")
     else:
         vms_to_poll = [VM_NAME]
         print(f"[defense] agent started — vm={VM_NAME}, polling every {DEFENSE_POLL_SECS}s")
@@ -722,14 +702,17 @@ def defense_agent_loop(hub_mode: bool = False):
     while True:
         for vm in vms_to_poll:
             try:
-                r = requests.get(f"{AEGIS_URL}/defense/commands/pending",
-                                  params={"vm": vm}, headers=DEFENSE_HEADERS, timeout=60)
+                r = _http_get(f"{AEGIS_URL}/defense/commands/pending",
+                              params={"vm": vm}, headers=DEFENSE_HEADERS, timeout=5)
                 if r.status_code == 200:
                     commands = r.json()
                     if commands:
                         print(f"[defense] → {len(commands)} command(s) for vm={vm}")
                         for cmd in commands:
-                            cmd.setdefault("targetVm", vm)
+                            # Hub responses already carry the real targetVm.
+                            # Standalone responses retain the queried VM.
+                            if not hub_mode:
+                                cmd.setdefault("targetVm", vm)
                             if hub_mode:
                                 _dispatch_defense_hub(cmd)
                             else:
@@ -752,7 +735,7 @@ def register_host():
     ports    = get_open_ports()
     os_name  = get_os_info()
     try:
-        r = requests.post(
+        r = _http_post(
             f"{AEGIS_URL}/network/hosts",
             json={
                 "ip":          ip,
@@ -765,7 +748,9 @@ def register_host():
                 "isMonitored": True,
             },
             headers=HEADERS,
-            timeout=60,
+            # Do not hold up the rest of hub startup while a hosted API is
+            # waking up.  The heartbeat thread keeps retrying in parallel.
+            timeout=10,
         )
         if r.status_code in (200, 201):
             print(f"  ✓ Host registered: {hostname} ({ip})  MAC={mac or '?'}  Ports={ports or '?'}")
@@ -778,7 +763,7 @@ def register_host():
 def _report_pfsense_online():
     """Report pfSense Firewall component as online (called from heartbeat thread)."""
     try:
-        requests.post(
+        _http_post(
             f"{AEGIS_URL}/system/status",
             json={
                 "component":   "pfSense Firewall",
@@ -788,7 +773,7 @@ def _report_pfsense_online():
                 "metrics":     json.dumps({"agent": "aegis_forwarder", "vm": "pfsense"}),
             },
             headers=HEADERS,
-            timeout=30,
+            timeout=8,
         )
     except Exception:
         pass
@@ -796,33 +781,42 @@ def _report_pfsense_online():
 
 def heartbeat_loop():
     """Send periodic heartbeat every 15s to keep host status ONLINE.
-    Auto-timeout on server is 45s, so 3 missed beats = offline.
+    Auto-timeout on server is 60s, so 4 missed beats = offline.
     When running on pfSense (VM_NAME=pfsense), also reports pfSense Firewall
     component as 'online' — no API key needed, just AEGIS_INGEST_KEY.
     """
     ip       = get_local_ip()
     hostname = socket.gethostname()
     os_name  = get_os_info()
+    # Interface and port inventory changes rarely. Avoid spawning `ip` and
+    # `ss` for every beat; startup/restart refreshes this cached inventory.
+    mac      = get_mac_address(ip)
+    ports    = get_open_ports()
     role     = "pfsense" if VM_NAME == "pfsense" else "ubuntu"
     while True:
-        time.sleep(15)
+        round_started = time.monotonic()
         try:
-            mac   = get_mac_address(ip)
-            ports = get_open_ports()
-            requests.post(
+            response = _http_post(
                 f"{AEGIS_URL}/network/hosts",
                 json={"ip": ip, "hostname": hostname, "role": role,
                       "os": os_name, "mac": mac or None,
                       "openPorts": ports or None,
                       "status": "online", "isMonitored": True},
                 headers=HEADERS,
-                timeout=30,
+                timeout=HEARTBEAT_REQUEST_TIMEOUT_SECS,
             )
+            if not 200 <= response.status_code < 300:
+                print(f"[HEARTBEAT] WARN HTTP {response.status_code} — retrying shortly")
             # pfSense: also report the global pfSense Firewall component as online
             if VM_NAME == "pfsense":
                 _report_pfsense_online()
         except Exception:
             pass
+        # The first heartbeat is intentionally immediate.  This makes the
+        # admin host ONLINE as soon as systemd starts the forwarder at boot,
+        # rather than leaving it stale for at least one heartbeat interval.
+        elapsed = time.monotonic() - round_started
+        time.sleep(max(0, HEARTBEAT_INTERVAL_SECS - elapsed))
 
 
 def send_offline():
@@ -835,12 +829,12 @@ def send_offline():
     hostname = socket.gethostname()
     # Mark this VM offline
     try:
-        requests.post(
+        _http_post(
             f"{AEGIS_URL}/network/hosts",
             json={"ip": ip, "hostname": hostname, "role": "ubuntu",
                   "status": "offline", "isMonitored": True},
             headers=HEADERS,
-            timeout=30,
+            timeout=8,
         )
         print("\n[AEGIS] Sent offline status to dashboard.")
     except Exception:
@@ -848,12 +842,12 @@ def send_offline():
     # Hub mode: also mark remote hosts offline immediately
     for h in REMOTE_HOSTS:
         try:
-            requests.post(
+            _http_post(
                 f"{AEGIS_URL}/network/hosts",
                 json={"ip": h["ip"], "hostname": h["name"], "role": "ubuntu",
                       "status": "offline", "isMonitored": True},
                 headers=HEADERS,
-                timeout=30,
+                timeout=8,
             )
             print(f"[AEGIS] Marked {h['name']} ({h['ip']}) offline.")
         except Exception:
@@ -913,7 +907,7 @@ def service_health_loop():
             status = check_sensor_status(check_key, check_type)
             ts = datetime.now().strftime("%H:%M:%S")
             try:
-                r = requests.post(
+                r = _http_post(
                     f"{AEGIS_URL}/system/status",
                     json={
                         "component": component,
@@ -927,7 +921,7 @@ def service_health_loop():
                         }),
                     },
                     headers=HEADERS,
-                    timeout=30,
+                    timeout=8,
                 )
                 indicator = "✓" if status == "online" else "✗"
                 if r.status_code in (200, 201):
@@ -942,11 +936,11 @@ def service_health_loop():
 def post(endpoint: str, data: dict):
     for attempt in range(1, 4):
         try:
-            r = requests.post(
+            r = _http_post(
                 f"{AEGIS_URL}/ingest/{endpoint}",
                 json=data,
                 headers=HEADERS,
-                timeout=30,
+                timeout=8,
             )
             ts = datetime.now().strftime("%H:%M:%S")
             if 200 <= r.status_code < 300:
@@ -1187,7 +1181,7 @@ def _ssh_tail(host_name: str, host_ip: str, log_path: str):
         "ssh", "-T",
         "-i", REMOTE_SSH_KEY,
         "-o", "StrictHostKeyChecking=no",
-        "-o", "ConnectTimeout=10",
+        "-o", "ConnectTimeout=5",
         "-o", "ServerAliveInterval=15",
         "-o", "ServerAliveCountMax=3",
         "-o", "BatchMode=yes",        # fail immediately if key auth not set up
@@ -1252,7 +1246,7 @@ def _remote_register_host(host_name: str, host_ip: str):
     print(f"  [*] Collecting sysinfo from {host_name} ({host_ip})...")
     info = _remote_sysinfo(host_ip)
     try:
-        r = requests.post(
+        r = _http_post(
             f"{AEGIS_URL}/network/hosts",
             json={
                 "ip":          host_ip,
@@ -1265,7 +1259,7 @@ def _remote_register_host(host_name: str, host_ip: str):
                 "isMonitored": True,
             },
             headers=HEADERS,
-            timeout=60,
+            timeout=10,
         )
         if r.status_code in (200, 201):
             print(
@@ -1283,7 +1277,7 @@ def _remote_register_host(host_name: str, host_ip: str):
 def _post_pfsense_suricata_status(status: str) -> None:
     """Post pfSense Suricata IDS online/offline status to the AEGIS API."""
     try:
-        requests.post(
+        _http_post(
             f"{AEGIS_URL}/system/status",
             json={
                 "component":   "pfSense Suricata IDS",
@@ -1293,7 +1287,7 @@ def _post_pfsense_suricata_status(status: str) -> None:
                 "metrics":     json.dumps({"agent": "hub", "ip": PFSENSE_IP}),
             },
             headers=HEADERS,
-            timeout=30,
+            timeout=8,
         )
     except Exception:
         pass
@@ -1410,7 +1404,7 @@ def _watch_pfsense_suricata(log_path: str | None = None):
         "ssh", "-T",
         "-i", ssh_key,
         "-o", "StrictHostKeyChecking=no",
-        "-o", "ConnectTimeout=10",
+        "-o", "ConnectTimeout=5",
         # Send keepalive every 10s — pfSense sshd ClientAliveInterval=30 means
         # pfSense probes every 30s; our 10s client-side interval keeps the
         # TCP session alive through NAT/firewall state expiry too.
@@ -1701,7 +1695,7 @@ def _watch_remote_postgresql(host_name: str, host_ip: str):
     ssh_cmd = [
         "ssh", "-T",
         "-o", "StrictHostKeyChecking=no",
-        "-o", "ConnectTimeout=10",
+        "-o", "ConnectTimeout=5",
         "-o", "ServerAliveInterval=15",
         "-o", "ServerAliveCountMax=3",
         "-o", "BatchMode=yes",
@@ -1982,21 +1976,37 @@ def _watch_remote_slapd(host_name: str, host_ip: str):
 
 def _remote_heartbeat_loop(hosts: list):
     """Send online heartbeat for every remote company VM every 15s.
-    Without this they time out (server marks offline after 45s / 3 missed beats).
+    Without this they time out (server marks offline after 60s / 4 missed beats).
     """
-    while True:
-        time.sleep(15)
-        for h in hosts:
-            try:
-                requests.post(
-                    f"{AEGIS_URL}/network/hosts",
-                    json={"ip": h["ip"], "hostname": h["name"],
-                          "role": "ubuntu", "status": "online", "isMonitored": True},
-                    headers=HEADERS,
-                    timeout=5,
-                )
-            except Exception:
-                pass
+    if not hosts:
+        return
+
+    def send_heartbeat(h: dict) -> None:
+        try:
+            response = _http_post(
+                f"{AEGIS_URL}/network/hosts",
+                json={"ip": h["ip"], "hostname": h["name"],
+                      "role": "ubuntu", "status": "online", "isMonitored": True},
+                headers=HEADERS,
+                timeout=HEARTBEAT_REQUEST_TIMEOUT_SECS,
+            )
+            if not 200 <= response.status_code < 300:
+                print(f"[REMOTE HEARTBEAT] WARN {h['name']}: HTTP {response.status_code}")
+        except Exception as exc:
+            print(f"[REMOTE HEARTBEAT] WARN {h['name']}: {type(exc).__name__}")
+
+    # A sequential loop can take hosts × request-timeout seconds.  Send the
+    # independent VM heartbeats concurrently so one slow request cannot make
+    # every later host cross the server's offline threshold.
+    with ThreadPoolExecutor(max_workers=min(len(hosts), 8),
+                            thread_name_prefix="remote-heartbeat-post") as executor:
+        while True:
+            round_started = time.monotonic()
+            futures = [executor.submit(send_heartbeat, h) for h in hosts]
+            for future in futures:
+                future.result()  # send_heartbeat contains and logs its errors
+            elapsed = time.monotonic() - round_started
+            time.sleep(max(0, HEARTBEAT_INTERVAL_SECS - elapsed))
 
 
 def _remote_service_health_loop(hosts: list):
@@ -2044,12 +2054,12 @@ def _remote_service_health_loop(hosts: list):
                     status = "online" if raw == "active" else ("unknown" if raw == "unknown" else "offline")
                     indicator = "✓" if status == "online" else "✗"
                     try:
-                        requests.post(
+                        _http_post(
                             f"{AEGIS_URL}/system/status",
                             json={"component": component, "layer": layer,
                                   "status": status, "hostIp": h["ip"]},
                             headers=HEADERS,
-                            timeout=30,
+                            timeout=8,
                         )
                     except Exception:
                         pass
@@ -2088,7 +2098,7 @@ def _pfsense_health_loop():
         print(f"[{ts}] {fw_ind} pfSense Firewall: {fw_status.upper()}", end="")
 
         try:
-            requests.post(
+            _http_post(
                 f"{AEGIS_URL}/system/status",
                 json={
                     "component":   "pfSense Firewall",
@@ -2098,7 +2108,7 @@ def _pfsense_health_loop():
                     "metrics":     json.dumps({"agent": "hub", "ip": PFSENSE_IP}),
                 },
                 headers=HEADERS,
-                timeout=30,
+                timeout=8,
             )
         except Exception:
             pass
@@ -2142,7 +2152,7 @@ def _pfsense_health_loop():
         print(f"  |  {sur_ind} Suricata IDS: {sur_status.upper()}")
 
         try:
-            requests.post(
+            _http_post(
                 f"{AEGIS_URL}/system/status",
                 json={
                     "component":   "pfSense Suricata IDS",
@@ -2153,7 +2163,7 @@ def _pfsense_health_loop():
                                               "suricata": sur_status}),
                 },
                 headers=HEADERS,
-                timeout=30,
+                timeout=8,
             )
         except Exception:
             pass
@@ -2222,7 +2232,7 @@ def run_hub_mode():
 
     threads = []
 
-    # Heartbeat — keeps remote VMs ONLINE (server marks offline after 45s / 3 misses)
+    # Heartbeat — keeps remote VMs ONLINE (server marks offline after 60s / 4 misses)
     hb = threading.Thread(target=_remote_heartbeat_loop, args=(REMOTE_HOSTS,),
                           daemon=True, name="remote-heartbeat")
     hb.start()
@@ -2351,13 +2361,15 @@ Modes:
         print(f"  PF key  : {PFSENSE_SSH_KEY}  (pfSense only — should be ~/.ssh/pfsense_key)")
     print()
 
+    # Start the retrying heartbeat before the richer one-shot registration.
+    # If the API is cold/unreachable, registration can take several seconds;
+    # the daemon must still begin recovering its ONLINE state immediately.
+    hb = threading.Thread(target=heartbeat_loop, daemon=True, name="heartbeat")
+    hb.start()
+
     # Register this AEGIS VM in Network Monitor on startup
     print("  [*] Registering host with AEGIS...")
     register_host()
-
-    # Heartbeat — server marks host offline after 45s / 3 missed beats
-    hb = threading.Thread(target=heartbeat_loop, daemon=True, name="heartbeat")
-    hb.start()
 
     # Local service health:
     #   NON-hub mode → run SERVICE_MAP checks (fail2ban/ssh) on THIS VM
@@ -2378,7 +2390,7 @@ Modes:
             while True:
                 try:
                     # Hub Forwarder heartbeat
-                    requests.post(
+                    _http_post(
                         f"{AEGIS_URL}/system/status",
                         json={
                             "component": "Hub Forwarder",
@@ -2388,7 +2400,7 @@ Modes:
                             "metrics":   json.dumps({"pid": os.getpid(), "mode": "hub"}),
                         },
                         headers=HEADERS,
-                        timeout=30,
+                        timeout=8,
                     )
                     # Local service checks (ssh, fail2ban) for aegis VM
                     for svc, component, layer in local_checks:
@@ -2401,12 +2413,12 @@ Modes:
                         except Exception:
                             status = "unknown"
                         try:
-                            requests.post(
+                            _http_post(
                                 f"{AEGIS_URL}/system/status",
                                 json={"component": component, "layer": layer,
                                       "status": status, "hostIp": own_ip},
                                 headers=HEADERS,
-                                timeout=30,
+                                timeout=8,
                             )
                         except Exception:
                             pass

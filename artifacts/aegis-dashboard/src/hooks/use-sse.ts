@@ -38,7 +38,7 @@ export function useSSE() {
     es.addEventListener("connected", () => {});
 
     // Debounce rapid security_event bursts (e.g. port scans sending 20+ events/s).
-    // React Query refetch fires at most once per 1.5 s per key instead of on every event.
+    // React Query refetch fires at most once per 250 ms per key instead of on every event.
     let eventsDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
     es.addEventListener("security_event", (event: MessageEvent) => {
@@ -60,8 +60,16 @@ export function useSSE() {
           toolUsed: data.toolUsed ?? undefined,
           signatureText: data.signatureText ?? undefined,
         });
+
+        // Paint the persisted event immediately instead of waiting for the
+        // next polling cycle. The background invalidation below still
+        // reconciles this optimistic cache entry with PostgreSQL.
+        queryClient.setQueryData<any[]>(getGetRecentEventsQueryKey(), (current) => {
+          const withoutDuplicate = (current ?? []).filter((item: any) => item.id !== data.id);
+          return [data, ...withoutDuplicate].slice(0, 20);
+        });
       } catch { /* malformed data — skip persistence */ }
-      // Debounce: only refetch after 1.5 s of quiet — avoids a cascade of
+      // Debounce: only refetch after 250 ms of quiet — avoids a cascade of
       // network requests when a port scan floods 20+ events per second.
       if (eventsDebounceTimer) clearTimeout(eventsDebounceTimer);
       eventsDebounceTimer = setTimeout(() => {
@@ -71,7 +79,7 @@ export function useSSE() {
         queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
         queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
         eventsDebounceTimer = null;
-      }, 1500);
+      }, 250);
     });
 
     es.addEventListener("defense_action", (event: MessageEvent) => {

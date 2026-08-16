@@ -10,10 +10,10 @@ const router = Router();
 // The summary runs 8 parallel DB queries. With Supabase pooler (port 6543),
 // establishing connections after an idle period takes 2-5s per slot, making
 // the first request after idle > 8s → false "API slow" banner.
-// Cache per targetHost for 10s so rapid polls and SSE-triggered invalidations
+// Cache per targetHost for 2s so rapid polls and SSE-triggered invalidations
 // don't all race to open fresh connections at once.
 const _summaryCache = new Map<string, { data: unknown; expiresAt: number }>();
-const SUMMARY_CACHE_MS = 10_000;
+const SUMMARY_CACHE_MS = 2_000;
 // React Query retries and SSE invalidations can request the same summary while
 // the first DB read is still running.  Share that read instead of starting
 // another eight queries and exhausting the postgres.js pool.
