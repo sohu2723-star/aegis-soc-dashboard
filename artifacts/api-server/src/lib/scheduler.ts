@@ -13,12 +13,13 @@
  * All timestamps shown to users are Myanmar Standard Time (UTC+6:30).
  */
 
-import { db, reportsTable, securityEventsTable, incidentsTable } from "@workspace/db";
+import { db, reportsTable, securityEventsTable, incidentsTable, defenseActionsTable, defenseCommandsTable } from "@workspace/db";
 import { desc, count, gte } from "drizzle-orm";
 import { getSetting, setSetting } from "./app-settings";
 import { askGroq, groqAvailable } from "./groq-client";
 import { sendTelegramMessage, telegramAvailable, sanitizeForTelegramHtml } from "./telegram";
 import { logger } from "./logger";
+import { ensureCompleteEnglishReport } from "./report-language";
 
 export const DEFAULT_INTERVAL_SECONDS = 86400;   // 24 h
 export const MIN_INTERVAL_SECONDS     = 15;       // 15 s
@@ -47,11 +48,11 @@ function fmtMST(date: Date, includeSeconds = false): string {
 }
 
 function intervalLabel(secs: number): string {
-  if (secs < 60)    return `${secs} စက္ကန့်`;
-  if (secs < 3600)  return `${Math.round(secs / 60)} မိနစ်`;
-  if (secs < 86400) return `${Math.round(secs / 3600)} နာရီ`;
-  if (secs === 86400) return `၂၄ နာရီ (Daily)`;
-  return `${Math.round(secs / 86400)} ရက်`;
+  if (secs < 60)    return `${secs} seconds`;
+  if (secs < 3600)  return `${Math.round(secs / 60)} minutes`;
+  if (secs < 86400) return `${Math.round(secs / 3600)} hours`;
+  if (secs === 86400) return "24 hours";
+  return `${Math.round(secs / 86400)} days`;
 }
 
 function reportType(secs: number): string {
@@ -153,20 +154,20 @@ async function runAutoReport(intervalSeconds: number): Promise<void> {
     // Fallback template — uses ## sections so HTML download renders styled blocks
     const templateSummary =
 `## Incident Summary
-AEGIS SOC Scheduled Report — Period: Last ${periodLabel} (${sinceLabel} ~ ${nowLabel})
-Events: ${eventsCount} | Incidents: ${incidentsCount}. No unusual activity detected during this period.
+This scheduled AEGIS SOC report covers the last ${periodLabel}, from ${sinceLabel} to ${nowLabel}. The platform recorded ${eventsCount} security events and ${incidentsCount} incidents. The security event log remains the authoritative source for event severity, source IP, target and detection details.
 
 ## Key Threats
-No new attacker IPs detected during this ${periodLabel}. Routine monitoring operations only.
+No AI-validated threat narrative is available for this report. If the event count is greater than zero, review the event table and top-attacker breakdown before determining impact; if it is zero, no attack events were recorded in this window.
 
 ## Defense Actions
-Suricata IDS (pfSense), Fail2ban, SSH monitoring, Web attack detection and iptables Firewall rules are all active. All block rules enforced.
+No AI-validated defense narrative is available. Verify executed, pending and failed commands in Defense Rules Command History and confirm pfSense EasyRule or Linux iptables state before claiming that an attacker was blocked.
 
 ## Recommendations
-1. Review Fail2ban ban list on all company servers — increase ban duration for repeat offender IPs.
-2. Verify Suricata rule set is up to date on pfSense.
-3. Audit SSH authorized_keys on all VMs — remove unauthorized entries.
-4. Confirm LDAP server access logs are forwarding to AEGIS.`;
+1. Review all critical and high events recorded during this window.
+2. Validate the current pfSense EasyRule block list and Linux iptables rules.
+3. Investigate top source IPs and their affected target services.
+4. Resolve every pending or failed defense command and document the result.
+5. Confirm Suricata, Fail2ban, SSH, Web, DNS, database and LDAP sensors are reporting current data.`;
 
     let summary     = templateSummary;
     let aiGenerated = false;
@@ -209,15 +210,28 @@ Suricata IDS (pfSense), Fail2ban, SSH monitoring, Web attack detection and iptab
           return `  - ${ip}: ${total} events | attack types: ${types} | targets: ${targets}`;
         }).join("\n");
 
-        summary = await askGroq({
-          system: `You are AEGIS-AI — a Myanmar cybersecurity news anchor. Write like you are delivering a live security briefing.
+        const recentDefenseActions = await db.select().from(defenseActionsTable)
+          .where(gte(defenseActionsTable.createdAt, since))
+          .orderBy(desc(defenseActionsTable.createdAt)).limit(50);
+        const recentDefenseCommands = await db.select().from(defenseCommandsTable)
+          .where(gte(defenseCommandsTable.createdAt, since))
+          .orderBy(desc(defenseCommandsTable.createdAt)).limit(50);
+        const defenseEvidence = recentDefenseActions.length
+          ? recentDefenseActions.map(a => `${a.action} ${a.targetIp} on ${a.targetHost ?? "unspecified target"}: ${a.status}`).join("; ")
+          : "No defense actions were recorded in this reporting window.";
+        const commandEvidence = recentDefenseCommands.length
+          ? recentDefenseCommands.map(c => `${c.commandType} for ${c.targetIp ?? "unknown IP"} on ${c.targetVm}: ${c.status}`).join("; ")
+          : "No defense commands were queued in this reporting window.";
 
-PERSONA: TV news anchor — direct, urgent, authoritative.
-VOICE: active — "attacked", "attempted to breach", "tried to infiltrate" — never passive.
-LANGUAGE: Natural Myanmar language mixed with technical English terms (IP, SSH, brute-force, etc.) — do NOT sound like a translation.
-NUMBERS + IPs: English digits only — never Myanmar numerals.
+        const generatedSummary = await askGroq({
+          system: `You are AEGIS-AI, a senior Security Operations Center analyst writing a formal daily security report.
+
+LANGUAGE: English only. Never output Burmese/Myanmar script.
+VOICE: Precise, evidence-based, professional, and active.
+ACCURACY: Use only supplied evidence. Clearly distinguish observed actions from recommendations. Never claim an IP was blocked unless defense evidence says it was executed.
 SECTION TITLES: Use exactly these English titles: ## Incident Summary / ## Key Threats / ## Defense Actions / ## Recommendations
-COMPLETE: Never cut off mid-sentence — complete all 4 sections fully before finishing.`,
+COMPLETENESS: Write all four sections. Incident Summary must explain scope, volume, severity and operational impact. Key Threats must cover each supplied top attacker with type and targets. Defense Actions must distinguish executed, pending and failed commands. Recommendations must contain at least five prioritized actions tied to observed evidence.
+Never cut off mid-sentence.`,
           user: `AEGIS SOC SECURITY BRIEFING DATA — Last ${periodLabel} (${sinceLabel} ~ ${nowLabel})
 
 Events: ${recentEvents.length} | Incidents: ${incidentsCount}
@@ -228,32 +242,43 @@ Top attacker IPs: ${topAttackers || "none"}
 Per-IP attack breakdown (for Key Threats section):
 ${ipDetails || "  No attackers detected"}
 
+Recorded defense actions:
+${defenseEvidence}
+
+Defense command status:
+${commandEvidence}
+
 Write a complete security briefing using ONLY this data. Fill all 4 sections accurately:
 
 ## Incident Summary
-(What attacks happened this ${periodLabel} — narrative style)
+(Explain the reporting scope, event totals, severity distribution, principal attack activity and likely operational impact.)
 
 ## Key Threats
 (Each top attacker IP — what attack type they used, which targets they hit — active voice, specific details from the per-IP breakdown above)
 
 ## Defense Actions
-(What was blocked, what is still pending — active style)
+(State only evidenced executed, pending and failed actions. If none exist, say so explicitly.)
 
 ## Recommendations
-(At least 4 specific, actionable items based on the actual attack types seen)`,
-          maxTokens: 4000,
+(At least 5 prioritized, specific and actionable items based on the observed attack types and defense status.)`,
+          maxTokens: 5000,
+          temperature: 0.15,
+          topP: 0.85,
         });
-        aiGenerated = true;
+        summary = ensureCompleteEnglishReport(generatedSummary, templateSummary);
+        aiGenerated = summary === generatedSummary.trim();
       } catch (err: any) {
         logger.warn({ err: err.message, stack: err.stack?.slice(0, 300) }, "Auto-report AI failed, using template summary");
       }
     }
 
-    const title = `Auto Report — ${nowLabel} (နောက်ဆုံး ${periodLabel})`;
+    const scheduledType = reportType(intervalSeconds);
+    const typeLabel = scheduledType.charAt(0).toUpperCase() + scheduledType.slice(1);
+    const title = `AEGIS ${typeLabel} Security Report — ${nowLabel} (Last ${periodLabel})`;
 
     await db.insert(reportsTable).values({
       title,
-      type:   reportType(intervalSeconds),
+      type:   scheduledType,
       format: "html",
       summary,
       eventsCount,
@@ -273,17 +298,17 @@ Write a complete security briefing using ONLY this data. Fill all 4 sections acc
         let trimmedSummary = safeSummary;
         if (safeSummary.length > MAX_CHARS) {
           const chunk     = safeSummary.slice(0, MAX_CHARS);
-          const lastBreak = Math.max(chunk.lastIndexOf("။"), chunk.lastIndexOf("."), chunk.lastIndexOf("\n"));
+          const lastBreak = Math.max(chunk.lastIndexOf("."), chunk.lastIndexOf("\n"));
           trimmedSummary  = lastBreak > 50
-            ? safeSummary.slice(0, lastBreak + 1) + "\n\n📖 <i>Full report — dashboard မှာ ကြည့်ပါ</i>"
+            ? safeSummary.slice(0, lastBreak + 1) + "\n\n📖 <i>View the complete report in the AEGIS dashboard.</i>"
             : chunk + "…";
         }
 
         const msg =
           `🛡 <b>AEGIS Auto-Report</b>\n` +
           `📅 <b>${nowLabel}</b>\n` +
-          `⏱ ကာလ: နောက်ဆုံး ${periodLabel} (${sinceLabel} ~ ${nowLabel})\n` +
-          `📊 Events: <b>${eventsCount}</b> ခု | Incidents: <b>${incidentsCount}</b> ခု\n` +
+          `⏱ <b>Period:</b> Last ${periodLabel} (${sinceLabel} ~ ${nowLabel})\n` +
+          `📊 <b>Events:</b> ${eventsCount} | <b>Incidents:</b> ${incidentsCount}\n` +
           `🤖 ${aiGenerated ? "AI-generated" : "Template"}\n\n` +
           trimmedSummary;
 
