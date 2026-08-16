@@ -36,6 +36,7 @@ export const firewallRulesTable = pgTable("firewall_rules", {
   sourcePort: varchar("source_port", { length: 16 }),
   destPort:   varchar("dest_port", { length: 16 }),
   iface:      varchar("iface", { length: 16 }),
+  targetVm:   varchar("target_vm", { length: 32 }).notNull().default("all"),
   ruleText:   text("rule_text").notNull(),
   isActive:   boolean("is_active").notNull().default(true),
   appliedAt:  timestamp("applied_at").defaultNow().notNull(),

@@ -23,8 +23,6 @@ import { broadcaster } from "./broadcaster";
 import { recordAttack } from "./attack-tracker";
 import {
   sanitizeIp,
-  sanitizePort,
-  sanitizeProtocol,
   sanitizeRate,
   parseActionParams,
 } from "./defense-sanitize";
@@ -35,6 +33,19 @@ import { isAutoDefenseEnabled } from "./app-settings";
 export function toTriggerType(eventType: string, eventSubtype: string): string {
   const sub = (eventSubtype ?? "").toLowerCase();
   const typ = (eventType ?? "").toLowerCase();
+
+  // The ingest pipeline has already classified canonical event types. Treat
+  // that value as authoritative so a DDoS event whose signature also contains
+  // words such as "SYN scan" can never trigger a port_scan defense rule.
+  if (typ === "ddos")                                      return "ddos";
+  if (typ === "port_scan")                                 return "port_scan";
+  if (typ === "web_attack")                                return "web_attack";
+  if (typ === "ssh_brute")                                 return "ssh_brute";
+  if (typ === "dns_attack")                                return "dns_attack";
+  if (typ === "db_attack")                                 return "db_attack";
+  if (typ === "ldap_attack")                               return sub.includes("enum") ? "ldap_enum" : "ldap_brute";
+  if (typ === "mitm")                                      return "mitm";
+  if (typ === "auth_event")                                return "auth_event";
 
   // Service-specific checks must precede the generic network/SSH fallback.
   if (sub.includes("ldap"))                                 return sub.includes("enum") ? "ldap_enum" : "ldap_brute";
@@ -52,9 +63,6 @@ export function toTriggerType(eventType: string, eventSubtype: string): string {
       sub.includes("xxe") || typ === "web_attack")          return "web_attack";
   if (sub.includes("dns"))                                  return "dns_attack";
   if (sub.includes("arp") || sub.includes("mitm"))         return "mitm";
-  // Auth events (SSH unauthorized access, single login success without prior brute force)
-  // keep "auth_event" as their trigger type so dedicated rules can target them.
-  if (typ === "auth_event")                                 return "auth_event";
   return "any";
 }
 
@@ -72,15 +80,9 @@ function buildCommand(rule: DefenseRule, sourceIp: string, _eventId: number) {
         // Kill any active sessions from the attacker immediately after inserting the DROP rule.
         // Using -I (insert) ensures this rule takes precedence over any existing ACCEPT rules.
         // ss -K terminates established TCP connections so the block takes effect on live sessions too.
-        commandText: `iptables -I INPUT -s ${safeIp} -j DROP && ss -K dst ${safeIp} 2>/dev/null; ss -K src ${safeIp} 2>/dev/null; true`,
-        undoCommand: `iptables -D INPUT -s ${safeIp} -j DROP`,
-      };
-
-    case "null_route":
-      return {
-        commandType: "null_route",
-        commandText: `ip route add blackhole ${safeIp}/32`,
-        undoCommand: `ip route del blackhole ${safeIp}/32`,
+        commandText: `(iptables -C INPUT -s ${safeIp} -j DROP 2>/dev/null || iptables -I INPUT -s ${safeIp} -j DROP) && (ss -K dst ${safeIp} 2>/dev/null; ss -K src ${safeIp} 2>/dev/null; true)`,
+        // Remove every legacy duplicate, not only the first matching rule.
+        undoCommand: `while iptables -C INPUT -s ${safeIp} -j DROP 2>/dev/null; do iptables -D INPUT -s ${safeIp} -j DROP || exit 1; done; ! iptables -C INPUT -s ${safeIp} -j DROP 2>/dev/null`,
       };
 
     case "rate_limit": {
@@ -96,52 +98,25 @@ function buildCommand(rule: DefenseRule, sourceIp: string, _eventId: number) {
       };
     }
 
-    case "port_block": {
-      const port  = sanitizePort(params.port || "22");
-      const proto = sanitizeProtocol(params.protocol);
-      return {
-        commandType: "iptables",
-        commandText: `iptables -I INPUT -p ${proto} -s ${safeIp} --dport ${port} -j DROP`,
-        undoCommand: `iptables -D INPUT -p ${proto} -s ${safeIp} --dport ${port} -j DROP`,
-      };
-    }
-
-    case "dns_block": {
-      const domain = params.domain ?? safeIp;
-      return {
-        commandType: "custom",
-        // Use printf to avoid shell injection via domain (already validated as hostname)
-        commandText: `printf '0.0.0.0 %s\\n' ${domain} >> /etc/hosts`,
-        undoCommand: `sed -i '/0.0.0.0 ${domain}/d' /etc/hosts`,
-      };
-    }
-
     case "pfsense_block":
       // SSH into pfSense via forwarder and run easyrule (no REST API package needed)
       return {
         commandType: "ssh_pfsense",
-        commandText: `easyrule block WAN ${safeIp} && pfctl -t EasyRuleBlockHosts -T show | grep -Fx ${safeIp}`,
-        undoCommand: `pfctl -t EasyRuleBlockHosts -T delete ${safeIp}`,
+        // easyrule can print a semantic failure while still exiting zero. Use
+        // its supported showblock command and accept pfSense's CIDR rendering.
+        commandText: `easyrule block wan ${safeIp} && easyrule showblock wan | grep -Fqx -e ${safeIp} -e ${safeIp}/32 -e ${safeIp}/128`,
+        undoCommand: `easyrule unblock wan ${safeIp} && ! easyrule showblock wan | grep -Fqx -e ${safeIp} -e ${safeIp}/32 -e ${safeIp}/128`,
       };
 
-    case "pfsense_port_block": {
-      throw new Error("pfsense_port_block is disabled; use a reviewed persistent pfSense rule");
-    }
-
-    case "waf_rule":
-      return {
-        commandType: "custom",
-        // modsec_ban.sh must be a hardened wrapper on the VM — no shell expansion
-        commandText: `modsec_ban.sh ${safeIp}`,
-        undoCommand: `modsec_unban.sh ${safeIp}`,
-      };
-
-    default: // alert_only
+    case "alert_only":
       return {
         commandType: "custom",
         commandText: `logger -t aegis "Rule ${rule.name} triggered for ${safeIp}"`,
         undoCommand: null,
       };
+
+    default:
+      throw new Error(`Unsupported defense type: ${rule.defenseType}`);
   }
 }
 
@@ -221,7 +196,7 @@ async function executeAutoDefense(rule: DefenseRule, event: IngestEvent) {
   // already actively blocked, skip queuing another command.  Without this,
   // every ingest event re-queues the same iptables/pfSense command for an IP
   // that is already blocked, causing an unbounded pile-up of "pending" rows.
-  const isHardBlock = ["block_ip", "null_route", "pfsense_block"].includes(rule.defenseType);
+  const isHardBlock = ["block_ip", "pfsense_block"].includes(rule.defenseType);
   if (isHardBlock) {
     const alreadyBlocked = await db.select({ id: blockedIpsTable.id })
       .from(blockedIpsTable)
@@ -241,7 +216,7 @@ async function executeAutoDefense(rule: DefenseRule, event: IngestEvent) {
   }))).returning();
 
   // Record in blocked_ips for IP-blocking defense types
-  if (["block_ip", "null_route", "pfsense_block"].includes(rule.defenseType)) {
+  if (["block_ip", "pfsense_block"].includes(rule.defenseType)) {
     const exists = await db.select().from(blockedIpsTable)
       .where(and(eq(blockedIpsTable.ip, event.sourceIp), eq(blockedIpsTable.isActive, true)));
     if (exists.length === 0) {
