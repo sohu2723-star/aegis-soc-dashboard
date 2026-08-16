@@ -9,6 +9,7 @@
 
 const MODEL = "llama-3.3-70b-versatile";
 const ENDPOINT = "https://api.groq.com/openai/v1/chat/completions";
+const REQUEST_TIMEOUT_MS = 45_000;
 
 /** Collect all configured Groq API keys (deduped, empty strings excluded). */
 function collectGroqKeys(): string[] {
@@ -109,6 +110,7 @@ export async function askGroq(opts: {
         "Content-Type": "application/json",
       },
       body,
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
 
     if (res.ok) {
