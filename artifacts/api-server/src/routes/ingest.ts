@@ -93,10 +93,12 @@ function shouldRateLimit(type: string, sourceIp: string, targetHost: string, sid
 const DDOS_CORRELATION_MS = 60_000;
 // Recon signatures have lower packet thresholds than flood signatures, so the
 // same SYN/ICMP flood naturally emits a scan alert first. Hold scan persistence
-// just long enough for Suricata's 5-second flood window to complete. The ingest
-// request itself returns immediately, allowing the forwarder to send the later
-// DDoS event that cancels the pending scan.
-const PORT_SCAN_SETTLE_MS = 6_000;
+// briefly as a fallback correlation guard. Service-port floods are excluded
+// from the TCP scan signature at the sensor, so a real Nmap result no longer
+// needs to wait through the full five-second flood window. The ingest request
+// itself returns immediately, allowing the forwarder to send a later DDoS
+// event that cancels a pending scan.
+const PORT_SCAN_SETTLE_MS = 2_000;
 const _recentDdosBySrc = new Map<string, number>();
 const _pendingPortScans = new Map<string, {
   timer: ReturnType<typeof setTimeout>;
@@ -285,8 +287,10 @@ function classifyFail2banType(jail: string): string {
 }
 
 async function insertEvent(values: typeof securityEventsTable.$inferInsert) {
-  const [row] = await db.insert(securityEventsTable).values(values).returning();
-  const [event] = await db.select().from(securityEventsTable).where(eq(securityEventsTable.id, row.id));
+  // PostgreSQL RETURNING already contains the complete inserted row. The old
+  // follow-up SELECT doubled the latency of every ingest request and consumed
+  // another Supabase pooler slot during attack bursts.
+  const [event] = await db.insert(securityEventsTable).values(values).returning();
   const serialized = { ...event, createdAt: event.createdAt.toISOString() };
   broadcaster.broadcast("security_event", serialized);
   // Debounced — avoids flooding the dashboard during port scan / DDoS bursts.

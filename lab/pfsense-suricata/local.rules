@@ -7,7 +7,11 @@
 # apart by rate: recon fires on a low packet count, DoS only at flood rates.
 # A flood also reaches the recon threshold first. AEGIS briefly holds that scan
 # candidate and cancels it when the higher-rate DDoS signature arrives.
-alert tcp 192.168.10.0/24 any -> [10.10.10.0/24,10.20.20.0/24] any (msg:"AEGIS NMAP TCP port scan"; flags:S,12; flow:stateless; threshold:type both,track by_src,count 15,seconds 10; classtype:attempted-recon; sid:9900001; rev:2;)
+# Do not count repeated connections to the lab's normal service ports as a port
+# scan. Load tools such as ApacheBench open many TCP/80 connections and used to
+# trip this rule before the HTTP-flood signature. A real broad Nmap scan still
+# probes many ports outside this small allow-list.
+alert tcp 192.168.10.0/24 any -> [10.10.10.0/24,10.20.20.0/24] ![22,53,80,443] (msg:"AEGIS NMAP TCP port scan"; flags:S,12; flow:stateless; threshold:type both,track by_src,count 15,seconds 10; classtype:attempted-recon; sid:9900001; rev:3;)
 alert icmp 192.168.10.0/24 any -> [10.10.10.0/24,10.20.20.0/24] any (msg:"AEGIS NMAP ICMP host sweep"; itype:8; threshold:type both,track by_src,count 20,seconds 10; classtype:attempted-recon; sid:9900002; rev:3;)
 # UDP scans otherwise resemble a low-rate UDP flood. Keep an explicit Nmap
 # signature well below the volumetric UDP threshold so the dashboard labels it
@@ -80,7 +84,7 @@ alert udp 192.168.10.0/24 any -> [10.10.10.0/24,10.20.20.0/24] any (msg:"AEGIS D
 alert icmp 192.168.10.0/24 any -> [10.10.10.0/24,10.20.20.0/24] any (msg:"AEGIS DDOS ICMP flood"; itype:8; threshold:type both,track by_src,count 5000,seconds 5; classtype:attempted-dos; sid:9900053; rev:2;)
 
 # HTTP request flood — slowloris / ab / GET flood against the public web server
-alert http 192.168.10.0/24 any -> 10.10.10.10 80 (msg:"AEGIS DDOS HTTP request flood"; flow:to_server,established; http.method; content:"GET"; threshold:type both,track by_src,count 1000,seconds 10; classtype:attempted-dos; sid:9900054; rev:2;)
+alert http 192.168.10.0/24 any -> 10.10.10.10 80 (msg:"AEGIS DDOS HTTP request flood"; flow:to_server,established; http.method; content:"GET"; threshold:type both,track by_src,count 50,seconds 5; classtype:attempted-dos; sid:9900054; rev:3;)
 
 # ── dns-server (10.10.10.20) BIND9 Rules ──────────────────────────────────────
 # SID 9900060-9900069 reserved for DNS / dns-server.
