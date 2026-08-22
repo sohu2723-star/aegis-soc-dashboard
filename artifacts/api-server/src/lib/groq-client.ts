@@ -91,7 +91,7 @@ export async function askGroq(opts: {
       { role: "system", content: opts.system },
       { role: "user",   content: opts.user },
     ],
-    max_tokens:        opts.maxTokens ?? 2000,
+    max_completion_tokens: opts.maxTokens ?? 2000,
     temperature:       opts.temperature ?? 0.4,
     top_p:             opts.topP ?? 0.95,
     frequency_penalty: 1.2,
