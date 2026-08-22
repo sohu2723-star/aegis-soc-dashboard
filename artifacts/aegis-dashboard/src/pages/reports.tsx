@@ -573,7 +573,7 @@ export default function Reports() {
                 <CardTitle className="text-sm font-bold uppercase tracking-widest text-primary">AI Threat Briefing</CardTitle>
                 <CardDescription className="text-[11px]">
                   {aiData
-                    ? `Generated at ${format(new Date(aiData.generatedAt), "HH:mm:ss")} — Groq llama-3.3-70b`
+                    ? `Generated at ${format(new Date(aiData.generatedAt), "HH:mm:ss")} — Groq openai/gpt-oss-120b`
                     : "Current security posture analysis powered by Groq LLM"}
                 </CardDescription>
               </div>

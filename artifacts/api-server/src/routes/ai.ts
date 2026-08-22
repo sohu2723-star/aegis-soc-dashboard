@@ -1,5 +1,5 @@
 /**
- * AI Analysis Routes — powered by Groq (llama-3.3-70b-versatile).
+ * AI Analysis Routes — powered by Groq (openai/gpt-oss-120b).
  *
  *  GET  /ai/status              — check if Groq is configured
  *  GET  /ai/threat-analysis     — current security posture briefing
@@ -39,7 +39,7 @@ const SOC_SYSTEM = SOC_SYSTEM_EN;
 // ─── Status ───────────────────────────────────────────────────────────────────
 
 router.get("/ai/status", (_req, res) => {
-  res.json({ available: groqAvailable(), model: "llama-3.3-70b-versatile" });
+  res.json({ available: groqAvailable(), model: "openai/gpt-oss-120b" });
 });
 
 // ─── Threat Analysis ──────────────────────────────────────────────────────────

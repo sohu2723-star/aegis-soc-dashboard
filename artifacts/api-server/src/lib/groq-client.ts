@@ -1,13 +1,13 @@
 /**
  * Groq LLM client — wraps the OpenAI-compatible Groq REST API.
- * Model: llama-3.3-70b-versatile (best quality, still fast on Groq).
+ * Model: openai/gpt-oss-120b (current Groq production replacement).
  *
  * Multi-key fallback: reads GROQ_API_KEY (primary) + GROQ_API_KEY_1 … GROQ_API_KEY_N.
  * On 429 / token-quota error the client automatically retries with the next key.
  * Set as many keys as you like — they are tried in order until one succeeds.
  */
 
-const MODEL = "llama-3.3-70b-versatile";
+const MODEL = "openai/gpt-oss-120b";
 const ENDPOINT = "https://api.groq.com/openai/v1/chat/completions";
 const REQUEST_TIMEOUT_MS = 45_000;
 
