@@ -351,7 +351,6 @@ function RulesTab() {
                       {[
                         { v: "ssh_brute",      label: "ssh_brute — fail2ban / SSH watcher (brute force)" },
                         { v: "auth_event",     label: "auth_event — unauthorized login success (stolen creds)" },
-                        { v: "network_attack", label: "network_attack — Suricata IDS / general" },
                         { v: "web_attack",     label: "web_attack — SQLi / XSS" },
                         { v: "ddos",           label: "ddos — SYN flood / hping3" },
                         { v: "port_scan",      label: "port_scan — nmap" },
