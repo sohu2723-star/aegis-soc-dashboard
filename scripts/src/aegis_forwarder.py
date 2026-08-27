@@ -45,11 +45,15 @@ _suricata_offline_timer: threading.Timer | None = None   # debounce timer
 HEARTBEAT_INTERVAL_SECS = 15
 HEARTBEAT_REQUEST_TIMEOUT_SECS = 5
 
-# Every sensor, heartbeat and defense thread used to call requests.post/get
-# directly, creating a fresh TCP/TLS connection for most requests. Keep one
-# Session per thread: Sessions are not shared across threads, while each thread
-# still reuses its own Render HTTPS connection.
+# Every sensor, heartbeat and defense thread uses these wrappers. Each thread
+# keeps one Session, while the request layer chooses the active API endpoint.
+# Primary is Render; an optional Railway endpoint is used only after a
+# connection failure or a retryable 5xx response.
 _http_local = threading.local()
+_api_state_lock = threading.Lock()
+_api_active_url = ""
+_api_primary_retry_at = 0.0
+_api_primary_failures = 0
 
 
 def _http_session():
@@ -68,12 +72,111 @@ def _http_session():
     return session
 
 
-def _http_post(*args, **kwargs):
-    return _http_session().post(*args, **kwargs)
+def _normalise_api_url(value: str) -> str:
+    return (value or "").rstrip("/")
 
 
-def _http_get(*args, **kwargs):
-    return _http_session().get(*args, **kwargs)
+def _api_base_urls() -> tuple[str, str]:
+    return _normalise_api_url(AEGIS_URL), _normalise_api_url(AEGIS_BACKUP_URL)
+
+
+def _api_request_path(request_url: str) -> str:
+    """Return the API-relative path so it can be rebuilt for each origin."""
+    primary, backup = _api_base_urls()
+    for base in (primary, backup):
+        if base and request_url.startswith(base):
+            return request_url[len(base):] or "/"
+    parsed = urlparse(request_url)
+    path = parsed.path or "/"
+    return f"{path}?{parsed.query}" if parsed.query else path
+
+
+def _api_candidates() -> list[str]:
+    primary, backup = _api_base_urls()
+    if not backup or backup == primary:
+        return [primary]
+    now = time.monotonic()
+    with _api_state_lock:
+        active = _api_active_url
+        retry_at = _api_primary_retry_at
+    if active == backup and now < retry_at:
+        return [backup]
+    return [primary, backup]
+
+
+def _api_mark_success(base_url: str) -> None:
+    global _api_active_url, _api_primary_retry_at, _api_primary_failures
+    primary, backup = _api_base_urls()
+    with _api_state_lock:
+        was_backup = _api_active_url == backup and backup and base_url == primary
+        _api_active_url = base_url
+        if base_url == primary:
+            _api_primary_retry_at = 0.0
+            if was_backup:
+                print(f"[API FAILOVER] Primary API recovered: {primary}")
+            _api_primary_failures = 0
+
+
+def _api_mark_primary_failure() -> None:
+    global _api_active_url, _api_primary_retry_at, _api_primary_failures
+    primary, backup = _api_base_urls()
+    if not backup or backup == primary:
+        return
+    with _api_state_lock:
+        _api_primary_failures += 1
+        _api_active_url = backup
+        _api_primary_retry_at = time.monotonic() + API_FAILOVER_COOLDOWN_SECS
+        print(
+            f"[API FAILOVER] Primary unavailable; using backup for "
+            f"{API_FAILOVER_COOLDOWN_SECS}s (failure {_api_primary_failures})"
+        )
+
+
+def _api_request(method: str, request_url: str, **kwargs):
+    """Request through primary/backup without changing existing call sites."""
+    primary, backup = _api_base_urls()
+    path = _api_request_path(request_url)
+    last_error = None
+    candidates = _api_candidates()
+    for base_url in candidates:
+        if not base_url:
+            continue
+        target_url = f"{base_url}{path}"
+        try:
+            response = _http_session().request(method, target_url, **kwargs)
+        except requests.exceptions.RequestException as exc:
+            last_error = exc
+            if base_url == primary and backup and backup != primary:
+                _api_mark_primary_failure()
+                continue
+            raise
+
+        # Do not hide authentication/validation errors. Only gateway/service
+        # failures are eligible for endpoint failover.
+        if (
+            base_url == primary
+            and backup
+            and backup != primary
+            and response.status_code in (502, 503, 504)
+        ):
+            response.close()
+            _api_mark_primary_failure()
+            continue
+
+        _api_mark_success(base_url)
+        return response
+
+    if last_error is not None:
+        raise last_error
+    raise requests.exceptions.ConnectionError("No configured AEGIS API endpoint")
+
+
+def _http_post(url, **kwargs):
+    return _api_request("POST", url, **kwargs)
+
+
+def _http_get(url, **kwargs):
+    return _api_request("GET", url, **kwargs)
 
 # ─── LOCAL CONFIG FILE (set-once, not committed to git) ───────────────────────
 # Real keys go in aegis_forwarder.local.conf next to this script (gitignored),
@@ -96,9 +199,14 @@ def _cfg(key: str, default: str = "") -> str:
 
 
 # ─── CONFIG ──────────────────────────────────────────────────────────────────
-AEGIS_URL = _cfg("AEGIS_URL", "http://<YOUR_AEGIS_DOMAIN>/api")
-AEGIS_KEY = _cfg("AEGIS_KEY", "aegis-demo-key-change-me")
-VM_NAME   = _cfg("VM_NAME",   "ubuntu")   # ubuntu | pfsense — used by the defense-agent thread
+AEGIS_URL        = _cfg("AEGIS_URL", "http://<YOUR_AEGIS_DOMAIN>/api")
+AEGIS_BACKUP_URL = _cfg("AEGIS_BACKUP_URL", "")
+AEGIS_KEY        = _cfg("AEGIS_KEY", "aegis-demo-key-change-me")
+VM_NAME          = _cfg("VM_NAME", "ubuntu")   # ubuntu | pfsense — used by the defense-agent thread
+try:
+    API_FAILOVER_COOLDOWN_SECS = max(30, int(_cfg("API_FAILOVER_COOLDOWN_SECS", "300")))
+except ValueError:
+    API_FAILOVER_COOLDOWN_SECS = 300
 
 # ─── REMOTE / HUB MODE CONFIG ─────────────────────────────────────────────────
 # Used when running with --mode hub on the aegis-forwarder VM (10.30.30.10).
@@ -243,6 +351,14 @@ def validate_runtime_config(defense_enabled: bool = True) -> list[str]:
         errors.append("AEGIS_URL must be a valid HTTP(S) API base URL ending in /api")
     if not AEGIS_KEY or AEGIS_KEY == "aegis-demo-key-change-me":
         errors.append("AEGIS_KEY must be configured with the deployed ingest key")
+    if AEGIS_BACKUP_URL:
+        backup = urlparse(AEGIS_BACKUP_URL)
+        if (
+            backup.scheme not in ("http", "https")
+            or not backup.netloc
+            or not backup.path.rstrip("/").endswith("/api")
+        ):
+            errors.append("AEGIS_BACKUP_URL must be a valid HTTP(S) API base URL ending in /api")
     if defense_enabled and not DEFENSE_HEADERS.get("X-AEGIS-Admin-Key"):
         errors.append("AEGIS_ADMIN_KEY is required when the defense agent is enabled")
     if DEFENSE_POLL_SECS < 1 or DEFENSE_POLL_SECS > 3600:
@@ -2354,6 +2470,7 @@ Modes:
 ║            AEGIS Forwarder — Blue Team v3                        ║
 ╚══════════════════════════════════════════════════════════════════╝
   Target  : {AEGIS_URL}
+  Backup  : {AEGIS_BACKUP_URL or "disabled"}
   Mode    : {args.mode}{_hub_suffix}
   VM_NAME : {VM_NAME}""")
     if _is_hub:

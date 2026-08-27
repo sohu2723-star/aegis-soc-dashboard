@@ -37,7 +37,12 @@
 # ──────────────────────────────────────────────────────────────────────────────
 
 # ── Required ──────────────────────────────────────────────────────────────────
+# Primary API (Render)
 AEGIS_URL=https://aegis-api-server-jp3b.onrender.com/api
+# Optional backup API (Railway). Leave blank to disable failover.
+AEGIS_BACKUP_URL=https://aegis-api-server-production.up.railway.app/api
+# Seconds to keep using backup before probing Render again.
+API_FAILOVER_COOLDOWN_SECS=300
 AEGIS_KEY=
 AEGIS_ADMIN_KEY=
 
