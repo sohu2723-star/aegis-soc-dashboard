@@ -169,44 +169,44 @@ router.get("/dashboard/summary", async (req, res) => {
     const trendQuery = baseWhere
         ? db
             .select({
-              hour: sql<string>`to_char(date_trunc('hour', ${securityEventsTable.createdAt} AT TIME ZONE 'Asia/Yangon'), 'HH24":00"')`,
+              hour: sql<string>`to_char(date_trunc('hour', (${securityEventsTable.createdAt} AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Yangon'), 'HH24":00"')`,
               count: count(),
             })
             .from(securityEventsTable)
             .where(and(baseWhere, gte(securityEventsTable.createdAt, sql`now() - interval '12 hours'`)))
-            .groupBy(sql`date_trunc('hour', ${securityEventsTable.createdAt} AT TIME ZONE 'Asia/Yangon')`)
-            .orderBy(sql`date_trunc('hour', ${securityEventsTable.createdAt} AT TIME ZONE 'Asia/Yangon')`)
+            .groupBy(sql`date_trunc('hour', (${securityEventsTable.createdAt} AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Yangon')`)
+            .orderBy(sql`date_trunc('hour', (${securityEventsTable.createdAt} AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Yangon')`)
         : db
             .select({
-              hour: sql<string>`to_char(date_trunc('hour', ${securityEventsTable.createdAt} AT TIME ZONE 'Asia/Yangon'), 'HH24":00"')`,
+              hour: sql<string>`to_char(date_trunc('hour', (${securityEventsTable.createdAt} AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Yangon'), 'HH24":00"')`,
               count: count(),
             })
             .from(securityEventsTable)
             .where(gte(securityEventsTable.createdAt, sql`now() - interval '12 hours'`))
-            .groupBy(sql`date_trunc('hour', ${securityEventsTable.createdAt} AT TIME ZONE 'Asia/Yangon')`)
-            .orderBy(sql`date_trunc('hour', ${securityEventsTable.createdAt} AT TIME ZONE 'Asia/Yangon')`);
+            .groupBy(sql`date_trunc('hour', (${securityEventsTable.createdAt} AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Yangon')`)
+            .orderBy(sql`date_trunc('hour', (${securityEventsTable.createdAt} AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Yangon')`);
 
     const trendByTypeQuery = baseWhere
         ? db
             .select({
-              hour: sql<string>`to_char(date_trunc('hour', ${securityEventsTable.createdAt} AT TIME ZONE 'Asia/Yangon'), 'HH24":00"')`,
+              hour: sql<string>`to_char(date_trunc('hour', (${securityEventsTable.createdAt} AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Yangon'), 'HH24":00"')`,
               type: securityEventsTable.type,
               count: count(),
             })
             .from(securityEventsTable)
             .where(and(baseWhere, gte(securityEventsTable.createdAt, sql`now() - interval '12 hours'`)))
-            .groupBy(sql`date_trunc('hour', ${securityEventsTable.createdAt} AT TIME ZONE 'Asia/Yangon')`, securityEventsTable.type)
-            .orderBy(sql`date_trunc('hour', ${securityEventsTable.createdAt} AT TIME ZONE 'Asia/Yangon')`, securityEventsTable.type)
+            .groupBy(sql`date_trunc('hour', (${securityEventsTable.createdAt} AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Yangon')`, securityEventsTable.type)
+            .orderBy(sql`date_trunc('hour', (${securityEventsTable.createdAt} AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Yangon')`, securityEventsTable.type)
         : db
             .select({
-              hour: sql<string>`to_char(date_trunc('hour', ${securityEventsTable.createdAt} AT TIME ZONE 'Asia/Yangon'), 'HH24":00"')`,
+              hour: sql<string>`to_char(date_trunc('hour', (${securityEventsTable.createdAt} AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Yangon'), 'HH24":00"')`,
               type: securityEventsTable.type,
               count: count(),
             })
             .from(securityEventsTable)
             .where(gte(securityEventsTable.createdAt, sql`now() - interval '12 hours'`))
-            .groupBy(sql`date_trunc('hour', ${securityEventsTable.createdAt} AT TIME ZONE 'Asia/Yangon')`, securityEventsTable.type)
-            .orderBy(sql`date_trunc('hour', ${securityEventsTable.createdAt} AT TIME ZONE 'Asia/Yangon')`, securityEventsTable.type);
+            .groupBy(sql`date_trunc('hour', (${securityEventsTable.createdAt} AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Yangon')`, securityEventsTable.type)
+            .orderBy(sql`date_trunc('hour', (${securityEventsTable.createdAt} AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Yangon')`, securityEventsTable.type);
 
     return Promise.all([eventCounters, attackTypesQuery, trendQuery, trendByTypeQuery]).then(
       async ([counts, attackTypes, trend, trendByType]) => {
