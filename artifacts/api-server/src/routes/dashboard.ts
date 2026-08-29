@@ -78,16 +78,20 @@ router.get("/dashboard/summary", async (req, res) => {
     : [];
   const targetConditions = targetAliases.map(value => eq(securityEventsTable.targetHost, value));
   if (canonicalTarget === "company-web-server") {
-    targetConditions.push(
-      and(
-        eq(securityEventsTable.type, "web_attack"),
-        or(
-          like(securityEventsTable.targetHost, "http://%"),
-          like(securityEventsTable.targetHost, "https://%"),
-          like(securityEventsTable.targetHost, "/%"),
-        ),
-      ),
+    const webAttackCondition = or(
+      like(securityEventsTable.targetHost, "http://%"),
+      like(securityEventsTable.targetHost, "https://%"),
+      like(securityEventsTable.targetHost, "/%"),
     );
+    if (webAttackCondition) {
+      const combinedWebAttackCondition = and(
+        eq(securityEventsTable.type, "web_attack"),
+        webAttackCondition,
+      );
+      if (combinedWebAttackCondition) {
+        targetConditions.push(combinedWebAttackCondition);
+      }
+    }
   }
   const baseWhere = targetHost ? or(...targetConditions) : undefined;
   const since12h = sql`now() - interval '12 hours'`;

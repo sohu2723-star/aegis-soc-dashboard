@@ -675,7 +675,7 @@ function FirewallTab() {
                     <Select value={action} onValueChange={setAction}>
                       <SelectTrigger className="bg-background border-border text-xs"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        {["DROP","ACCEPT"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                        {["DROP","REJECT","ACCEPT"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
@@ -700,19 +700,19 @@ function FirewallTab() {
                     <Input value={iface} onChange={e => setIface(e.target.value)} className="bg-background border-border" placeholder="e.g. ens3" />
                   </div>
                   <div className="space-y-1.5">
-                    <Label className="text-xs uppercase text-muted-foreground">Source IP</Label>
-                    <Input value={sourceIp} onChange={e => setSourceIp(e.target.value)} className="bg-background border-border" placeholder="e.g. 192.168.122.153" />
+                    <Label className="text-xs uppercase text-muted-foreground">Source IP (optional — blank = any)</Label>
+                    <Input value={sourceIp} onChange={e => setSourceIp(e.target.value)} className="bg-background border-border" placeholder="Blank = any source, or e.g. 192.168.122.153" />
                   </div>
                   <div className="space-y-1.5">
-                    <Label className="text-xs uppercase text-muted-foreground">Dest IP</Label>
+                    <Label className="text-xs uppercase text-muted-foreground">Destination IP (optional)</Label>
                     <Input value={destIp} onChange={e => setDestIp(e.target.value)} className="bg-background border-border" placeholder="e.g. 10.10.10.10" />
                   </div>
                   <div className="space-y-1.5">
-                    <Label className="text-xs uppercase text-muted-foreground">Source Port</Label>
+                    <Label className="text-xs uppercase text-muted-foreground">Source Port (optional)</Label>
                     <Input value={sourcePort} onChange={e => setSrcPort(e.target.value)} disabled={!supportsPorts} className="bg-background border-border" placeholder={supportsPorts ? "e.g. 22" : "Select TCP or UDP"} />
                   </div>
                   <div className="space-y-1.5">
-                    <Label className="text-xs uppercase text-muted-foreground">Dest Port</Label>
+                    <Label className="text-xs uppercase text-muted-foreground">Destination Port (optional)</Label>
                     <Input value={destPort} onChange={e => setDstPort(e.target.value)} disabled={!supportsPorts} className="bg-background border-border" placeholder={supportsPorts ? "e.g. 22" : "Select TCP or UDP"} />
                   </div>
                   <div className="space-y-1.5 col-span-2">

@@ -270,7 +270,7 @@ router.get("/ui/firewall/rules", async (_req, res) => {
 router.post("/ui/firewall/rules", maybeAdmin, async (req, res) => {
   const schema = z.object({
     chain:      z.enum(["INPUT","OUTPUT"]).default("INPUT"),
-    action:     z.enum(["DROP","ACCEPT"]),
+    action:     z.enum(["DROP","REJECT","ACCEPT"]),
     protocol:   z.enum(["tcp","udp","all"]).optional(),
     sourceIp:   z.string().optional(),
     destIp:     z.string().optional(),
