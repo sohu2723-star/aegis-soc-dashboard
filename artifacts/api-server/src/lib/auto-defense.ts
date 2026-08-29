@@ -51,7 +51,7 @@ export function toTriggerType(eventType: string, eventSubtype: string): string {
   if (sub.includes("ldap"))                                 return sub.includes("enum") ? "ldap_enum" : "ldap_brute";
   if (sub.includes("mysql") || sub.includes("database") || sub.includes("db ")) return "db_attack";
   // SSH brute force — both failed attempts AND successful breach (Brute Force Success).
-  // Breach events have type "network_attack" + subtype "Brute Force Success"; they
+  // Breach events use type "auth_event" + subtype "Brute Force Success"; they
   // must still map to "ssh_brute" so rules with triggerAttackType="ssh_brute" fire.
   if (sub.includes("brute") && (sub.includes("ssh") || typ === "ssh_brute"))  return "ssh_brute";
   if (sub.includes("brute force") || sub.includes("brute-force"))             return "ssh_brute";

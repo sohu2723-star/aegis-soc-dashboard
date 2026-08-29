@@ -668,7 +668,7 @@ router.post("/ingest/ssh", auth, async (req, res) => {
       subtype: isBreach ? "Brute Force Success" : "Unauthorized Access",
     });
     const event = await insertEvent({
-      type:      isBreach ? "network_attack" : "auth_event",
+      type:      "auth_event",
       subtype:   isBreach ? "Brute Force Success" : "Unauthorized Access",
       severity,
       sourceIp:  src_ip ?? "unknown", targetHost,
