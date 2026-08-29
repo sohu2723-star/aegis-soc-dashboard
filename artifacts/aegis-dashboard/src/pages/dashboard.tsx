@@ -1,12 +1,12 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Activity, ShieldAlert, Siren, Server, Wifi } from "lucide-react";
 import {
-  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip,
+  ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, Legend,
   BarChart, Bar, CartesianGrid,
 } from "recharts";
 import { format } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDeviceContext } from "@/lib/device-context";
 import { useGetRecentEvents, getGetRecentEventsQueryKey, type DashboardSummary } from "@workspace/api-client-react";
@@ -14,6 +14,45 @@ import { HostLabel } from "@/lib/host-utils";
 import { motion, AnimatePresence } from "framer-motion";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+type AttackTrendRow = { hour: string; type: string; count: number };
+type DashboardSummaryWithAttackTrend = DashboardSummary & {
+  deviceSystemsOnline: number;
+  deviceSystemsTotal: number;
+  eventsTrendByType?: AttackTrendRow[];
+};
+
+const ATTACK_LINE_COLORS = [
+  "#4fa3a5", "#c56b70", "#c5a45a", "#6faf82",
+  "#8f82a6", "#7c83a8", "#b08a56", "#5f9da1",
+];
+
+function attackTypeLabel(type: string): string {
+  return type.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function buildAttackTrend(rows: AttackTrendRow[]): { data: Record<string, string | number>[]; types: string[] } {
+  const totals = new Map<string, number>();
+  for (const row of rows) totals.set(row.type, (totals.get(row.type) ?? 0) + row.count);
+  const types = [...totals.entries()]
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, ATTACK_LINE_COLORS.length)
+    .map(([type]) => type);
+  const byHour = new Map<string, Record<string, string | number>>();
+  for (const row of rows) {
+    if (!types.includes(row.type)) continue;
+    const point = byHour.get(row.hour) ?? { hour: row.hour };
+    point[row.type] = row.count;
+    byHour.set(row.hour, point);
+  }
+  return {
+    data: [...byHour.values()].map(point => {
+      for (const type of types) if (!(type in point)) point[type] = 0;
+      return point;
+    }),
+    types,
+  };
+}
 
 // ── Internet Speed Live Card ────────────────────────────────────────────────
 function InternetSpeedCard() {
@@ -155,10 +194,7 @@ function useDashboardSummary(targetHost: string | null) {
     ? `${BASE}/api/dashboard/summary?targetHost=${encodeURIComponent(targetHost)}`
     : `${BASE}/api/dashboard/summary`;
 
-  return useQuery<DashboardSummary & {
-    deviceSystemsOnline: number;
-    deviceSystemsTotal: number;
-  }>({
+  return useQuery<DashboardSummaryWithAttackTrend>({
     queryKey: ["dashboard-summary", targetHost],
     // Keep the last successful summary visible while switching from a saved
     // device to "All Devices" or while a background refresh is in flight.
@@ -186,12 +222,13 @@ export default function Dashboard() {
   const queryClient = useQueryClient();
   const { selectedIp, selectedDevice } = useDeviceContext();
 
+  const summaryTarget = selectedDevice?.hostname ?? selectedIp;
   const {
     data: summary,
     isLoading: isLoadingSummary,
     isError: isSummaryError,
     isFetching,
-  } = useDashboardSummary(selectedIp);
+  } = useDashboardSummary(summaryTarget);
 
   const { data: recentEvents, isLoading: isLoadingEvents } = useGetRecentEvents({
     query: { queryKey: getGetRecentEventsQueryKey(), refetchInterval: 5000 },
@@ -199,9 +236,20 @@ export default function Dashboard() {
 
   const filteredEvents = selectedIp
     ? (recentEvents ?? []).filter(
-        (e: any) => e.targetHost === selectedIp || e.sourceIp === selectedIp,
+        (e: any) =>
+          e.targetHost === selectedIp ||
+          e.targetHost === selectedDevice?.hostname ||
+          e.sourceIp === selectedIp,
       )
     : recentEvents ?? [];
+
+  const attackTrend = useMemo(
+    () => buildAttackTrend(summary?.eventsTrendByType ?? []),
+    [summary?.eventsTrendByType],
+  );
+  const attackTrendData = attackTrend.data.length > 0
+    ? attackTrend.data
+    : (summary?.eventsTrend ?? []);
 
   // Show warm-up banner after 8 s of still loading (reduced from 12)
   const [slowLoad, setSlowLoad] = useState(false);
@@ -349,29 +397,41 @@ export default function Dashboard() {
         <Card className="col-span-4 bg-card border-border">
           <CardHeader>
             <CardTitle className="text-sm uppercase tracking-wider">
-              {selectedDevice ? `Attack Volume — ${selectedDevice.ip}` : "Attack Volume (12h)"}
+              {selectedDevice ? `Attack Value by Type — ${selectedDevice.ip}` : "Attack Value by Type (12h)"}
             </CardTitle>
           </CardHeader>
           <CardContent className="h-[300px]">
             {isLoadingSummary && !summary ? (
               <Skeleton className="h-full w-full bg-muted/20" />
-            ) : summary?.eventsTrend && summary.eventsTrend.length > 0 ? (
+            ) : attackTrendData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={summary.eventsTrend} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%"  stopColor="hsl(var(--primary))" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
+                <LineChart data={attackTrendData} margin={{ top: 10, right: 18, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
                   <XAxis dataKey="hour" stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
-                  <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
+                  <YAxis allowDecimals={false} stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
                   <Tooltip
                     contentStyle={{ backgroundColor: "hsl(var(--card))", borderColor: "hsl(var(--border))", borderRadius: "4px", fontFamily: "monospace" }}
-                    itemStyle={{ color: "hsl(var(--primary))" }}
+                    labelStyle={{ color: "hsl(var(--muted-foreground))" }}
                   />
-                  <Area type="monotone" dataKey="count" stroke="hsl(var(--primary))" fillOpacity={1} fill="url(#colorCount)" />
-                </AreaChart>
+                  {attackTrend.types.length > 0 ? (
+                    attackTrend.types.map((type, index) => (
+                      <Line
+                        key={type}
+                        type="monotone"
+                        dataKey={type}
+                        name={attackTypeLabel(type)}
+                        stroke={ATTACK_LINE_COLORS[index]}
+                        strokeWidth={2}
+                        dot={{ r: 2 }}
+                        activeDot={{ r: 4 }}
+                        connectNulls
+                      />
+                    ))
+                  ) : (
+                    <Line type="monotone" dataKey="count" name="All Attacks" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 2 }} activeDot={{ r: 4 }} />
+                  )}
+                  {attackTrend.types.length > 0 && <Legend wrapperStyle={{ fontSize: "11px", paddingTop: "6px" }} />}
+                </LineChart>
               </ResponsiveContainer>
             ) : (
               <div className="flex items-center justify-center h-full text-muted-foreground text-sm">

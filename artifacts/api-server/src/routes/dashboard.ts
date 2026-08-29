@@ -93,6 +93,7 @@ router.get("/dashboard/summary", async (req, res) => {
     allStatuses,
     attacksByTypeRows,
     trendRows,
+    trendByTypeRows,
   ] = queryResult;
 
   function runSummaryQueries() {
@@ -153,14 +154,36 @@ router.get("/dashboard/summary", async (req, res) => {
             .groupBy(sql`date_trunc('hour', ${securityEventsTable.createdAt})`)
             .orderBy(sql`date_trunc('hour', ${securityEventsTable.createdAt})`);
 
-    return Promise.all([eventCounters, attackTypesQuery, trendQuery]).then(
-      async ([counts, attackTypes, trend]) => {
+    const trendByTypeQuery = baseWhere
+        ? db
+            .select({
+              hour: sql<string>`to_char(date_trunc('hour', ${securityEventsTable.createdAt}), 'HH24":00"')`,
+              type: securityEventsTable.type,
+              count: count(),
+            })
+            .from(securityEventsTable)
+            .where(and(baseWhere, gte(securityEventsTable.createdAt, sql`now() - interval '12 hours'`)))
+            .groupBy(sql`date_trunc('hour', ${securityEventsTable.createdAt})`, securityEventsTable.type)
+            .orderBy(sql`date_trunc('hour', ${securityEventsTable.createdAt})`, securityEventsTable.type)
+        : db
+            .select({
+              hour: sql<string>`to_char(date_trunc('hour', ${securityEventsTable.createdAt}), 'HH24":00"')`,
+              type: securityEventsTable.type,
+              count: count(),
+            })
+            .from(securityEventsTable)
+            .where(gte(securityEventsTable.createdAt, sql`now() - interval '12 hours'`))
+            .groupBy(sql`date_trunc('hour', ${securityEventsTable.createdAt})`, securityEventsTable.type)
+            .orderBy(sql`date_trunc('hour', ${securityEventsTable.createdAt})`, securityEventsTable.type);
+
+    return Promise.all([eventCounters, attackTypesQuery, trendQuery, trendByTypeQuery]).then(
+      async ([counts, attackTypes, trend, trendByType]) => {
         const [openIncidents, activeAlerts, statuses] = await Promise.all([
           db.select({ count: count() }).from(incidentsTable).where(eq(incidentsTable.status, "open")),
           db.select({ count: count() }).from(alertsTable).where(eq(alertsTable.acknowledged, false)),
           statusQuery,
         ]);
-        return [counts, openIncidents, activeAlerts, statuses, attackTypes, trend] as const;
+        return [counts, openIncidents, activeAlerts, statuses, attackTypes, trend, trendByType] as const;
       },
     );
   }
@@ -207,6 +230,11 @@ router.get("/dashboard/summary", async (req, res) => {
     hour:  r.hour,
     count: Number(r.count),
   }));
+  const eventsTrendByType = trendByTypeRows.map(r => ({
+    hour:  r.hour,
+    type:  r.type,
+    count: Number(r.count),
+  }));
 
   const payload = {
     totalEvents:    Number(eventCounts?.total     ?? 0),
@@ -220,6 +248,7 @@ router.get("/dashboard/summary", async (req, res) => {
     deviceSystemsTotal,
     attacksByType,
     eventsTrend,
+    eventsTrendByType,
     scopedToHost: targetHost,
   };
   setCachedSummary(cacheKey, payload);
