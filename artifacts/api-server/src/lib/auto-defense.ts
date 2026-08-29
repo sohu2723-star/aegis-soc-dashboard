@@ -45,6 +45,9 @@ export function toTriggerType(eventType: string, eventSubtype: string): string {
   if (typ === "db_attack")                                 return "db_attack";
   if (typ === "ldap_attack")                               return sub.includes("enum") ? "ldap_enum" : "ldap_brute";
   if (typ === "mitm")                                      return "mitm";
+  // SSH brute-force breaches are stored as auth_event but must retain the
+  // ssh_brute trigger category so existing defense rules continue to fire.
+  if (typ === "auth_event" && (sub.includes("brute force") || sub.includes("brute-force"))) return "ssh_brute";
   if (typ === "auth_event")                                return "auth_event";
 
   // Service-specific checks must precede the generic network/SSH fallback.
