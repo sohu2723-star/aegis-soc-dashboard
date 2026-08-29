@@ -215,18 +215,18 @@ This legacy report did not preserve a complete English AI defense narrative. Use
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   :root {
-    --bg:        #05080f;
-    --surface:   #0d1117;
-    --surface2:  #161b22;
-    --border:    #21262d;
-    --primary:   #22d3ee;
-    --primary-d: #0891b2;
-    --text:      #e6edf3;
-    --muted:     #7d8590;
-    --red:       #f87171;
-    --orange:    #fb923c;
-    --yellow:    #fbbf24;
-    --green:     #4ade80;
+    --bg:        #202630;
+    --surface:   #29313d;
+    --surface2:  #343d4a;
+    --border:    #3b4654;
+    --primary:   #4fa3a5;
+    --primary-d: #3c7f82;
+    --text:      #e2e6ea;
+    --muted:     #aab3be;
+    --red:       #c56b70;
+    --orange:    #c58f5a;
+    --yellow:    #c5a45a;
+    --green:     #6faf82;
   }
 
   body {
@@ -262,11 +262,11 @@ This legacy report did not preserve a complete English AI defense narrative. Use
   .cover-meta { text-align: right; font-size: 11px; color: var(--muted); line-height: 1.8; }
   .cover-meta strong { color: var(--text); }
   .classify-banner {
-    background: linear-gradient(90deg, #1c0a0a, #1f1010, #1c0a0a);
-    border: 1px solid #5f2020;
+    background: linear-gradient(90deg, #2c2326, #332a2d, #2c2326);
+    border: 1px solid #6b4a4e;
     border-radius: 6px; text-align: center;
     padding: 6px 20px; font-size: 10px; font-weight: 700;
-    letter-spacing: 4px; text-transform: uppercase; color: #fca5a5;
+    letter-spacing: 4px; text-transform: uppercase; color: #d8a8ab;
     margin-bottom: 28px;
   }
 
@@ -300,7 +300,7 @@ This legacy report did not preserve a complete English AI defense narrative. Use
     background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
     padding: 16px 12px; text-align: center;
   }
-  .stat-card.accent { border-color: var(--primary-d); background: rgba(8,145,178,0.07); }
+  .stat-card.accent { border-color: var(--primary-d); background: rgba(60,127,130,0.10); }
   .stat-num { font-size: 30px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
   .stat-label { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; }
   .c-primary  { color: var(--primary); }
@@ -319,7 +319,7 @@ This legacy report did not preserve a complete English AI defense narrative. Use
   .summary-section:last-child { margin-bottom: 0; }
   .summary-heading {
     font-size: 9px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase;
-    color: var(--primary); border-bottom: 1px solid rgba(34,211,238,0.2);
+    color: var(--primary); border-bottom: 1px solid rgba(79,163,165,0.25);
     padding-bottom: 6px; margin-bottom: 10px;
     display: flex; align-items: center; gap: 8px;
   }
@@ -353,7 +353,7 @@ This legacy report did not preserve a complete English AI defense narrative. Use
   }
   td { padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
   tr:last-child td { border-bottom: none; }
-  tbody tr:hover { background: rgba(34, 211, 238, 0.03); }
+  tbody tr:hover { background: rgba(79, 163, 165, 0.06); }
 
   .mono { font-family: "Courier New", monospace; }
   .sev-badge {
@@ -361,10 +361,10 @@ This legacy report did not preserve a complete English AI defense narrative. Use
     letter-spacing: 1px; text-transform: uppercase;
     padding: 2px 7px; border-radius: 3px;
   }
-  .sev-critical { background: rgba(248,113,113,0.15); color: var(--red);    border: 1px solid rgba(248,113,113,0.3); }
-  .sev-high     { background: rgba(251,146,60,0.15);  color: var(--orange); border: 1px solid rgba(251,146,60,0.3); }
-  .sev-medium   { background: rgba(251,191,36,0.15);  color: var(--yellow); border: 1px solid rgba(251,191,36,0.3); }
-  .sev-low      { background: rgba(74,222,128,0.15);  color: var(--green);  border: 1px solid rgba(74,222,128,0.3); }
+  .sev-critical { background: rgba(197,107,112,0.18); color: var(--red);    border: 1px solid rgba(197,107,112,0.36); }
+  .sev-high     { background: rgba(197,143,90,0.18);  color: var(--orange); border: 1px solid rgba(197,143,90,0.36); }
+  .sev-medium   { background: rgba(197,164,90,0.18);  color: var(--yellow); border: 1px solid rgba(197,164,90,0.36); }
+  .sev-low      { background: rgba(111,175,130,0.18);  color: var(--green);  border: 1px solid rgba(111,175,130,0.36); }
   .type-tag {
     display: inline-block; background: var(--surface2); border: 1px solid var(--border);
     border-radius: 4px; padding: 1px 7px; font-size: 10px; font-family: "Courier New", monospace; color: var(--muted);
@@ -373,8 +373,8 @@ This legacy report did not preserve a complete English AI defense narrative. Use
     display: inline-block; font-size: 9px; font-weight: 600;
     padding: 2px 7px; border-radius: 3px; text-transform: uppercase; letter-spacing: 1px;
   }
-  .status-blocked  { background: rgba(74,222,128,0.1);  color: var(--green);  border: 1px solid rgba(74,222,128,0.25); }
-  .status-detected { background: rgba(251,146,60,0.1);  color: var(--orange); border: 1px solid rgba(251,146,60,0.25); }
+  .status-blocked  { background: rgba(111,175,130,0.12);  color: var(--green);  border: 1px solid rgba(111,175,130,0.30); }
+  .status-detected { background: rgba(197,143,90,0.12);  color: var(--orange); border: 1px solid rgba(197,143,90,0.30); }
   .status-other    { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
   .inc-id   { font-family: "Courier New", monospace; color: var(--muted); font-size: 11px; }
   .inc-open { color: var(--orange); } .inc-closed { color: var(--green); }
@@ -466,12 +466,12 @@ This legacy report did not preserve a complete English AI defense narrative. Use
       ${Object.entries(typeCounts).sort(([,a],[,b])=>b-a).map(([type, n]) => {
         const pct = totalWindowEvents > 0 ? Math.round((n / totalWindowEvents) * 100) : 0;
         const colorMap: Record<string,string> = {
-          web_attack:"#f87171", ssh_brute:"#fb923c", db_attack:"#fbbf24",
-          dns_attack:"#22d3ee", ldap_attack:"#a78bfa", ddos:"#ef4444",
-          port_scan:"#818cf8", mitm:"#f59e0b", network_attack:"#7d8590",
-          auth_event:"#4ade80", api_attack:"#06b6d4",
+          web_attack:"#c56b70", ssh_brute:"#c58f5a", db_attack:"#c5a45a",
+          dns_attack:"#4fa3a5", ldap_attack:"#8f82a6", ddos:"#b95c63",
+          port_scan:"#7c83a8", mitm:"#b08a56", network_attack:"#7d8791",
+          auth_event:"#6faf82", api_attack:"#5f9da1",
         };
-        const col = colorMap[type] ?? "#7d8590";
+        const col = colorMap[type] ?? "#7d8791";
         return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px">
           <div style="font-size:10px;font-family:'Courier New',monospace;color:${col};font-weight:700;margin-bottom:6px">${type}</div>
           <div style="font-size:22px;font-weight:700;color:var(--text);font-variant-numeric:tabular-nums">${n}</div>

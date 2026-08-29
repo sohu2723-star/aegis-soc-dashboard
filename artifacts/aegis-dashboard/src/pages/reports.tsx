@@ -296,13 +296,13 @@ function VoiceReader({ text }: { text: string }) {
             {paused ? <Play className="w-3 h-3" /> : <Pause className="w-3 h-3" />}
           </button>
           <button onClick={stopPlayback} title="Stop"
-            className="flex items-center gap-1 text-xs text-red-400 border border-red-500/30 hover:border-red-500/60 rounded px-2 py-1.5">
+            className="flex items-center gap-1 text-xs text-destructive border border-destructive/30 hover:border-destructive/60 rounded px-2 py-1.5">
             <Square className="w-3 h-3" />
           </button>
         </>
       )}
       {audioError && !speaking && (
-        <span className="text-[10px] text-red-400 max-w-[12rem]" title={audioError}>
+        <span className="text-[10px] text-destructive max-w-[12rem]" title={audioError}>
           Audio fallback
         </span>
       )}
@@ -460,14 +460,14 @@ export default function Reports() {
     <AlertDialog open={!!deleteTarget} onOpenChange={open => { if (!open) setDeleteTarget(null); }}>
       <AlertDialogContent className="bg-card border-border">
         <AlertDialogHeader>
-          <AlertDialogTitle className="text-red-400 uppercase tracking-widest">Report ဖျက်မည်</AlertDialogTitle>
+          <AlertDialogTitle className="text-destructive uppercase tracking-widest">Report ဖျက်မည်</AlertDialogTitle>
           <AlertDialogDescription>
             <span className="font-bold text-foreground">"{deleteTarget?.title}"</span> ကို ဖျက်မည်။ ဤ action ကို ပြန်ဖြည်မရပါ။
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel className="border-border">Cancel</AlertDialogCancel>
-          <AlertDialogAction className="bg-red-600 hover:bg-red-700 text-white" onClick={confirmDelete}>
+          <AlertDialogAction className="bg-destructive hover:bg-destructive/80 text-white" onClick={confirmDelete}>
             Delete
           </AlertDialogAction>
         </AlertDialogFooter>
@@ -543,7 +543,7 @@ export default function Reports() {
                 <span>Groq AI will generate a complete English security analysis. If AI is unavailable, AEGIS will use a verified English template.</span>
               </div>
               {generateError && (
-                <div className="text-xs text-red-400 bg-red-950/30 border border-red-500/30 rounded p-2" role="alert">
+                <div className="text-xs text-destructive bg-destructive/10 border border-destructive/30 rounded p-2" role="alert">
                   {generateError}
                 </div>
               )}
@@ -602,7 +602,7 @@ export default function Reports() {
         </CardHeader>
         <CardContent className="pt-4">
           {aiError && (
-            <div className="flex items-center gap-2 text-sm text-red-400 bg-red-900/20 border border-red-500/30 rounded p-3">
+            <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 border border-destructive/30 rounded p-3">
               <AlertTriangle className="w-4 h-4 flex-shrink-0" />
               <span>{aiError}</span>
             </div>
@@ -627,14 +627,14 @@ export default function Reports() {
               <div className="lg:col-span-1 space-y-3">
                 <div className="grid grid-cols-3 lg:grid-cols-1 gap-2">
                   <div className="bg-background border border-border rounded p-3 text-center lg:text-left flex lg:flex-row items-center gap-2">
-                    <Zap className="w-4 h-4 text-yellow-400 flex-shrink-0" />
+                    <Zap className="w-4 h-4 text-[#C5A45A] flex-shrink-0" />
                     <div>
                       <div className="text-xs text-muted-foreground uppercase">Events (24h)</div>
                       <div className="font-mono text-lg font-bold">{aiData.dataPoints.totalEvents}</div>
                     </div>
                   </div>
                   <div className="bg-background border border-border rounded p-3 text-center lg:text-left flex lg:flex-row items-center gap-2">
-                    <ShieldCheck className="w-4 h-4 text-red-400 flex-shrink-0" />
+                    <ShieldCheck className="w-4 h-4 text-destructive flex-shrink-0" />
                     <div>
                       <div className="text-xs text-muted-foreground uppercase">Unacked Alerts</div>
                       <div className="font-mono text-lg font-bold">{aiData.dataPoints.unackedAlerts}</div>
@@ -646,7 +646,7 @@ export default function Reports() {
                     <div className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Top Attackers</div>
                     {aiData.dataPoints.topAttackers.map(a => (
                       <div key={a.ip} className="flex justify-between items-center py-0.5">
-                        <span className="font-mono text-xs text-red-400">{a.ip}</span>
+                        <span className="font-mono text-xs text-destructive">{a.ip}</span>
                         <Badge variant="outline" className="text-[10px] border-border">{a.count}</Badge>
                       </div>
                     ))}
@@ -731,7 +731,7 @@ export default function Reports() {
                   <Button
                     variant="outline"
                     size="icon"
-                    className="border-border text-red-500 hover:text-red-400 hover:bg-red-500/10 hover:border-red-500/30"
+                    className="border-border text-destructive hover:text-destructive hover:bg-destructive/10 hover:border-destructive/30"
                     disabled={isDemo || deletingId === report.id}
                     onClick={() => !isDemo && setDeleteTarget({ id: report.id, title: report.title })}
                     title={isDemo ? "Demo mode — read only" : "Delete report"}
