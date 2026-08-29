@@ -775,7 +775,7 @@ router.post("/ingest/http_access", auth, async (req, res) => {
 // HTTP / ModSecurity / Nginx / Web attacks
 // ─────────────────────────────────────────────────────────────────────────────
 router.post("/ingest/http", auth, async (req, res) => {
-  const { src_ip, url, method, status_code, attack_type, payload, user_agent, rule_id, blocked, signature_text } = req.body;
+  const { src_ip, url, method, status_code, attack_type, payload, user_agent, rule_id, blocked, signature_text, targetHost: targetHostParam, dest_ip } = req.body;
   if (!src_ip || !url) { res.status(400).json({ error:"src_ip and url required" }); return; }
 
   // Internal lab IPs must never appear as web attackers.
@@ -807,7 +807,8 @@ router.post("/ingest/http", auth, async (req, res) => {
 
   const event = await insertEvent({
     type:"web_attack", subtype, severity: s,
-    sourceIp: src_ip, targetHost: url.slice(0,128),
+    sourceIp: src_ip,
+    targetHost: resolveTargetHost(targetHostParam ?? dest_ip, "company-web-server"),
     toolUsed:"modsecurity",
     description:`HTTP ${attack_type ?? "attack"}: ${method} ${url.slice(0,100)} | Rule:${rule_id ?? "N/A"} | ${blocked ? "BLOCKED":"DETECTED"}`,
     status: blocked ? "blocked":"detected", layer:"perimeter",

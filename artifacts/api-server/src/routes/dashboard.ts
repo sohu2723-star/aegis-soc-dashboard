@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { securityEventsTable, incidentsTable, alertsTable, systemStatusTable } from "@workspace/db";
-import { count, eq, and, gte, desc, sql } from "drizzle-orm";
+import { count, eq, and, or, like, gte, desc, sql } from "drizzle-orm";
 import { ensureSystemStatusSeeded } from "./system";
 
 const router = Router();
@@ -56,8 +56,40 @@ router.get("/dashboard/summary", async (req, res) => {
   // The client's 8 s "slow" banner fires before this, but without this guard
   // the request would never resolve and retry would pile up.
   const DB_TIMEOUT_MS = 12_000;
-  // Pre-build filters so we don't branch inside Promise.all
-  const baseWhere   = targetHost ? eq(securityEventsTable.targetHost, targetHost) : undefined;
+  // Pre-build filters so we don't branch inside Promise.all.
+  // Events normally store canonical hostnames, but older/alternate ingest paths
+  // may contain the raw device IP or a web URL. Accept all known representations
+  // so selecting a device never hides its existing events.
+  const targetIpByName: Record<string, string> = {
+    "company-web-server": "10.10.10.10",
+    "company-dns-server": "10.10.10.20",
+    "company-customer-db": "10.20.20.10",
+    "company-ldap-server": "10.20.20.20",
+    "aegis-company-admin": "10.30.30.10",
+    "pfSense": "10.30.30.1",
+  };
+  const targetNameByIp = Object.fromEntries(
+    Object.entries(targetIpByName).map(([name, ip]) => [ip, name]),
+  );
+  const canonicalTarget = targetNameByIp[targetHost ?? ""] ?? targetHost;
+  const targetAliases = targetHost
+    ? [targetHost, canonicalTarget, targetIpByName[canonicalTarget ?? ""]]
+        .filter((value): value is string => Boolean(value))
+    : [];
+  const targetConditions = targetAliases.map(value => eq(securityEventsTable.targetHost, value));
+  if (canonicalTarget === "company-web-server") {
+    targetConditions.push(
+      and(
+        eq(securityEventsTable.type, "web_attack"),
+        or(
+          like(securityEventsTable.targetHost, "http://%"),
+          like(securityEventsTable.targetHost, "https://%"),
+          like(securityEventsTable.targetHost, "/%"),
+        ),
+      ),
+    );
+  }
+  const baseWhere = targetHost ? or(...targetConditions) : undefined;
   const since12h = sql`now() - interval '12 hours'`;
 
   // ─── Run the summary queries in bounded batches, with a hard timeout ────────
