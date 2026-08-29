@@ -289,7 +289,10 @@ export default function Events() {
 
   const deviceFiltered = selectedIp
     ? (events ?? []).filter(
-        (e: any) => e.targetHost === selectedIp || e.sourceIp === selectedIp,
+        (e: any) =>
+          e.targetHost === selectedIp ||
+          e.targetHost === selectedDevice?.hostname ||
+          e.sourceIp === selectedIp,
       )
     : events ?? [];
 

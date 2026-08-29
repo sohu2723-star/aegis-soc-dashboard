@@ -189,6 +189,15 @@ const ATTACK_PRESETS: Record<string, {
 const DEFAULT_ATTACK_TYPE = "ssh_brute";
 const DEFAULT_PRESET = ATTACK_PRESETS[DEFAULT_ATTACK_TYPE];
 
+function normalizeNumericInput(value: string): string {
+  const digits = value.replace(/\D/g, "");
+  return digits.replace(/^0+(?=\d)/, "");
+}
+
+function numericValue(value: string): number {
+  return Number(value) || 0;
+}
+
 // ─── Auto-Defense Rules Tab ────────────────────────────────────────────────────
 
 function RulesTab() {
@@ -204,11 +213,11 @@ function RulesTab() {
   const [description, setDescription]           = useState(DEFAULT_PRESET.description);
   const [triggerAttackType, setTriggerAttack]   = useState(DEFAULT_ATTACK_TYPE);
   const [triggerSeverity, setTriggerSeverity]   = useState(DEFAULT_PRESET.severity);
-  const [triggerThreshold, setTriggerThreshold] = useState(DEFAULT_PRESET.threshold);
-  const [triggerWindow, setTriggerWindow]       = useState(DEFAULT_PRESET.windowSecs);
+  const [triggerThreshold, setTriggerThreshold] = useState(String(DEFAULT_PRESET.threshold));
+  const [triggerWindow, setTriggerWindow]       = useState(String(DEFAULT_PRESET.windowSecs));
   const [defenseType, setDefenseType]           = useState(DEFAULT_PRESET.defenseType);
   const [targetVm, setTargetVm]                 = useState(DEFAULT_PRESET.targetVm);
-  const [priority, setPriority]                 = useState(100);
+  const [priority, setPriority]                 = useState(String(100));
 
   // When attack type changes, auto-fill all dependent fields
   function handleAttackTypeChange(v: string) {
@@ -218,8 +227,8 @@ function RulesTab() {
     setName(p.name);
     setDescription(p.description);
     setTriggerSeverity(p.severity);
-    setTriggerThreshold(p.threshold);
-    setTriggerWindow(p.windowSecs);
+    setTriggerThreshold(String(p.threshold));
+    setTriggerWindow(String(p.windowSecs));
     setDefenseType(p.defenseType);
     setTargetVm(p.targetVm);
   }
@@ -228,7 +237,7 @@ function RulesTab() {
     if (isDemo) return;
     if (open) {
       handleAttackTypeChange(DEFAULT_ATTACK_TYPE);
-      setPriority(100);
+      setPriority(String(100));
     }
     setCreateOpen(open);
   }
@@ -285,7 +294,7 @@ function RulesTab() {
       qc.invalidateQueries({ queryKey: ["ui-rules"] });
       setCreateOpen(false);
       handleAttackTypeChange(DEFAULT_ATTACK_TYPE);
-      setPriority(100);
+      setPriority(String(100));
       toast({ title: "Rule Created", description: "Auto-defense rule added." });
     },
     onError: (e: Error) => toast({ title: "Create Failed", description: e.message, variant: "destructive" }),
@@ -294,7 +303,10 @@ function RulesTab() {
   function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     createMutation.mutate({ name, description, triggerAttackType, triggerSeverity,
-      triggerThreshold, triggerWindowSecs: triggerWindow, actionType: "auto", defenseType, targetVm, priority });
+      triggerThreshold: numericValue(triggerThreshold),
+      triggerWindowSecs: numericValue(triggerWindow),
+      actionType: "auto", defenseType, targetVm,
+      priority: numericValue(priority) });
   }
 
   return (
@@ -389,11 +401,11 @@ function RulesTab() {
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs uppercase text-muted-foreground">Threshold (hits)</Label>
-                  <Input type="number" min={1} value={triggerThreshold} onChange={e => setTriggerThreshold(Number(e.target.value))} className="bg-background border-border" />
+                  <Input type="text" inputMode="numeric" pattern="[0-9]*" value={triggerThreshold} onChange={e => setTriggerThreshold(normalizeNumericInput(e.target.value))} className="bg-background border-border" />
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs uppercase text-muted-foreground">Window (seconds)</Label>
-                  <Input type="number" min={1} value={triggerWindow} onChange={e => setTriggerWindow(Number(e.target.value))} className="bg-background border-border" />
+                  <Input type="text" inputMode="numeric" pattern="[0-9]*" value={triggerWindow} onChange={e => setTriggerWindow(normalizeNumericInput(e.target.value))} className="bg-background border-border" />
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs uppercase text-muted-foreground">Defense Type</Label>
@@ -444,7 +456,7 @@ function RulesTab() {
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs uppercase text-muted-foreground">Priority (1=highest)</Label>
-                  <Input type="number" min={1} max={9999} value={priority} onChange={e => setPriority(Number(e.target.value))} className="bg-background border-border" />
+                  <Input type="text" inputMode="numeric" pattern="[0-9]*" maxLength={4} value={priority} onChange={e => setPriority(normalizeNumericInput(e.target.value))} className="bg-background border-border" />
                 </div>
               </div>
               <div className="flex justify-end pt-2">
