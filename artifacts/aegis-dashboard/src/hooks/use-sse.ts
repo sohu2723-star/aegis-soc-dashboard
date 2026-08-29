@@ -46,6 +46,19 @@ export function useSSE() {
       // The store is pruned to the last 24 hours by appendLiveFeed/readLiveFeed.
       try {
         const data = JSON.parse((event as MessageEvent).data ?? "{}");
+        const eventSeverity = String(data.severity ?? "").toLowerCase();
+        window.dispatchEvent(new CustomEvent("aegis:security-event", { detail: data }));
+        // Some ingest paths broadcast security_event before creating the alert
+        // row. Trigger the sound here as well, then deduplicate the later alert.
+        if ((eventSeverity === "critical" || eventSeverity === "high") && data.id) {
+          const alertKey = `${data.id}:${eventSeverity}`;
+          if (!announcedAlertsRef.current.has(alertKey)) {
+            announcedAlertsRef.current.add(alertKey);
+            window.dispatchEvent(new CustomEvent("aegis:alert", {
+              detail: { ...data, eventId: data.id, severity: eventSeverity },
+            }));
+          }
+        }
         appendLiveFeed({
           id: `event-${data.id}`,
           eventId: data.id,

@@ -131,33 +131,25 @@ export function Layout({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    let es: EventSource;
-    let reconnect: ReturnType<typeof setTimeout>;
+    const handleSecurityEvent = (event: Event) => {
+      try {
+        const ev = (event as CustomEvent<Record<string, unknown>>).detail ?? {};
+        const sev = String(ev.severity ?? "").toLowerCase();
+        if (sev !== "critical" && sev !== "high" && sev !== "medium") return;
+        if (flashTimer.current) clearTimeout(flashTimer.current);
+        setFlash({
+          severity: sev as AlertFlash["severity"],
+          evType:   String(ev.type ?? "attack"),
+          srcIp:    String(ev.sourceIp ?? "?"),
+          target:   String(ev.targetHost ?? "?"),
+        });
+        flashTimer.current = setTimeout(clearFlash, 5000);
+      } catch { /* malformed event — skip */ }
+    };
 
-    function connect() {
-      es = new EventSource(`${BASE}/api/events/stream`);
-      es.addEventListener("security_event", (e) => {
-        try {
-          const ev = JSON.parse(e.data);
-          const sev = (ev.severity ?? "").toLowerCase();
-          if (sev !== "critical" && sev !== "high" && sev !== "medium") return;
-          if (flashTimer.current) clearTimeout(flashTimer.current);
-          setFlash({
-            severity: sev as AlertFlash["severity"],
-            evType:   ev.type ?? "attack",
-            srcIp:    ev.sourceIp ?? "?",
-            target:   ev.targetHost ?? "?",
-          });
-          flashTimer.current = setTimeout(clearFlash, 5000);
-        } catch { /* skip */ }
-      });
-      es.onerror = () => { es.close(); reconnect = setTimeout(connect, 6000); };
-    }
-
-    connect();
+    window.addEventListener("aegis:security-event", handleSecurityEvent);
     return () => {
-      es?.close();
-      clearTimeout(reconnect);
+      window.removeEventListener("aegis:security-event", handleSecurityEvent);
       if (flashTimer.current) clearTimeout(flashTimer.current);
     };
   }, [clearFlash]);
