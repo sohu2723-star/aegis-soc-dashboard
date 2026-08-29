@@ -47,13 +47,14 @@ function buildAttackTrend(rows: AttackTrendRow[]): { data: Record<string, string
     byHour.set(row.hour, point);
   }
 
-  // Keep a complete 12-hour x-axis even when only one hour contains events.
-  // The API returns HH:00 labels, so build the timeline from the latest returned
-  // bucket rather than the browser clock; this avoids timezone skew while still
-  // producing a visible line that rises at the event hour.
-  const latestHourLabel = rows.at(-1)?.hour ?? "00:00";
-  const latestHour = Number.parseInt(latestHourLabel.slice(0, 2), 10);
-  const endHour = Number.isFinite(latestHour) ? latestHour : 0;
+  // Keep a complete 12-hour x-axis and end it at the current Myanmar hour.
+  // Intl handles the browser/server timezone difference without changing event data.
+  const myanmarHour = Number(new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Yangon",
+    hour: "2-digit",
+    hourCycle: "h23",
+  }).format(new Date()));
+  const endHour = Number.isFinite(myanmarHour) ? myanmarHour : 0;
   const hours = Array.from({ length: 12 }, (_, index) => {
     const hour = (endHour - 11 + index + 24) % 24;
     return `${String(hour).padStart(2, "0")}:00`;
