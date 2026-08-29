@@ -74,51 +74,41 @@
   --elevate-1: rgba(255,255,255, .04);
   --elevate-2: rgba(255,255,255, .09);
 
-  /* Very dark background for SOC aesthetic */
-  --background: 240 10% 4%;
-  --foreground: 0 0% 98%;
-
-  --border: 240 10% 12%;
-  --input: 240 10% 12%;
-  --ring: 180 100% 50%; /* Electric Cyan */
-
-  --card: 240 10% 6%;
-  --card-foreground: 0 0% 98%;
-  --card-border: 240 10% 15%;
-
-  --popover: 240 10% 6%;
-  --popover-foreground: 0 0% 98%;
-  --popover-border: 240 10% 15%;
-
-  --primary: 180 100% 50%;
-  --primary-foreground: 240 10% 4%;
-
-  --secondary: 240 10% 12%;
-  --secondary-foreground: 0 0% 98%;
-
-  --muted: 240 10% 10%;
-  --muted-foreground: 240 5% 65%;
-
-  --accent: 180 100% 15%;
-  --accent-foreground: 180 100% 50%;
-
-  --destructive: 0 100% 60%;
+  /* Muted graphite blue-gray theme for a calmer SOC interface */
+  --background: 220 19% 17%;
+  --foreground: 210 17% 91%;
+  --border: 214 17% 27%;
+  --input: 214 17% 27%;
+  --ring: 180 35% 48%; /* Muted teal */
+  --card: 220 17% 20%;
+  --card-foreground: 210 17% 91%;
+  --card-border: 214 17% 27%;
+  --popover: 220 17% 20%;
+  --popover-foreground: 210 17% 91%;
+  --popover-border: 214 17% 27%;
+  --primary: 180 35% 48%;
+  --primary-foreground: 220 19% 10%;
+  --secondary: 218 18% 24%;
+  --secondary-foreground: 210 17% 91%;
+  --muted: 218 18% 21%;
+  --muted-foreground: 215 14% 70%;
+  --accent: 180 36% 30%;
+  --accent-foreground: 180 35% 70%;
+  --destructive: 0 46% 60%;
   --destructive-foreground: 0 0% 98%;
-
-  --sidebar: 240 10% 6%;
-  --sidebar-foreground: 0 0% 98%;
-  --sidebar-border: 240 10% 15%;
-  --sidebar-primary: 180 100% 50%;
-  --sidebar-primary-foreground: 240 10% 4%;
-  --sidebar-accent: 240 10% 12%;
-  --sidebar-accent-foreground: 180 100% 50%;
-  --sidebar-ring: 180 100% 50%;
-
-  --chart-1: 180 100% 50%; /* Cyan */
-  --chart-2: 0 100% 60%; /* Red */
-  --chart-3: 30 100% 50%; /* Orange */
-  --chart-4: 120 100% 50%; /* Green */
-  --chart-5: 280 100% 60%; /* Purple */
+  --sidebar: 220 18% 18%;
+  --sidebar-foreground: 210 17% 91%;
+  --sidebar-border: 214 17% 27%;
+  --sidebar-primary: 180 35% 48%;
+  --sidebar-primary-foreground: 220 19% 10%;
+  --sidebar-accent: 218 18% 24%;
+  --sidebar-accent-foreground: 180 35% 70%;
+  --sidebar-ring: 180 35% 48%;
+  --chart-1: 180 35% 48%; /* Muted teal */
+  --chart-2: 0 46% 60%; /* Muted red */
+  --chart-3: 35 45% 56%; /* Muted amber */
+  --chart-4: 140 27% 56%; /* Muted green */
+  --chart-5: 270 35% 60%; /* Muted purple */
 
   --app-font-sans: 'Inter', sans-serif;
   --app-font-mono: 'Menlo', monospace;
