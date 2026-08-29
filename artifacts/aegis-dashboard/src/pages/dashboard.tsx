@@ -38,6 +38,7 @@ function buildAttackTrend(rows: AttackTrendRow[]): { data: Record<string, string
     .sort(([, a], [, b]) => b - a)
     .slice(0, ATTACK_LINE_COLORS.length)
     .map(([type]) => type);
+  if (types.length === 0) return { data: [], types: [] };
   const byHour = new Map<string, Record<string, string | number>>();
   for (const row of rows) {
     if (!types.includes(row.type)) continue;
@@ -45,8 +46,22 @@ function buildAttackTrend(rows: AttackTrendRow[]): { data: Record<string, string
     point[row.type] = row.count;
     byHour.set(row.hour, point);
   }
+
+  // Keep a complete 12-hour x-axis even when only one hour contains events.
+  // The API returns HH:00 labels, so build the timeline from the latest returned
+  // bucket rather than the browser clock; this avoids timezone skew while still
+  // producing a visible line that rises at the event hour.
+  const latestHourLabel = rows.at(-1)?.hour ?? "00:00";
+  const latestHour = Number.parseInt(latestHourLabel.slice(0, 2), 10);
+  const endHour = Number.isFinite(latestHour) ? latestHour : 0;
+  const hours = Array.from({ length: 12 }, (_, index) => {
+    const hour = (endHour - 11 + index + 24) % 24;
+    return `${String(hour).padStart(2, "0")}:00`;
+  });
+
   return {
-    data: [...byHour.values()].map(point => {
+    data: hours.map(hour => {
+      const point = byHour.get(hour) ?? { hour };
       for (const type of types) if (!(type in point)) point[type] = 0;
       return point;
     }),
