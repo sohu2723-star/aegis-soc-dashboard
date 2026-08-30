@@ -422,9 +422,6 @@ export default function Defense() {
                   {status?.autoDefenseEnabled ? "ENABLED" : "DISABLED"}
                 </p>
               </div>
-              <p className="text-[10px] text-muted-foreground/60 mt-1 leading-tight">
-                company VM iptables · pfSense API · all active rules
-              </p>
             </div>
           </CardContent>
         </Card>
@@ -626,9 +623,6 @@ export default function Defense() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <p className="text-xs text-muted-foreground">
-            IP တစ်ခုကို manually block လုပ်မည် — iptables DROP (all VMs) + pfSense EasyRuleBlockHosts တပြိုင်နက် queued ဖြစ်မည်
-          </p>
           <div className="flex gap-2 flex-wrap sm:flex-nowrap">
             <Input
               placeholder="Attacker IP (e.g. 192.168.10.99)"
@@ -758,12 +752,6 @@ export default function Defense() {
             </div>
           )}
 
-          {!aiResult && !aiLoading && !aiError && (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/30 rounded p-3">
-              <Zap className="w-3.5 h-3.5 text-primary/50" />
-              IP တစ်ခု ထည့်ပြီး Analyze လုပ်ပါ — AI မှ attack history ကို ခွဲခြမ်းပြီး defense action recommend လုပ်မည်
-            </div>
-          )}
         </CardContent>
       </Card>
 
@@ -794,12 +782,6 @@ export default function Defense() {
           </div>
         </CardHeader>
         <CardContent className="pt-4">
-          {!ruleRecs && !ruleRecsLoading && !ruleRecsError && (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/30 rounded p-3">
-              <Zap className="w-3.5 h-3.5 text-primary/50" />
-              Recent attack pattern ကို analyze ပြီး defense rules suggest ပေးမည် — "Get AI Suggestions" နှိပ်ပါ
-            </div>
-          )}
           {ruleRecsError && (
             <div className="flex items-center gap-2 text-sm text-red-400 bg-red-900/20 border border-red-500/30 rounded p-3">
               <AlertTriangle className="w-4 h-4 flex-shrink-0" />{ruleRecsError}
