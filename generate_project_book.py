@@ -11,6 +11,7 @@ from docx.shared import Cm, Pt, RGBColor
 # Keep the downloadable filename simple; parentheses in the old upload made the
 # attachment awkward to retrieve from some GitHub/chat clients.
 OUT = Path("AEGIS_SOC_Dashboard_Project_Book.docx")
+ASSET_DIR = Path("docs/assets/project-materials")
 doc = Document()
 section = doc.sections[0]
 section.page_width, section.page_height = Cm(21), Cm(29.7)
@@ -194,7 +195,7 @@ heading("DASHBOARD FUNCTIONS")
 prose("The Command Center summarizes attack volume, severity, active threats, recent events, and component health. Security Events provides the detailed live feed. Active Alerts supports acknowledge and resolve actions. Connections presents SSH and HTTP connection evidence.")
 prose("Network Monitor shows the current pfSense, web, DNS, database, LDAP, and forwarder topology with observed hosts and last-seen information. Defense Center shows native automatic protection, blocked addresses, defense history, and administrator block or unblock controls.")
 prose("Reports presents scheduled and generated SOC summaries. AI tools explain individual events and provide defense recommendations. Defense Rules configures event-response matching, Attack Flow explains the live pipeline, and Settings controls supported application options.")
-image("figure_4_9.png", "AEGIS dashboard overview")
+image(ASSET_DIR / "figure_4_9.png", "AEGIS dashboard overview")
 
 heading("DEFENSE PROCESS")
 prose("AEGIS uses a hybrid defense model. Fast host-level automatic defense remains close to the protected machine: for example, Fail2ban detects repeated SSH failures and adds an iptables block. The forwarder reports the result so that the dashboard and audit history match the real VM state.")
