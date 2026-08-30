@@ -127,7 +127,8 @@ export function useSSE() {
       try {
         const data = JSON.parse(e.data ?? "{}");
         if (data.eventId) markLiveFeedTelegram(data.eventId, data.telegramSent !== false);
-        const alertKey = data.eventId ? `${data.eventId}:${data.severity}` : "";
+        const alertSeverity = String(data.severity ?? "").toLowerCase();
+        const alertKey = data.eventId ? `${data.eventId}:${alertSeverity}` : "";
         if (alertKey && announcedAlertsRef.current.has(alertKey)) return;
         if (alertKey) {
           announcedAlertsRef.current.add(alertKey);
@@ -135,8 +136,15 @@ export function useSSE() {
             announcedAlertsRef.current.delete(announcedAlertsRef.current.values().next().value as string);
           }
         }
-        if (data.severity === "critical" || data.severity === "high") {
-          window.dispatchEvent(new CustomEvent("aegis:alert", { detail: data }));
+        // Some backend paths may emit the alert row without a preceding
+        // security_event packet. Keep the global Viewing bar in sync too.
+        window.dispatchEvent(new CustomEvent("aegis:security-event", {
+          detail: { ...data, type: data.type ?? "attack", severity: alertSeverity },
+        }));
+        if (alertSeverity === "critical" || alertSeverity === "high") {
+          window.dispatchEvent(new CustomEvent("aegis:alert", {
+            detail: { ...data, severity: alertSeverity },
+          }));
         }
       } catch { /* malformed data — skip */ }
     });
