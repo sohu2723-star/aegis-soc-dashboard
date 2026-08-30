@@ -31,9 +31,9 @@ interface EventCommand {
 const CMD_STATUS_COLORS: Record<string, string> = {
   done:      "border-green-500/40 text-green-400 bg-green-500/10",
   executed:  "border-green-500/40 text-green-400 bg-green-500/10",
-  pending:   "border-yellow-500/40 text-yellow-400 bg-yellow-500/10",
-  running:   "border-blue-500/40 text-blue-400 bg-blue-500/10",
-  sent:      "border-blue-500/40 text-blue-400 bg-blue-500/10",
+  pending:   "border-yellow-700/60 dark:border-yellow-500/40 text-yellow-700 dark:text-yellow-400 bg-yellow-500/10",
+  running:   "border-blue-700/60 dark:border-blue-500/40 text-blue-700 dark:text-blue-400 bg-blue-500/10",
+  sent:      "border-blue-700/60 dark:border-blue-500/40 text-blue-700 dark:text-blue-400 bg-blue-500/10",
   failed:    "border-red-500/40 text-red-400 bg-red-500/10",
   cancelled: "border-border text-muted-foreground",
 };
@@ -74,9 +74,9 @@ function useEventCommands(eventId: number | null) {
 
 const SEV_COLORS: Record<string, string> = {
   critical: "border-destructive text-destructive",
-  high:     "border-orange-500 text-orange-500",
-  medium:   "border-yellow-500 text-yellow-500",
-  low:      "border-green-500 text-green-500",
+  high:     "border-orange-700 dark:border-orange-500 text-orange-700 dark:text-orange-400",
+  medium:   "border-yellow-700 dark:border-yellow-500 text-yellow-700 dark:text-yellow-400",
+  low:      "border-green-700 dark:border-green-500 text-green-700 dark:text-green-400",
 };
 
 // Attack type → human-readable label
@@ -314,7 +314,7 @@ export default function Events() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-primary uppercase">Security Events</h1>
           {selectedDevice ? (
-            <p className="text-xs text-cyan-400 font-mono mt-0.5">
+            <p className="text-xs text-cyan-700 dark:text-cyan-400 font-mono mt-0.5">
               Scoped to: {selectedDevice.hostname} ({selectedDevice.ip})
             </p>
           ) : (
@@ -415,7 +415,7 @@ export default function Events() {
                       {authorized && <CheckCircle2 className="w-3 h-3 text-green-400 shrink-0" />}
                       <div>
                         <span className={`font-mono text-xs truncate block ${
-                          breach ? "text-red-400" : authorized ? "text-green-400" : "text-yellow-400"
+                          breach ? "text-red-700 dark:text-red-400" : authorized ? "text-green-700 dark:text-green-400" : "text-yellow-700 dark:text-yellow-400"
                         }`}>
                           {event.subtype}
                         </span>
@@ -430,7 +430,7 @@ export default function Events() {
                     <span className="text-xs text-muted-foreground">—</span>
                   )}
                 </TableCell>
-                <TableCell><span className="font-mono text-xs text-cyan-400">{event.sourceIp}</span></TableCell>
+                <TableCell><span className="font-mono text-xs text-cyan-700 dark:text-cyan-400">{event.sourceIp}</span></TableCell>
                 <TableCell><HostLabel ip={event.targetHost} /></TableCell>
                 <TableCell>
                   {breach ? (
@@ -542,7 +542,7 @@ export default function Events() {
                   <p className={`text-[10px] uppercase tracking-widest font-semibold ${
                     isBreach(ev) || isAuthorized(ev)
                       ? "text-slate-400/70"
-                      : "text-yellow-500/70"
+                      : "text-yellow-700 dark:text-yellow-500/70"
                   }`}>
                     {ev.toolUsed === "ssh" || ev.toolUsed === "apache"
                       ? "Auth Classification"
@@ -550,7 +550,7 @@ export default function Events() {
                   </p>
 
                   {/* Signature name — main hero */}
-                  <p className="font-mono text-sm text-yellow-400 break-words leading-relaxed">
+                  <p className="font-mono text-sm text-yellow-700 dark:text-yellow-400 break-words leading-relaxed">
                     {ev.subtype}
                   </p>
 
@@ -615,7 +615,7 @@ export default function Events() {
                           ? "text-red-300/90 border-red-500/10"
                           : isAuthorized(ev)
                           ? "text-green-300/90 border-green-500/10"
-                          : "text-yellow-300/90 border-yellow-500/10"
+                          : "text-yellow-800 dark:text-yellow-300/90 border-yellow-700/20 dark:border-yellow-500/10"
                       }`}>
                         {ev.signatureText}
                       </pre>

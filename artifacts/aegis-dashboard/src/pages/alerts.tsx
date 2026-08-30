@@ -43,20 +43,20 @@ function useAlerts(limit: number) {
 
 const sevBorder: Record<string, string> = {
   critical: "border-red-600 bg-red-950/30 shadow-[0_0_15px_rgba(220,38,38,0.15)]",
-  high:     "border-orange-600 bg-orange-950/20",
-  medium:   "border-yellow-600 bg-yellow-950/10",
+  high:     "border-orange-700 dark:border-orange-600 bg-orange-50 dark:bg-orange-950/20",
+  medium:   "border-yellow-700 dark:border-yellow-600 bg-yellow-50 dark:bg-yellow-950/10",
   low:      "border-border bg-card",
 };
 const sevText: Record<string, string> = {
   critical: "text-red-400",
-  high:     "text-orange-400",
-  medium:   "text-yellow-400",
+  high:     "text-orange-700 dark:text-orange-400",
+  medium:   "text-yellow-700 dark:text-yellow-400",
   low:      "text-gray-400",
 };
 const sevBadge: Record<string, string> = {
   critical: "border-red-600 text-red-400",
-  high:     "border-orange-500 text-orange-400",
-  medium:   "border-yellow-500 text-yellow-400",
+  high:     "border-orange-700 dark:border-orange-500 text-orange-700 dark:text-orange-400",
+  medium:   "border-yellow-700 dark:border-yellow-500 text-yellow-700 dark:text-yellow-400",
   low:      "border-gray-600 text-gray-400",
 };
 
@@ -111,7 +111,7 @@ export default function Alerts() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-primary uppercase">Active Alerts</h1>
           {selectedDevice ? (
-            <p className="text-xs text-cyan-400 font-mono mt-0.5">
+            <p className="text-xs text-cyan-700 dark:text-cyan-400 font-mono mt-0.5">
               Scoped to: {selectedDevice.hostname} ({selectedDevice.ip})
             </p>
           ) : (
