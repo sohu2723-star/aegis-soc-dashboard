@@ -12,6 +12,16 @@
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="AEGIS Security Dashboard" />
     <meta name="twitter:description" content="AEGIS Security Dashboard — built on Replit. Update this description to reflect the app." />
+    <script>
+      (() => {
+        try {
+          const theme = window.localStorage.getItem("aegis-theme");
+          document.documentElement.dataset.theme = theme === "light" ? "light" : "dark";
+        } catch {
+          document.documentElement.dataset.theme = "dark";
+        }
+      })();
+    </script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>

@@ -1,4 +1,4 @@
-import { ReactNode, useContext, useEffect, useRef, useCallback } from "react";
+import { ReactNode, useContext, useEffect, useRef, useCallback, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { SoundAlertContext } from "@/App";
 import { 
@@ -22,6 +22,8 @@ import {
   Eye,
   QrCode,
   AlertTriangle,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import {
@@ -39,7 +41,6 @@ import {
 } from "@/components/ui/sidebar";
 import { DeviceSelector } from "@/components/device-selector";
 import { QRCodeSVG } from "qrcode.react";
-import { useState } from "react";
 
 // ── Viewing-bar alert state ───────────────────────────────────────────────────
 interface AlertFlash {
@@ -120,6 +121,18 @@ export function Layout({ children }: { children: ReactNode }) {
   const { user, logout, isDemo } = useAuth();
   const { enabled: soundEnabled, toggle: toggleSound } = useContext(SoundAlertContext);
   const [showQR, setShowQR] = useState(false);
+  const [theme, setTheme] = useState<"dark" | "light">(() => {
+    if (typeof window === "undefined") return "dark";
+    return window.localStorage.getItem("aegis-theme") === "light" ? "light" : "dark";
+  });
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.style.colorScheme = theme;
+    window.localStorage.setItem("aegis-theme", theme);
+  }, [theme]);
+
+  const toggleTheme = () => setTheme(current => current === "dark" ? "light" : "dark");
 
   // ── Viewing-bar attack flash ─────────────────────────────────────────────
   const [flash, setFlash] = useState<AlertFlash | null>(null);
@@ -162,7 +175,7 @@ export function Layout({ children }: { children: ReactNode }) {
   return (
     <SidebarProvider>
       {showQR && <DemoQRModal onClose={() => setShowQR(false)} />}
-      <div className="flex min-h-screen w-full bg-background dark text-foreground font-mono">
+      <div className={`flex min-h-screen w-full bg-background text-foreground font-mono ${theme}`}>
         <Sidebar variant="sidebar" className="border-r border-border bg-card">
           <SidebarHeader className="p-4 border-b border-border flex items-center flex-row gap-2">
             <TerminalSquare className="w-6 h-6 text-primary" />
@@ -260,6 +273,20 @@ export function Layout({ children }: { children: ReactNode }) {
                 <span>Read-only Demo</span>
               </div>
             )}
+
+            {/* Theme toggle */}
+            <button
+              onClick={toggleTheme}
+              title={theme === "dark" ? "Switch to light mode for screenshots and printing" : "Switch to dark mode"}
+              aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              className="w-full flex items-center gap-2 px-3 py-2 rounded text-xs font-mono
+                         text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+            >
+              {theme === "dark"
+                ? <Sun className="w-3.5 h-3.5 text-primary" />
+                : <Moon className="w-3.5 h-3.5 text-primary" />}
+              <span>{theme === "dark" ? "Light Mode" : "Dark Mode"}</span>
+            </button>
 
             {/* Sound toggle */}
             <button

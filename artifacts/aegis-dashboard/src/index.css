@@ -124,8 +124,61 @@
   --shadow-2xl: 0px 2px 0px 0px hsl(180 100% 50% / 0.1);
 }
 
+:root[data-theme="light"] {
+  color-scheme: light;
+  --button-outline: rgba(15, 23, 42, .12);
+  --badge-outline: rgba(15, 23, 42, .08);
+  --opaque-button-border-intensity: 12;
+  --elevate-1: rgba(15, 23, 42, .035);
+  --elevate-2: rgba(15, 23, 42, .07);
+
+  /* Clean paper-friendly palette for screenshots and printing */
+  --background: 210 20% 98%;
+  --foreground: 222 47% 11%;
+  --border: 214 20% 86%;
+  --input: 214 20% 82%;
+  --ring: 180 48% 34%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 11%;
+  --card-border: 214 20% 86%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 47% 11%;
+  --popover-border: 214 20% 86%;
+  --primary: 180 48% 32%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 210 16% 93%;
+  --secondary-foreground: 222 35% 18%;
+  --muted: 210 16% 94%;
+  --muted-foreground: 215 16% 42%;
+  --accent: 180 40% 91%;
+  --accent-foreground: 180 48% 24%;
+  --destructive: 0 62% 45%;
+  --destructive-foreground: 0 0% 100%;
+  --sidebar: 213 24% 96%;
+  --sidebar-foreground: 222 47% 11%;
+  --sidebar-border: 214 20% 86%;
+  --sidebar-primary: 180 48% 32%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 180 35% 91%;
+  --sidebar-accent-foreground: 180 48% 24%;
+  --sidebar-ring: 180 48% 34%;
+  --chart-1: 180 48% 32%;
+  --chart-2: 0 62% 45%;
+  --chart-3: 35 75% 40%;
+  --chart-4: 140 45% 34%;
+  --chart-5: 270 45% 45%;
+  --shadow-2xs: 0px 1px 2px 0px hsl(220 25% 20% / 0.06);
+  --shadow-xs: 0px 1px 2px 0px hsl(220 25% 20% / 0.06);
+  --shadow-sm: 0px 1px 3px 0px hsl(220 25% 20% / 0.08);
+  --shadow: 0px 2px 5px -1px hsl(220 25% 20% / 0.10);
+  --shadow-md: 0px 4px 8px -2px hsl(220 25% 20% / 0.12);
+  --shadow-lg: 0px 8px 16px -4px hsl(220 25% 20% / 0.14);
+  --shadow-xl: 0px 12px 24px -6px hsl(220 25% 20% / 0.16);
+  --shadow-2xl: 0px 20px 40px -12px hsl(220 25% 20% / 0.18);
+}
+
 .dark {
-  /* Inherit all from root, we only use dark mode */
+  color-scheme: dark;
 }
 
 @layer base {
@@ -134,6 +187,44 @@
   }
   body {
     @apply font-mono antialiased bg-background text-foreground;
+  }
+}
+
+/* Keep browser/PDF printing legible even if the user forgets to switch modes. */
+@media print {
+  :root {
+    color-scheme: light;
+    --background: 0 0% 100%;
+    --foreground: 222 47% 11%;
+    --border: 214 20% 86%;
+    --input: 214 20% 82%;
+    --ring: 180 48% 34%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --card-border: 214 20% 86%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --popover-border: 214 20% 86%;
+    --primary: 180 48% 32%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 16% 93%;
+    --secondary-foreground: 222 35% 18%;
+    --muted: 210 16% 94%;
+    --muted-foreground: 215 16% 42%;
+    --accent: 180 40% 91%;
+    --accent-foreground: 180 48% 24%;
+    --sidebar: 213 24% 96%;
+    --sidebar-foreground: 222 47% 11%;
+    --sidebar-border: 214 20% 86%;
+    --sidebar-primary: 180 48% 32%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 180 35% 91%;
+    --sidebar-accent-foreground: 180 48% 24%;
+  }
+
+  body {
+    background: white !important;
+    color: #0f172a !important;
   }
 }
 
