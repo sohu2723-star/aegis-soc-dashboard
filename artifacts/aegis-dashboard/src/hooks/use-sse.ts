@@ -13,12 +13,18 @@ import {
 } from "@/lib/live-feed";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+const EVENT_POLL_INTERVAL_MS = 3000;
 
 export function useSSE() {
   const queryClient = useQueryClient();
   const esRef = useRef<EventSource | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollInFlightRef = useRef(false);
+  const lastEventAtRef = useRef(new Date(Date.now() - EVENT_POLL_INTERVAL_MS).toISOString());
+  const seenEventKeysRef = useRef<Set<string>>(new Set());
   const announcedAlertsRef = useRef<Set<string>>(new Set());
+  const eventsDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const invalidateAll = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
@@ -26,6 +32,114 @@ export function useSSE() {
     queryClient.invalidateQueries({ queryKey: getListAlertsQueryKey({}) });
     queryClient.invalidateQueries({ queryKey: getListEventsQueryKey({}) });
   }, [queryClient]);
+
+  // Debounce rapid security_event bursts (e.g. port scans sending 20+ events/s).
+  // React Query refetch fires at most once per 250 ms per key instead of on every event.
+  const scheduleEventRefresh = useCallback(() => {
+    if (eventsDebounceTimerRef.current) clearTimeout(eventsDebounceTimerRef.current);
+    eventsDebounceTimerRef.current = setTimeout(() => {
+      queryClient.invalidateQueries({ queryKey: getGetRecentEventsQueryKey() });
+      queryClient.invalidateQueries({ queryKey: getListEventsQueryKey({}) });
+      // Also refresh KPI cards so Total Events updates without waiting for stats_update
+      queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
+      eventsDebounceTimerRef.current = null;
+    }, 250);
+  }, [queryClient]);
+
+  const processSecurityEvent = useCallback((data: Record<string, any>) => {
+    const eventKey = data.id != null
+      ? `id:${String(data.id)}`
+      : `event:${data.type ?? "unknown"}:${data.sourceIp ?? ""}:${data.targetHost ?? ""}:${data.createdAt ?? ""}`;
+    if (seenEventKeysRef.current.has(eventKey)) return;
+    seenEventKeysRef.current.add(eventKey);
+    if (seenEventKeysRef.current.size > 1000) {
+      seenEventKeysRef.current.delete(seenEventKeysRef.current.values().next().value as string);
+    }
+
+    const eventSeverity = String(data.severity ?? "").toLowerCase();
+    const createdAt = typeof data.createdAt === "string"
+      ? data.createdAt
+      : new Date().toISOString();
+    if (createdAt > lastEventAtRef.current) lastEventAtRef.current = createdAt;
+
+    // All realtime producers use the same browser events, so the global
+    // notice bar, sound alert, and Threat Map stay in sync for both SSE and
+    // REST-poll fallback delivery.
+    window.dispatchEvent(new CustomEvent("aegis:security-event", { detail: data }));
+    // Some ingest paths broadcast security_event before creating the alert
+    // row. Trigger the sound here as well, then deduplicate the later alert.
+    if ((eventSeverity === "critical" || eventSeverity === "high") && data.id) {
+      const alertKey = `${data.id}:${eventSeverity}`;
+      if (!announcedAlertsRef.current.has(alertKey)) {
+        announcedAlertsRef.current.add(alertKey);
+        window.dispatchEvent(new CustomEvent("aegis:alert", {
+          detail: { ...data, eventId: data.id, severity: eventSeverity },
+        }));
+      }
+    }
+    appendLiveFeed({
+      id: `event-${data.id}`,
+      eventId: data.id,
+      createdAt,
+      evType: data.type ?? "unknown",
+      severity: data.severity ?? "medium",
+      srcIp: data.sourceIp ?? "?",
+      target: data.targetHost ?? "?",
+      desc: data.description ?? "",
+      defense: false,
+      telegram: false,
+      toolUsed: data.toolUsed ?? undefined,
+      signatureText: data.signatureText ?? undefined,
+    });
+
+    // Paint the persisted event immediately instead of waiting for the
+    // next polling cycle. The background invalidation below still
+    // reconciles this optimistic cache entry with PostgreSQL.
+    queryClient.setQueryData<any[]>(getGetRecentEventsQueryKey(), (current) => {
+      const withoutDuplicate = (current ?? []).filter((item: any) => item.id !== data.id);
+      return [data, ...withoutDuplicate].slice(0, 20);
+    });
+    scheduleEventRefresh();
+  }, [queryClient, scheduleEventRefresh]);
+
+  const stopEventPolling = useCallback(() => {
+    if (pollTimerRef.current) {
+      clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+  }, []);
+
+  const pollEvents = useCallback(async () => {
+    if (pollInFlightRef.current) return;
+    pollInFlightRef.current = true;
+    try {
+      const since = encodeURIComponent(lastEventAtRef.current);
+      const response = await fetch(`${BASE}/api/events?limit=100&since=${since}`, {
+        cache: "no-store",
+      });
+      if (!response.ok) return;
+      const rows = await response.json();
+      if (!Array.isArray(rows)) return;
+      // The API returns newest first; process oldest first so the notice bar,
+      // sound, and map reflect the actual event order during a short outage.
+      rows
+        .filter((row): row is Record<string, any> => row && typeof row === "object")
+        .sort((a, b) => String(a.createdAt ?? "").localeCompare(String(b.createdAt ?? "")))
+        .forEach(processSecurityEvent);
+    } catch {
+      // Keep retrying while the API is unavailable. SSE remains the primary
+      // channel and will stop this fallback as soon as it reconnects.
+    } finally {
+      pollInFlightRef.current = false;
+    }
+  }, [processSecurityEvent]);
+
+  const startEventPolling = useCallback(() => {
+    if (pollTimerRef.current) return;
+    void pollEvents();
+    pollTimerRef.current = setInterval(() => void pollEvents(), EVENT_POLL_INTERVAL_MS);
+  }, [pollEvents]);
 
   const connect = useCallback(() => {
     if (esRef.current) {
@@ -35,64 +149,17 @@ export function useSSE() {
     const es = new EventSource(`${BASE}/api/events/stream`);
     esRef.current = es;
 
-    es.addEventListener("connected", () => {});
-
-    // Debounce rapid security_event bursts (e.g. port scans sending 20+ events/s).
-    // React Query refetch fires at most once per 250 ms per key instead of on every event.
-    let eventsDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+    es.addEventListener("connected", () => {
+      if (esRef.current !== es) return;
+      stopEventPolling();
+    });
 
     es.addEventListener("security_event", (event: MessageEvent) => {
       // Keep the live feed independent from the currently mounted page.
       // The store is pruned to the last 24 hours by appendLiveFeed/readLiveFeed.
       try {
-        const data = JSON.parse((event as MessageEvent).data ?? "{}");
-        const eventSeverity = String(data.severity ?? "").toLowerCase();
-        window.dispatchEvent(new CustomEvent("aegis:security-event", { detail: data }));
-        // Some ingest paths broadcast security_event before creating the alert
-        // row. Trigger the sound here as well, then deduplicate the later alert.
-        if ((eventSeverity === "critical" || eventSeverity === "high") && data.id) {
-          const alertKey = `${data.id}:${eventSeverity}`;
-          if (!announcedAlertsRef.current.has(alertKey)) {
-            announcedAlertsRef.current.add(alertKey);
-            window.dispatchEvent(new CustomEvent("aegis:alert", {
-              detail: { ...data, eventId: data.id, severity: eventSeverity },
-            }));
-          }
-        }
-        appendLiveFeed({
-          id: `event-${data.id}`,
-          eventId: data.id,
-          createdAt: data.createdAt ?? new Date().toISOString(),
-          evType: data.type ?? "unknown",
-          severity: data.severity ?? "medium",
-          srcIp: data.sourceIp ?? "?",
-          target: data.targetHost ?? "?",
-          desc: data.description ?? "",
-          defense: false,
-          telegram: false,
-          toolUsed: data.toolUsed ?? undefined,
-          signatureText: data.signatureText ?? undefined,
-        });
-
-        // Paint the persisted event immediately instead of waiting for the
-        // next polling cycle. The background invalidation below still
-        // reconciles this optimistic cache entry with PostgreSQL.
-        queryClient.setQueryData<any[]>(getGetRecentEventsQueryKey(), (current) => {
-          const withoutDuplicate = (current ?? []).filter((item: any) => item.id !== data.id);
-          return [data, ...withoutDuplicate].slice(0, 20);
-        });
+        processSecurityEvent(JSON.parse(event.data ?? "{}"));
       } catch { /* malformed data — skip persistence */ }
-      // Debounce: only refetch after 250 ms of quiet — avoids a cascade of
-      // network requests when a port scan floods 20+ events per second.
-      if (eventsDebounceTimer) clearTimeout(eventsDebounceTimer);
-      eventsDebounceTimer = setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: getGetRecentEventsQueryKey() });
-        queryClient.invalidateQueries({ queryKey: getListEventsQueryKey({}) });
-        // Also refresh KPI cards so Total Events updates without waiting for stats_update
-        queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
-        queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
-        eventsDebounceTimer = null;
-      }, 250);
     });
 
     es.addEventListener("defense_action", (event: MessageEvent) => {
@@ -167,11 +234,16 @@ export function useSSE() {
     });
 
     es.onerror = () => {
+      if (esRef.current !== es) return;
       es.close();
       esRef.current = null;
+      // REST polling keeps notifications and the map alive while the SSE
+      // connection is down. A later successful SSE connection stops polling.
+      startEventPolling();
+      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
       reconnectTimer.current = setTimeout(connect, 3000);
     };
-  }, [queryClient]);
+  }, [processSecurityEvent, queryClient, startEventPolling, stopEventPolling]);
 
   useEffect(() => {
     connect();
@@ -182,9 +254,15 @@ export function useSSE() {
       }
       if (reconnectTimer.current) {
         clearTimeout(reconnectTimer.current);
+        reconnectTimer.current = null;
+      }
+      stopEventPolling();
+      if (eventsDebounceTimerRef.current) {
+        clearTimeout(eventsDebounceTimerRef.current);
+        eventsDebounceTimerRef.current = null;
       }
     };
-  }, [connect]);
+  }, [connect, stopEventPolling]);
 
   return { invalidateAll };
 }
