@@ -9,7 +9,30 @@ const port = Number(rawPort);
 
 const basePath = process.env.BASE_PATH ?? "/";
 
-const apiUrl = process.env.VITE_API_URL ?? `http://localhost:${process.env.API_PORT ?? 3000}`;
+const localApiUrl = `http://localhost:${process.env.API_PORT ?? 3000}`;
+const renderApiUrl = "https://aegis-api-server-jp3b.onrender.com";
+
+async function resolveApiUrl() {
+  // An explicit URL is always authoritative for CI, preview, or a custom
+  // deployment. Otherwise prefer the local API when it is already running.
+  if (process.env.VITE_API_URL) return process.env.VITE_API_URL;
+
+  try {
+    const response = await fetch(`${localApiUrl}/api/ping`, {
+      signal: AbortSignal.timeout(1200),
+    });
+    if (response.ok) return localApiUrl;
+  } catch {
+    // The local API may be intentionally absent in the Replit editor preview.
+  }
+
+  // Keep the dashboard usable when the local API workflow is unavailable.
+  // Render is the deployed API and exposes the same /api routes, including
+  // the SSE stream used by the live notification path.
+  return renderApiUrl;
+}
+
+const apiUrl = await resolveApiUrl();
 
 export default defineConfig({
   base: basePath,
