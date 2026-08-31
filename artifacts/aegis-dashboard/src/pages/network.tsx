@@ -12,6 +12,7 @@ import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianG
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format, formatDistanceToNow } from "date-fns";
 import { useDeviceContext, type NetworkHost } from "@/lib/device-context";
+import { fetchWithApiFailover } from "@/lib/api-failover";
 
 interface TrafficPoint {
   time: string;
@@ -38,7 +39,7 @@ function useNetworkHosts() {
   return useQuery<NetworkHost[]>({
     queryKey: ["network-hosts"],
     queryFn: async () => {
-      const r = await fetch(`${BASE}/api/network/hosts`);
+      const r = await fetchWithApiFailover("/api/network/hosts");
       if (!r.ok) throw new Error("Failed to fetch hosts");
       return r.json();
     },
@@ -50,7 +51,7 @@ function useNetworkTraffic() {
   return useQuery<TrafficPoint[]>({
     queryKey: ["network-traffic"],
     queryFn: async () => {
-      const r = await fetch(`${BASE}/api/network/traffic`);
+      const r = await fetchWithApiFailover("/api/network/traffic");
       if (!r.ok) throw new Error("Failed to fetch traffic");
       return r.json();
     },
@@ -62,7 +63,7 @@ function useHostEvents(ip: string | null) {
   return useQuery<HostEvents>({
     queryKey: ["host-events", ip],
     queryFn: async () => {
-      const r = await fetch(`${BASE}/api/network/hosts/${encodeURIComponent(ip!)}/events?limit=500`);
+      const r = await fetchWithApiFailover(`/api/network/hosts/${encodeURIComponent(ip!)}/events?limit=500`);
       if (!r.ok) throw new Error("Failed to fetch host events");
       return r.json();
     },
