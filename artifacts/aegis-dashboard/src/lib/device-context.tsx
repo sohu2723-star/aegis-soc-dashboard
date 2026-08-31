@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { fetchWithApiFailover } from "@/lib/api-failover";
 
 export interface NetworkHost {
   id: number;
@@ -14,14 +15,13 @@ export interface NetworkHost {
   lastSeen: string;
 }
 
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const STORAGE_KEY = "aegis-selected-device-ip";
 
 function useAllHosts() {
   return useQuery<NetworkHost[]>({
     queryKey: ["network-hosts"],
     queryFn: async () => {
-      const r = await fetch(`${BASE}/api/network/hosts`);
+      const r = await fetchWithApiFailover("/api/network/hosts");
       if (!r.ok) throw new Error("Failed to fetch hosts");
       return r.json();
     },
