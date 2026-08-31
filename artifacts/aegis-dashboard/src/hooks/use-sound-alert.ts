@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const STORAGE_KEY = "aegis-sound-alerts";
 
@@ -83,15 +83,35 @@ export function useSoundAlert() {
     };
   }, []);
 
+  const lastSoundRef = useRef<{ key: string; at: number } | null>(null);
+
   useEffect(() => {
     const handler = (e: Event) => {
       if (!enabled) return;
-      const severity = (e as CustomEvent<{ severity: string }>).detail?.severity;
+      const detail = (e as CustomEvent<Record<string, unknown>>).detail ?? {};
+      const severity = String(detail.severity ?? "").toLowerCase();
+      if (severity !== "critical" && severity !== "high") return;
+
+      // The same alert may arrive once as a security_event and again as an
+      // alert packet. Keep one sound per event while still supporting either
+      // producer independently.
+      const eventId = detail.eventId ?? detail.id;
+      const key = eventId != null
+        ? `${eventId}:${severity}`
+        : `${severity}:${detail.type ?? ""}:${detail.sourceIp ?? ""}:${detail.targetHost ?? ""}`;
+      const now = Date.now();
+      if (lastSoundRef.current?.key === key && now - lastSoundRef.current.at < 1500) return;
+      lastSoundRef.current = { key, at: now };
+
       if (severity === "critical") playCritical();
-      else if (severity === "high")     playHigh();
+      else playHigh();
     };
+    window.addEventListener("aegis:security-event", handler);
     window.addEventListener("aegis:alert", handler);
-    return () => window.removeEventListener("aegis:alert", handler);
+    return () => {
+      window.removeEventListener("aegis:security-event", handler);
+      window.removeEventListener("aegis:alert", handler);
+    };
   }, [enabled]);
 
   const toggle = () => setEnabled(v => !v);

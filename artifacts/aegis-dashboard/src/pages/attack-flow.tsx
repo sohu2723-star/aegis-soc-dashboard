@@ -433,38 +433,53 @@ export default function AttackFlowPage() {
     let es: EventSource;
     let reconnect: ReturnType<typeof setTimeout>;
 
+    const handleSecurityEvent = (event: Event) => {
+      try {
+        const ev = (event as CustomEvent<Record<string, unknown>>).detail ?? {};
+        const rawId = ev.id;
+        const packetId = rawId == null ? undefined : String(rawId);
+        const eventId = rawId == null ? undefined : Number(rawId);
+        const severity = String(ev.severity ?? "medium").toLowerCase();
+        const type = String(ev.type ?? "unknown");
+        const sourceIp = String(ev.sourceIp ?? "");
+        const targetHost = String(ev.targetHost ?? "");
+        const pkt = addPacket({
+          id: packetId,
+          severity,
+          type,
+          targetHost,
+          sourceIp,
+        });
+        setStats(s => ({ ...s, attacks: s.attacks + 1 }));
+        setLastEventTs(ts => ts + 1);
+
+        // Update live attacker IP on the node
+        if (sourceIp) setAttackerIp(sourceIp);
+
+        // Pulse attacker
+        setPulseNodes(prev => new Set([...prev, "attacker"]));
+        setTimeout(() => setPulseNodes(prev => { const n = new Set(prev); n.delete("attacker"); return n; }), 1400);
+
+        setLog(prev => [{
+          id: pkt.id,
+          eventId: Number.isFinite(eventId) ? eventId : undefined,
+          ts: now(),
+          tsMs: Date.now(),
+          evType: type,
+          severity,
+          srcIp: sourceIp || "?",
+          target: targetHost || "?",
+          desc: String(ev.description ?? ""),
+          defense: false,
+          telegram: false,
+          toolUsed: typeof ev.toolUsed === "string" ? ev.toolUsed : undefined,
+          signatureText: typeof ev.signatureText === "string" ? ev.signatureText : undefined,
+        }, ...prev]);
+      } catch { /* skip malformed */ }
+    };
+
     function connect() {
       es = new EventSource(`${BASE}/api/events/stream`);
-
-      es.addEventListener("security_event", (e) => {
-        try {
-          const ev = JSON.parse(e.data);
-          const pkt = addPacket(ev);
-          setStats(s => ({ ...s, attacks: s.attacks + 1 }));
-          setLastEventTs(ts => ts + 1);
-
-          // Update live attacker IP on the node
-          if (ev.sourceIp) setAttackerIp(ev.sourceIp);
-
-          // Pulse attacker
-          setPulseNodes(prev => new Set([...prev, "attacker"]));
-           setTimeout(() => setPulseNodes(prev => { const n = new Set(prev); n.delete("attacker"); return n; }), 1400);
-
-          const sev = ev.severity ?? "medium";
-           setLog(prev => [{
-             id: pkt.id, eventId: ev.id, ts: now(), tsMs: Date.now(),
-            evType: ev.type ?? "unknown",
-            severity: sev,
-            srcIp: ev.sourceIp ?? "?",
-            target: ev.targetHost ?? "?",
-            desc: ev.description ?? "",
-            defense: false,
-             telegram: false,
-            toolUsed: ev.toolUsed ?? undefined,
-            signatureText: ev.signatureText ?? undefined,
-          }, ...prev]);
-        } catch { /* skip malformed */ }
-      });
 
       es.addEventListener("defense_action", (e) => {
         try {
@@ -596,8 +611,13 @@ export default function AttackFlowPage() {
       };
     }
 
+    window.addEventListener("aegis:security-event", handleSecurityEvent);
     connect();
-    return () => { es?.close(); clearTimeout(reconnect); };
+    return () => {
+      window.removeEventListener("aegis:security-event", handleSecurityEvent);
+      es?.close();
+      clearTimeout(reconnect);
+    };
   }, []);
 
   // ── Packet position ──────────────────────────────────────────────────────
