@@ -214,6 +214,7 @@ export default function AttackFlowPage() {
   const prevNowRef       = useRef<number>(0);
   const audioCtxRef      = useRef<AudioContext | null>(null);
   const prevPktSegsRef   = useRef<Map<string, number>>(new Map());
+  const seenSecurityEventsRef = useRef<Set<string>>(new Set());
 
   // The database is authoritative. Hydrate recent events so changing browser,
   // clearing localStorage, or opening the map after an SSE disconnect does not
@@ -443,6 +444,14 @@ export default function AttackFlowPage() {
         const type = String(ev.type ?? "unknown");
         const sourceIp = String(ev.sourceIp ?? "");
         const targetHost = String(ev.targetHost ?? "");
+        const eventKey = rawId != null
+          ? `id:${String(rawId)}`
+          : `event:${type}:${sourceIp}:${targetHost}:${String(ev.createdAt ?? "")}`;
+        if (seenSecurityEventsRef.current.has(eventKey)) return;
+        seenSecurityEventsRef.current.add(eventKey);
+        if (seenSecurityEventsRef.current.size > 1000) {
+          seenSecurityEventsRef.current.delete(seenSecurityEventsRef.current.values().next().value as string);
+        }
         const pkt = addPacket({
           id: packetId,
           severity,
@@ -480,6 +489,17 @@ export default function AttackFlowPage() {
 
     function connect() {
       es = new EventSource(`${BASE}/api/events/stream`);
+
+      // Keep a page-local SSE listener as a safety net for the map. The
+      // app-wide useSSE hook normally forwards this event through
+      // aegis:security-event, but the map must continue to animate if that
+      // shared forwarding path is interrupted during a reconnect.
+      es.addEventListener("security_event", (event) => {
+        try {
+          const data = JSON.parse(event.data ?? "{}");
+          handleSecurityEvent(new CustomEvent("aegis:security-event", { detail: data }));
+        } catch { /* malformed data — skip */ }
+      });
 
       es.addEventListener("defense_action", (e) => {
         try {
