@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, type MutableRefObject } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   getGetDashboardSummaryQueryKey,
@@ -11,6 +11,7 @@ import {
   appendLiveFeed,
   markLiveFeedTelegram,
 } from "@/lib/live-feed";
+import { RAILWAY_API_URL } from "@/lib/api-failover";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const EVENT_POLL_INTERVAL_MS = 3000;
@@ -22,6 +23,9 @@ export function useSSE() {
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollInFlightRef = useRef(false);
   const lastEventAtRef = useRef(new Date(Date.now() - EVENT_POLL_INTERVAL_MS).toISOString());
+  const backupPollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const backupPollInFlightRef = useRef(false);
+  const lastBackupEventAtRef = useRef(new Date(Date.now() - EVENT_POLL_INTERVAL_MS).toISOString());
   const seenEventKeysRef = useRef<Set<string>>(new Set());
   const announcedAlertsRef = useRef<Set<string>>(new Set());
   const eventsDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -47,7 +51,15 @@ export function useSSE() {
     }, 250);
   }, [queryClient]);
 
-  const processSecurityEvent = useCallback((data: Record<string, any>) => {
+  const processSecurityEvent = useCallback((
+    data: Record<string, any>,
+    cursorRef: MutableRefObject<string>,
+  ) => {
+    const createdAt = typeof data.createdAt === "string"
+      ? data.createdAt
+      : new Date().toISOString();
+    if (createdAt > cursorRef.current) cursorRef.current = createdAt;
+
     const eventKey = data.id != null
       ? `id:${String(data.id)}`
       : `event:${data.type ?? "unknown"}:${data.sourceIp ?? ""}:${data.targetHost ?? ""}:${data.createdAt ?? ""}`;
@@ -58,10 +70,6 @@ export function useSSE() {
     }
 
     const eventSeverity = String(data.severity ?? "").toLowerCase();
-    const createdAt = typeof data.createdAt === "string"
-      ? data.createdAt
-      : new Date().toISOString();
-    if (createdAt > lastEventAtRef.current) lastEventAtRef.current = createdAt;
 
     // All realtime producers use the same browser events, so the global
     // notice bar, sound alert, and Threat Map stay in sync for both SSE and
@@ -126,7 +134,7 @@ export function useSSE() {
       rows
         .filter((row): row is Record<string, any> => row && typeof row === "object")
         .sort((a, b) => String(a.createdAt ?? "").localeCompare(String(b.createdAt ?? "")))
-        .forEach(processSecurityEvent);
+        .forEach((row) => processSecurityEvent(row, lastEventAtRef));
     } catch {
       // Keep retrying while the API is unavailable. SSE remains the primary
       // channel and will stop this fallback as soon as it reconnects.
@@ -140,6 +148,50 @@ export function useSSE() {
     void pollEvents();
     pollTimerRef.current = setInterval(() => void pollEvents(), EVENT_POLL_INTERVAL_MS);
   }, [pollEvents]);
+
+  // The forwarder can fail over from Render to Railway while both API
+  // instances remain healthy. In that window Railway owns the in-memory SSE
+  // broadcast, so also read its persisted events. This is intentionally
+  // secondary-only; Render remains the dashboard's primary API.
+  const pollBackupEvents = useCallback(async () => {
+    if (backupPollInFlightRef.current) return;
+    backupPollInFlightRef.current = true;
+    try {
+      const since = encodeURIComponent(lastBackupEventAtRef.current);
+      const response = await fetch(
+        `${RAILWAY_API_URL}/api/events?limit=100&since=${since}`,
+        { cache: "no-store" },
+      );
+      if (!response.ok) return;
+      const rows = await response.json();
+      if (!Array.isArray(rows)) return;
+      rows
+        .filter((row): row is Record<string, any> => row && typeof row === "object")
+        .sort((a, b) => String(a.createdAt ?? "").localeCompare(String(b.createdAt ?? "")))
+        .forEach((row) => processSecurityEvent(row, lastBackupEventAtRef));
+    } catch {
+      // Railway is an optional secondary source. Render SSE and polling keep
+      // working if Railway is unavailable.
+    } finally {
+      backupPollInFlightRef.current = false;
+    }
+  }, [processSecurityEvent]);
+
+  const startBackupEventPolling = useCallback(() => {
+    if (backupPollTimerRef.current) return;
+    void pollBackupEvents();
+    backupPollTimerRef.current = setInterval(
+      () => void pollBackupEvents(),
+      EVENT_POLL_INTERVAL_MS,
+    );
+  }, [pollBackupEvents]);
+
+  const stopBackupEventPolling = useCallback(() => {
+    if (backupPollTimerRef.current) {
+      clearInterval(backupPollTimerRef.current);
+      backupPollTimerRef.current = null;
+    }
+  }, []);
 
   const connect = useCallback(() => {
     if (esRef.current) {
@@ -158,7 +210,7 @@ export function useSSE() {
       // Keep the live feed independent from the currently mounted page.
       // The store is pruned to the last 24 hours by appendLiveFeed/readLiveFeed.
       try {
-        processSecurityEvent(JSON.parse(event.data ?? "{}"));
+        processSecurityEvent(JSON.parse(event.data ?? "{}"), lastEventAtRef);
       } catch { /* malformed data — skip persistence */ }
     });
 
@@ -247,6 +299,7 @@ export function useSSE() {
 
   useEffect(() => {
     connect();
+    startBackupEventPolling();
     return () => {
       if (esRef.current) {
         esRef.current.close();
@@ -257,12 +310,13 @@ export function useSSE() {
         reconnectTimer.current = null;
       }
       stopEventPolling();
+      stopBackupEventPolling();
       if (eventsDebounceTimerRef.current) {
         clearTimeout(eventsDebounceTimerRef.current);
         eventsDebounceTimerRef.current = null;
       }
     };
-  }, [connect, stopEventPolling]);
+  }, [connect, startBackupEventPolling, stopEventPolling, stopBackupEventPolling]);
 
   return { invalidateAll };
 }
