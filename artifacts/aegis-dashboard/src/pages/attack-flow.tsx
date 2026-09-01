@@ -126,18 +126,37 @@ const NOTIFY_EDGES: [NodeKey, NodeKey][] = [
 // Mirrors real lab data flow: attack hits VM → fail2ban/SSH watcher logs it →
 // forwarder SSH-tails the log → POSTs to Render API → AEGIS dashboard shows it.
 function getAttackPath(targetHost: string | null | undefined): NodeKey[] {
-  const t = (targetHost ?? "").toLowerCase();
-  if (t.includes("company") || t.includes("web") || t === "10.10.10.10" || t.includes("apache") || t.includes("dvwa")) {
+  // Prefer the concrete lab IP before matching labels.  A label such as
+  // "company-dns-server" also contains "company", so a broad company check
+  // would incorrectly route every company service to the web node.
+  const t = (targetHost ?? "").trim().toLowerCase();
+  const host = t.replace(/\s*\(.*$/, "").replace(/\/\d{1,2}$/, "").trim();
+
+  if (host === "10.10.10.10") {
     return ["attacker", "r1", "pfsense", "companyweb", "forwarder", "aegis"];
   }
-  if (t.includes("dns") || t === "10.10.10.20" || t.includes("bind")) {
+  if (host === "10.10.10.20") {
     return ["attacker", "r1", "pfsense", "dnsserver", "forwarder", "aegis"];
   }
-  if (t.includes("ldap") || t === "10.20.20.20" || t.includes("slapd") || t.includes("openldap")) {
+  if (host === "10.20.20.10") {
+    return ["attacker", "r1", "pfsense", "customerdb", "forwarder", "aegis"];
+  }
+  if (host === "10.20.20.20") {
     return ["attacker", "r1", "pfsense", "ldapserver", "forwarder", "aegis"];
   }
-  if (t.includes("db") || t.includes("customer") || t === "10.20.20.10" || t.includes("postgres") || t.includes("sql")) {
+
+  // Keep label/service fallbacks for older events that did not store the IP.
+  if (t.includes("dns") || t.includes("bind")) {
+    return ["attacker", "r1", "pfsense", "dnsserver", "forwarder", "aegis"];
+  }
+  if (t.includes("ldap") || t.includes("slapd") || t.includes("openldap")) {
+    return ["attacker", "r1", "pfsense", "ldapserver", "forwarder", "aegis"];
+  }
+  if (t.includes("db") || t.includes("customer") || t.includes("postgres") || t.includes("mysql")) {
     return ["attacker", "r1", "pfsense", "customerdb", "forwarder", "aegis"];
+  }
+  if (t.includes("web") || t.includes("apache") || t.includes("dvwa")) {
+    return ["attacker", "r1", "pfsense", "companyweb", "forwarder", "aegis"];
   }
   // Generic / pfsense-only event (Suricata IDS — no specific VM target)
   return ["attacker", "r1", "pfsense", "forwarder", "aegis"];
