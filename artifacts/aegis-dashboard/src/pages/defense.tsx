@@ -203,26 +203,25 @@ export default function Defense() {
   const hasMoreActions = actions.length === actionLimit;
 
   // Track which services just changed state for visual flash
-  const prevStatusRef = useRef<{ fail2ban?: boolean; suricata?: boolean }>({});
+  const prevStatusRef = useRef<{ suricata?: boolean }>({});
   const [changedServices, setChangedServices] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!status) return;
     const prev = prevStatusRef.current;
     const changed = new Set<string>();
-    if (prev.fail2ban !== undefined && prev.fail2ban !== status.fail2banActive) changed.add("fail2ban");
     if (prev.suricata !== undefined && prev.suricata !== status.suricataActive) changed.add("suricata");
     if (changed.size > 0) {
       setChangedServices(changed);
       const svc = Array.from(changed).join(", ");
       toast({
         title: "Service status changed",
-        description: `${svc} is now ${changed.has("fail2ban") ? (status.fail2banActive ? "ACTIVE" : "DOWN") : (status.suricataActive ? "ACTIVE" : "DOWN")}`,
-        variant: changed.has("fail2ban") ? (status.fail2banActive ? "default" : "destructive") : "default",
+        description: `${svc} is now ${status.suricataActive ? "ACTIVE" : "DOWN"}`,
+        variant: "default",
       });
       setTimeout(() => setChangedServices(new Set()), 5000);
     }
-    prevStatusRef.current = { fail2ban: status.fail2banActive, suricata: status.suricataActive };
+    prevStatusRef.current = { suricata: status.suricataActive };
   }, [status, toast]);
 
   const activeBlocks = blocks.filter(b => b.isActive);
@@ -342,7 +341,7 @@ export default function Defense() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-primary uppercase">Defense Center</h1>
           <p className="text-sm text-muted-foreground">
-            Fail2ban and auto-defense status.
+            Automated defense activity.
             {deviceFilter && <span className="text-cyan-400 font-mono"> — scoped to {deviceFilter}</span>}
           </p>
         </div>
@@ -368,18 +367,9 @@ export default function Defense() {
           </CardContent>
         </Card>
 
-        {/* When device scoped: show inline Fail2ban + Suricata in same 4-col row */}
+        {/* When device scoped: show the pfSense Suricata status */}
         {deviceFilter && (
           <>
-            {/* Fail2ban status — VM hosts only; pfSense has no fail2ban */}
-            {selectedDevice?.role !== "pfsense" && (
-              <ServiceCard
-                label="Fail2Ban"
-                active={status?.fail2banActive}
-                icon={<Shield className="w-8 h-8 text-green-400" />}
-                justChanged={changedServices.has("fail2ban")}
-              />
-            )}
             {/* Suricata IDS — pfSense only; individual VMs have no Suricata */}
             {selectedDevice?.role === "pfsense" && (
               <ServiceCard
