@@ -9,7 +9,6 @@ import { format } from "date-fns";
 import { HostLabel } from "@/lib/host-utils";
 import { useToast } from "@/hooks/use-toast";
 import { useDeviceContext } from "@/lib/device-context";
-import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/contexts/auth-context";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -45,7 +44,6 @@ interface HostSensorRow {
 }
 
 interface DefenseStatus {
-  autoDefenseEnabled: boolean;
   fail2banActive: boolean;
   suricataActive: boolean;
   totalBlocked: number;
@@ -270,52 +268,6 @@ export default function Defense() {
     },
   });
 
-  const fail2banControl = useMutation({
-    mutationFn: async (action: "start" | "stop" | "restart") => {
-      if (!selectedDevice) throw new Error("Select a company server first");
-      const targetByIp: Record<string, string> = {
-        "10.10.10.10": "company-web-server", "10.10.10.20": "company-dns-server",
-        "10.20.20.10": "company-customer-db", "10.20.20.20": "company-ldap-server",
-      };
-      const targetVm = targetByIp[selectedDevice.ip];
-      if (!targetVm) throw new Error("Selected device is not a controllable company server");
-      const r = await fetch(`${BASE}/api/ui/system/service-control`, {
-        method: "POST",
-        headers: defAuthHeaders(),
-        body: JSON.stringify({ service: "fail2ban", action, targetVm }),
-      });
-      if (!r.ok) {
-        const body = await r.json().catch(() => ({}));
-        throw new Error(body.error ?? "Fail2ban control failed");
-      }
-      return r.json();
-    },
-    onSuccess: (_data, action) => toast({ title: `Fail2ban ${action} queued` }),
-    onError: (error: Error) => toast({ title: "Fail2ban Control Failed", description: error.message, variant: "destructive" }),
-  });
-
-  const toggleAutoDefenseMutation = useMutation({
-    mutationFn: async (enabled: boolean) => {
-      const r = await fetch(`${BASE}/api/defense/settings`, {
-        method: "PATCH",
-        headers: defAuthHeaders(),
-        body: JSON.stringify({ autoDefenseEnabled: enabled }),
-      });
-      if (!r.ok) {
-        const e = await r.json().catch(() => ({}));
-        throw new Error(e.error ?? "Failed to update auto-defense setting");
-      }
-      return r.json();
-    },
-    onSuccess: (data: { autoDefenseEnabled: boolean }) => {
-      toast({ title: data.autoDefenseEnabled ? "Auto Defense Enabled" : "Auto Defense Disabled" });
-      qc.invalidateQueries({ queryKey: ["defense-status"] });
-    },
-    onError: (e: Error) => {
-      toast({ title: "Toggle Failed", description: e.message, variant: "destructive" });
-    },
-  });
-
   async function fetchRuleRecs() {
     setRuleRecsLoading(true);
     setRuleRecsError(null);
@@ -390,7 +342,7 @@ export default function Defense() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-primary uppercase">Defense Center</h1>
           <p className="text-sm text-muted-foreground">
-            Fail2ban and auto-defense rule controls.
+            Fail2ban and auto-defense status.
             {deviceFilter && <span className="text-cyan-400 font-mono"> — scoped to {deviceFilter}</span>}
           </p>
         </div>
@@ -404,28 +356,7 @@ export default function Defense() {
       </div>
 
       {/* ── Top status row ─────────────────────────────────────────────────── */}
-      <div className={`grid gap-4 ${deviceFilter ? "grid-cols-2 lg:grid-cols-4" : "grid-cols-1 sm:grid-cols-2"}`}>
-        {/* Auto Defense — real, persisted toggle (app_settings table) */}
-        <Card className={`bg-card border-border ${status?.autoDefenseEnabled ? "" : "border-red-800/40"}`}>
-          <CardContent className="p-4 flex items-center gap-3">
-            <Bot className={`w-8 h-8 ${status?.autoDefenseEnabled ? "text-cyan-400" : "text-red-400"}`} />
-            <div className="flex-1 min-w-0">
-              <p className="text-xs text-muted-foreground uppercase tracking-wider">Auto Defense</p>
-              <div className="flex items-center gap-2 mt-0.5">
-                <Switch
-                  checked={status?.autoDefenseEnabled ?? false}
-                  disabled={isDemo || toggleAutoDefenseMutation.isPending || !status}
-                  onCheckedChange={checked => !isDemo && toggleAutoDefenseMutation.mutate(checked)}
-                  title={isDemo ? "Demo mode — read only" : undefined}
-                />
-                <p className={`text-sm font-bold ${status?.autoDefenseEnabled ? "text-green-400" : "text-red-400"}`}>
-                  {status?.autoDefenseEnabled ? "ENABLED" : "DISABLED"}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
+      <div className={`grid gap-4 ${deviceFilter ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3" : "grid-cols-1 sm:grid-cols-2"}`}>
         {/* IPs Blocked */}
         <Card className="bg-card border-border">
           <CardContent className="p-4 flex items-center gap-3">
@@ -440,27 +371,14 @@ export default function Defense() {
         {/* When device scoped: show inline Fail2ban + Suricata in same 4-col row */}
         {deviceFilter && (
           <>
-            {/* Fail2ban — VM hosts only; pfSense has no fail2ban */}
+            {/* Fail2ban status — VM hosts only; pfSense has no fail2ban */}
             {selectedDevice?.role !== "pfsense" && (
-              <div className="space-y-2">
-                <ServiceCard
-                  label="Fail2Ban"
-                  active={status?.fail2banActive}
-                  icon={<Shield className="w-8 h-8 text-green-400" />}
-                  justChanged={changedServices.has("fail2ban")}
-                />
-                <div className="grid grid-cols-3 gap-1">
-                  {(["start", "stop", "restart"] as const).map(action => (
-                    <Button key={action} size="sm" variant="outline"
-                      disabled={isDemo || fail2banControl.isPending}
-                      onClick={() => fail2banControl.mutate(action)}
-                      title={isDemo ? "Demo mode — read only" : undefined}
-                      className="h-7 text-[10px] uppercase">
-                      {action}
-                    </Button>
-                  ))}
-                </div>
-              </div>
+              <ServiceCard
+                label="Fail2Ban"
+                active={status?.fail2banActive}
+                icon={<Shield className="w-8 h-8 text-green-400" />}
+                justChanged={changedServices.has("fail2ban")}
+              />
             )}
             {/* Suricata IDS — pfSense only; individual VMs have no Suricata */}
             {selectedDevice?.role === "pfsense" && (
