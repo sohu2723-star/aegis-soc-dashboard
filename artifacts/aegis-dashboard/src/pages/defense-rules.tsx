@@ -29,14 +29,6 @@ interface DefenseRule {
   priority: number; isActive: boolean; createdAt: string;
 }
 
-interface FirewallRule {
-  id: number; chain: string; action: string;
-  protocol: string | null; sourceIp: string | null; destIp: string | null;
-  sourcePort: string | null; destPort: string | null; iface: string | null;
-  targetVm: string;
-  ruleText: string; isActive: boolean; createdBy: string; appliedAt: string;
-}
-
 interface DefenseCommand {
   id: number; commandType: string; commandText: string;
   targetIp: string | null; targetVm: string;
@@ -54,7 +46,6 @@ interface HotIp { ip: string; count: number; }
 // ─── Fetch hooks ───────────────────────────────────────────────────────────────
 
 function useRules()     { return useQuery<DefenseRule[]>({ queryKey: ["ui-rules"],    queryFn: () => fetch(`${BASE}/api/ui/defense/rules`).then(r => r.json()),            refetchInterval: 15000 }); }
-function useFwRules()   { return useQuery<FirewallRule[]>({ queryKey: ["ui-fw"],      queryFn: () => fetch(`${BASE}/api/ui/firewall/rules`).then(r => r.json()),           refetchInterval: 15000 }); }
 function useCmdHist()   { return useQuery<DefenseCommand[]>({ queryKey: ["ui-cmds"], queryFn: () => fetch(`${BASE}/api/ui/defense/commands/history`).then(r => r.json()), refetchInterval: 10000 }); }
 function useHotIps()    { return useQuery<HotIp[]>({ queryKey: ["ui-hotips"],         queryFn: () => fetch(`${BASE}/api/ui/defense/hot-ips`).then(r => r.json()),          refetchInterval: 10000 }); }
 
@@ -103,10 +94,9 @@ const statusColors: Record<string, string> = {
   sent:     "border-yellow-500 text-yellow-400", pending: "border-blue-500 text-blue-400",
 };
 
-type TabId = "rules" | "firewall" | "history";
+type TabId = "rules" | "history";
 const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: "rules",    label: "Auto-Defense Rules", icon: <Shield className="w-3.5 h-3.5" /> },
-  { id: "firewall", label: "Firewall Rules",     icon: <Terminal className="w-3.5 h-3.5" /> },
   { id: "history",  label: "Command History",    icon: <BookOpen className="w-3.5 h-3.5" /> },
 ];
 
@@ -545,269 +535,6 @@ function RulesTab() {
   );
 }
 
-// ─── Firewall Rules Tab ────────────────────────────────────────────────────────
-
-function FirewallTab() {
-  const { data: rules = [], isLoading } = useFwRules();
-  const qc = useQueryClient();
-  const { toast } = useToast();
-  const { getToken, isDemo } = useAuth();
-  const [createOpen, setCreateOpen] = useState(false);
-
-  // Form state
-  const [chain, setChain]       = useState("INPUT");
-  const [action, setAction]     = useState("DROP");
-  const [protocol, setProtocol] = useState("all");
-  const [sourceIp, setSourceIp] = useState("");
-  const [destIp, setDestIp]     = useState("");
-  const [sourcePort, setSrcPort] = useState("");
-  const [destPort, setDstPort]  = useState("");
-  const [iface, setIface]       = useState("");
-  const [firewallTarget, setFirewallTarget] = useState("company-web-server");
-  const supportsPorts = protocol === "tcp" || protocol === "udp";
-
-  function resetFirewallForm() {
-    setChain("INPUT"); setAction("DROP"); setProtocol("all");
-    setSourceIp(""); setDestIp(""); setSrcPort(""); setDstPort(""); setIface("");
-    setFirewallTarget("company-web-server");
-  }
-
-  function handleFirewallOpenChange(open: boolean) {
-    if (isDemo) return;
-    if (open) resetFirewallForm();
-    setCreateOpen(open);
-  }
-
-  const fwAuthHeaders = (): Record<string, string> => {
-    const tok = getToken();
-    return tok ? { "Content-Type": "application/json", "Authorization": `Bearer ${tok}` }
-               : { "Content-Type": "application/json" };
-  };
-
-  const deleteMutation = useMutation({
-    mutationFn: (id: number) =>
-      fetch(`${BASE}/api/ui/firewall/rules/${id}`, {
-        method: "DELETE",
-        headers: fwAuthHeaders(),
-      }).then(async r => {
-        if (!r.ok) throw new Error(await r.text());
-        return r.json();
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["ui-fw"] });
-      toast({ title: "Rule Removal Queued", description: "Undo command was queued only for the rule's configured target." });
-    },
-    onError: () => toast({ title: "Remove Failed", variant: "destructive" }),
-  });
-
-  const createMutation = useMutation({
-    mutationFn: (data: object) =>
-      fetch(`${BASE}/api/ui/firewall/rules`, {
-        method: "POST",
-        headers: fwAuthHeaders(),
-        body: JSON.stringify(data),
-      }).then(async r => { if (!r.ok) throw new Error(await r.text()); return r.json(); }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["ui-fw"] });
-      setCreateOpen(false);
-      resetFirewallForm();
-      toast({ title: "Firewall Rule Queued", description: `Rule queued for ${firewallTarget === "all" ? "all four company servers" : firewallTarget}.` });
-    },
-    onError: (e: Error) => toast({ title: "Create Failed", description: e.message, variant: "destructive" }),
-  });
-
-  function handleCreate(e: React.FormEvent) {
-    e.preventDefault();
-    if ((sourcePort || destPort) && !supportsPorts) {
-      toast({
-        title: "Protocol Required",
-        description: "Select TCP or UDP before adding a source or destination port.",
-        variant: "destructive",
-      });
-      return;
-    }
-    if (!sourceIp && !destIp && !sourcePort && !destPort) {
-      toast({
-        title: "Rule Too Broad",
-        description: "Enter at least one source/destination IP or port. An unrestricted rule is blocked for safety.",
-        variant: "destructive",
-      });
-      return;
-    }
-    createMutation.mutate({
-      chain, action,
-      protocol: protocol === "all" ? undefined : protocol,
-      sourceIp: sourceIp || undefined, destIp: destIp || undefined,
-      sourcePort: sourcePort || undefined, destPort: destPort || undefined,
-      iface: iface || undefined,
-      targetVm: firewallTarget,
-    });
-  }
-
-  return (
-    <div className="space-y-4 p-4">
-      <div className="flex items-center justify-between">
-        <p className="text-xs text-muted-foreground">
-          {rules.filter(r => r.isActive).length} active rules
-        </p>
-        <div className="flex gap-2">
-          <Dialog open={createOpen} onOpenChange={handleFirewallOpenChange}>
-            <DialogTrigger asChild>
-              <Button size="sm" disabled={isDemo} title={isDemo ? "Demo mode — read only" : undefined}><Plus className="w-3.5 h-3.5 mr-1.5" /> Add Rule</Button>
-            </DialogTrigger>
-            <DialogContent className="bg-card border-border max-w-lg">
-              <DialogHeader>
-                <DialogTitle className="text-primary uppercase tracking-widest text-sm">Add Firewall Rule</DialogTitle>
-              </DialogHeader>
-              <form onSubmit={handleCreate} className="space-y-4 pt-2">
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs uppercase text-muted-foreground">Chain</Label>
-                    <Select value={chain} onValueChange={setChain}>
-                      <SelectTrigger className="bg-background border-border text-xs"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {["INPUT","OUTPUT"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs uppercase text-muted-foreground">Action</Label>
-                    <Select value={action} onValueChange={setAction}>
-                      <SelectTrigger className="bg-background border-border text-xs"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {["DROP","REJECT","ACCEPT"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs uppercase text-muted-foreground">Protocol (optional)</Label>
-                    <Select value={protocol} onValueChange={value => {
-                      setProtocol(value);
-                      if (value !== "tcp" && value !== "udp") {
-                        setSrcPort("");
-                        setDstPort("");
-                      }
-                    }}>
-                      <SelectTrigger className="bg-background border-border text-xs"><SelectValue placeholder="any" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">any</SelectItem>
-                        {["tcp","udp"].map(v => <SelectItem key={v} value={v}>{v.toUpperCase()}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs uppercase text-muted-foreground">{chain === "OUTPUT" ? "Output Interface (-o)" : "Input Interface (-i)"} (optional)</Label>
-                    <Input value={iface} onChange={e => setIface(e.target.value)} className="bg-background border-border" placeholder="e.g. ens3" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs uppercase text-muted-foreground">Source IP (optional — blank = any)</Label>
-                    <Input value={sourceIp} onChange={e => setSourceIp(e.target.value)} className="bg-background border-border" placeholder="Blank = any source, or e.g. 192.168.122.153" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs uppercase text-muted-foreground">Destination IP (optional)</Label>
-                    <Input value={destIp} onChange={e => setDestIp(e.target.value)} className="bg-background border-border" placeholder="e.g. 10.10.10.10" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs uppercase text-muted-foreground">Source Port (optional)</Label>
-                    <Input value={sourcePort} onChange={e => setSrcPort(e.target.value)} disabled={!supportsPorts} className="bg-background border-border" placeholder={supportsPorts ? "e.g. 22" : "Select TCP or UDP"} />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs uppercase text-muted-foreground">Destination Port (optional)</Label>
-                    <Input value={destPort} onChange={e => setDstPort(e.target.value)} disabled={!supportsPorts} className="bg-background border-border" placeholder={supportsPorts ? "e.g. 22" : "Select TCP or UDP"} />
-                  </div>
-                  <div className="space-y-1.5 col-span-2">
-                    <Label className="text-xs uppercase text-muted-foreground">Target Linux VM</Label>
-                    <Select value={firewallTarget} onValueChange={setFirewallTarget}>
-                      <SelectTrigger className="bg-background border-border text-xs"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="company-web-server">company-web-server (10.10.10.10)</SelectItem>
-                        <SelectItem value="company-dns-server">company-dns-server (10.10.10.20)</SelectItem>
-                        <SelectItem value="company-customer-db">company-customer-db (10.20.20.10)</SelectItem>
-                        <SelectItem value="company-ldap-server">company-ldap-server (10.20.20.20)</SelectItem>
-                        <SelectItem value="all">all four company Linux VMs</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    {firewallTarget === "all" && <p className="text-[10px] text-yellow-400">⚠ This queues the same rule on all four company servers.</p>}
-                  </div>
-                </div>
-                {action === "ACCEPT" && (
-                  <p className="text-[10px] text-yellow-400 bg-yellow-950/30 border border-yellow-500/20 rounded px-2 py-1.5">
-                    ⚠ ACCEPT is inserted at the top of the selected chain. Use a narrow IP/port selector to avoid exposing services.
-                  </p>
-                )}
-                <div className="flex justify-end pt-2">
-                  <Button type="submit" disabled={createMutation.isPending} size="sm">
-                    {createMutation.isPending ? "Adding…" : "Add Rule"}
-                  </Button>
-                </div>
-              </form>
-            </DialogContent>
-          </Dialog>
-        </div>
-      </div>
-
-      <div className="rounded-lg border border-border overflow-hidden">
-        <Table>
-          <TableHeader className="bg-muted/50">
-            <TableRow className="border-border">
-              <TableHead>Chain</TableHead>
-              <TableHead>Action</TableHead>
-              <TableHead>iptables Command</TableHead>
-              <TableHead>Target</TableHead>
-              <TableHead>Created By</TableHead>
-              <TableHead>Time</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {isLoading ? (
-              <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Loading firewall rules…</TableCell></TableRow>
-            ) : rules.length === 0 ? (
-              <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">No firewall rules yet.</TableCell></TableRow>
-            ) : rules.map(r => (
-              <TableRow key={r.id} className={`border-border hover:bg-muted/10 ${!r.isActive ? "opacity-40" : ""}`}>
-                <TableCell>
-                  <Badge variant="outline" className="text-[10px] font-mono border-primary/30 text-primary/80">{r.chain}</Badge>
-                </TableCell>
-                <TableCell>
-                  <Badge variant="outline" className={`text-[10px] ${
-                    r.action === "DROP" || r.action === "REJECT" ? "border-red-500 text-red-400" : "border-green-500 text-green-400"
-                  }`}>{r.action}</Badge>
-                </TableCell>
-                <TableCell className="font-mono text-xs text-muted-foreground max-w-[280px] truncate" title={r.ruleText}>
-                  {r.ruleText}
-                </TableCell>
-                <TableCell><VmBadge vm={r.targetVm} /></TableCell>
-                <TableCell className="text-xs text-muted-foreground">{r.createdBy}</TableCell>
-                <TableCell><span className="font-mono text-xs text-muted-foreground">{format(new Date(r.appliedAt), "MM/dd HH:mm")}</span></TableCell>
-                <TableCell>
-                  {r.isActive
-                    ? <Badge variant="outline" className="text-[10px] border-green-500/50 text-green-400">ACTIVE</Badge>
-                    : <Badge variant="outline" className="text-[10px] border-gray-500/50 text-gray-400">REMOVED</Badge>}
-                </TableCell>
-                <TableCell>
-                  {r.isActive && (
-                    <Button
-                      variant="ghost" size="icon"
-                      className="h-7 w-7 text-muted-foreground hover:text-red-400"
-                      disabled={isDemo}
-                      title={isDemo ? "Demo mode — read only" : undefined}
-                      onClick={() => { if (confirm("Rule ဖယ်မလား?")) deleteMutation.mutate(r.id); }}
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </Button>
-                  )}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-    </div>
-  );
-}
-
 // ─── Command History Tab ───────────────────────────────────────────────────────
 // Shows the full Attack → Rule → Command chain for every defense action.
 // commandText is expandable so analysts can see the exact VM command.
@@ -907,7 +634,7 @@ export default function DefenseRules() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-primary uppercase">Defense Rules</h1>
-          <p className="text-sm text-muted-foreground">Auto-defense rules, firewall policies, and command execution history.</p>
+          <p className="text-sm text-muted-foreground">Auto-defense rules and command execution history.</p>
         </div>
         <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono">
           <span className="relative flex h-2 w-2">
@@ -936,7 +663,6 @@ export default function DefenseRules() {
       {/* Tab content */}
       <Card className="bg-card border-border flex-1 overflow-auto">
         {tab === "rules"    && <RulesTab />}
-        {tab === "firewall" && <FirewallTab />}
         {tab === "history"  && <HistoryTab />}
       </Card>
     </div>
