@@ -4,12 +4,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Wifi, Monitor, Shield, Activity, X, AlertTriangle, Trash2, Search } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
-import { useAuth } from "@/contexts/auth-context";
+import { Wifi, Monitor, Shield, Activity, X, AlertTriangle, Search } from "lucide-react";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar } from "recharts";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { format, formatDistanceToNow } from "date-fns";
 import { useDeviceContext, type NetworkHost } from "@/lib/device-context";
 import { fetchWithApiFailover } from "@/lib/api-failover";
@@ -32,8 +29,6 @@ interface HostEvents {
     toolUsed: string | null; createdAt: string;
   }[];
 }
-
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 function useNetworkHosts() {
   return useQuery<NetworkHost[]>({
@@ -319,13 +314,8 @@ export default function Network() {
   // When user typed an IP with no registered host, show inline analysis
   const showIpAnalysis = !!ipSearch.trim() && hosts.length === 0;
 
-  const [loadingId, setLoadingId] = useState<number | null>(null);
   const [flashedIds, setFlashedIds] = useState<Set<number>>(new Set());
-  const [deleteTarget, setDeleteTarget] = useState<NetworkHost | null>(null);
   const prevHostsRef = useRef<NetworkHost[]>([]);
-  const qc = useQueryClient();
-  const { toast } = useToast();
-  const { isDemo } = useAuth();
 
   // Flash row when status changes
   useEffect(() => {
@@ -342,29 +332,6 @@ export default function Network() {
     }
     prevHostsRef.current = hosts;
   }, [hosts]);
-
-  function removeHost(e: React.MouseEvent, host: NetworkHost) {
-    e.stopPropagation();
-    setDeleteTarget(host);
-  }
-
-  async function confirmRemoveHost() {
-    if (!deleteTarget) return;
-    const host = deleteTarget;
-    setDeleteTarget(null);
-    setLoadingId(host.id);
-    try {
-      const res = await fetch(`${BASE}/api/network/hosts/${host.id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      toast({ title: "Host Removed", description: `${host.ip} (${host.hostname}) ကို list ကနေ ဖြုတ်ပြီးပြီ။` });
-      if (selectedHost?.id === host.id) setSelectedHost(null);
-    } catch (err: any) {
-      toast({ title: "Delete Failed", description: err.message, variant: "destructive" });
-    } finally {
-      qc.invalidateQueries({ queryKey: ["network-hosts"] });
-      setLoadingId(null);
-    }
-  }
 
   const onlineCount    = hosts.filter(h => h.status === "online").length;
   const offlineCount   = hosts.filter(h => h.status === "offline").length;
@@ -392,27 +359,6 @@ export default function Network() {
 
   return (
     <>
-    <AlertDialog open={!!deleteTarget} onOpenChange={open => { if (!open) setDeleteTarget(null); }}>
-      <AlertDialogContent className="bg-card border-border">
-        <AlertDialogHeader>
-          <AlertDialogTitle className="text-red-400 uppercase tracking-widest">Device ဖြုတ်မည်</AlertDialogTitle>
-          <AlertDialogDescription>
-            <span className="font-bold text-foreground">{deleteTarget?.hostname}</span> ({deleteTarget?.ip}) ကို list ကနေ ဖြုတ်မည်။{" "}
-            Forwarder script ပြန် run ရင် ပြန်ပေါ်လာမည်။
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel className="border-border">Cancel</AlertDialogCancel>
-          <AlertDialogAction
-            className="bg-red-600 hover:bg-red-700 text-white"
-            onClick={!isDemo ? confirmRemoveHost : undefined}
-            disabled={isDemo}
-          >
-            Remove
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
     <div className="space-y-6">
       {selectedHost && (
         <HostDetailPanel
@@ -637,7 +583,6 @@ export default function Network() {
                     <th className="text-left py-2 px-3">Open Ports</th>
                     <th className="text-left py-2 px-3">Status</th>
                     <th className="text-left py-2 px-3">Last Seen</th>
-                    <th className="py-2 px-3" />
                   </tr>
                 </thead>
                 <tbody>
@@ -672,17 +617,6 @@ export default function Network() {
                       </td>
                       <td className="py-2 px-3">
                         <LastSeenTicker lastSeen={h.lastSeen} status={h.status} />
-                      </td>
-                      <td className="py-2 px-3" onClick={e => e.stopPropagation()}>
-                        {<Button
-                          variant="ghost" size="icon"
-                          className="h-7 w-7 text-red-500 hover:text-red-400 hover:bg-red-500/10"
-                          title={isDemo ? "Demo mode — read only" : "Remove from list"}
-                          disabled={isDemo || loadingId === h.id}
-                          onClick={e => removeHost(e, h)}
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </Button>}
                       </td>
                     </tr>
                   ))}
