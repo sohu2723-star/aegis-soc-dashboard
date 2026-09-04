@@ -252,9 +252,21 @@ function RulesTab() {
         method: "PATCH",
         headers: authHeaders(),
         body: JSON.stringify({ isActive }),
-      }).then(r => r.json()),
+      }).then(async r => {
+        const payload = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(payload.error ?? "Unable to update rule");
+        return payload;
+      }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["ui-rules"] }),
-    onError: () => toast({ title: "Update Failed", variant: "destructive" }),
+    onError: (e: Error) => toast({
+      title: e.message.includes("matching active defense rule")
+        ? "Duplicate Rule"
+        : "Update Failed",
+      description: e.message.includes("matching active defense rule")
+        ? "This rule cannot be activated because a matching active rule already exists."
+        : e.message,
+      variant: "destructive",
+    }),
   });
 
   const deleteMutation = useMutation({
@@ -279,7 +291,11 @@ function RulesTab() {
         method: "POST",
         headers: authHeaders(),
         body: JSON.stringify(data),
-      }).then(async r => { if (!r.ok) throw new Error(await r.text()); return r.json(); }),
+      }).then(async r => {
+        const payload = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(payload.error ?? "Unable to create rule");
+        return payload;
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ui-rules"] });
       setCreateOpen(false);
@@ -287,7 +303,15 @@ function RulesTab() {
       setPriority(String(100));
       toast({ title: "Rule Created", description: "Auto-defense rule added." });
     },
-    onError: (e: Error) => toast({ title: "Create Failed", description: e.message, variant: "destructive" }),
+    onError: (e: Error) => toast({
+      title: e.message.includes("matching active defense rule")
+        ? "Duplicate Rule"
+        : "Create Failed",
+      description: e.message.includes("matching active defense rule")
+        ? "A rule with the same trigger and action already exists."
+        : e.message,
+      variant: "destructive",
+    }),
   });
 
   function handleCreate(e: React.FormEvent) {

@@ -29,6 +29,28 @@ const FIREWALL_TARGETS = [
   "company-ldap-server",
 ] as const;
 
+type RuleDefinition = {
+  triggerAttackType: string;
+  triggerSeverity: string;
+  triggerThreshold: number;
+  triggerWindowSecs: number;
+  actionType: string;
+  defenseType: string;
+  actionParams?: string | null;
+  targetVm: string;
+};
+
+function hasSameRuleDefinition(a: RuleDefinition, b: RuleDefinition): boolean {
+  return a.triggerAttackType === b.triggerAttackType
+    && a.triggerSeverity === b.triggerSeverity
+    && a.triggerThreshold === b.triggerThreshold
+    && a.triggerWindowSecs === b.triggerWindowSecs
+    && a.actionType === b.actionType
+    && a.defenseType === b.defenseType
+    && (a.actionParams ?? "").trim() === (b.actionParams ?? "").trim()
+    && a.targetVm === b.targetVm;
+}
+
 /**
  * Allow write if ANY of these is true:
  *  1. No admin key configured (dev/lab mode)
@@ -124,6 +146,18 @@ router.post("/ui/defense/rules", maybeAdmin, async (req, res) => {
   const body = schema.safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: body.error.flatten() }); return; }
 
+  const activeRules = await db.select().from(defenseRulesTable)
+    .where(eq(defenseRulesTable.isActive, true));
+  const duplicate = activeRules.find(rule => hasSameRuleDefinition(body.data, rule));
+  if (duplicate) {
+    res.status(409).json({
+      error: "A matching active defense rule already exists",
+      duplicateRuleId: duplicate.id,
+      duplicateRuleName: duplicate.name,
+    });
+    return;
+  }
+
   const [row] = await db.insert(defenseRulesTable).values({
     ...body.data,
     description:  body.data.description ?? null,
@@ -152,6 +186,27 @@ router.patch("/ui/defense/rules/:id", maybeAdmin, async (req, res) => {
 
   const body = schema.safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: body.error.flatten() }); return; }
+
+  const [existing] = await db.select().from(defenseRulesTable)
+    .where(eq(defenseRulesTable.id, id));
+  if (!existing) { res.status(404).json({ error: "Rule not found" }); return; }
+
+  const candidate = { ...existing, ...body.data };
+  if (candidate.isActive) {
+    const activeRules = await db.select().from(defenseRulesTable)
+      .where(eq(defenseRulesTable.isActive, true));
+    const duplicate = activeRules.find(rule =>
+      rule.id !== id && hasSameRuleDefinition(candidate, rule),
+    );
+    if (duplicate) {
+      res.status(409).json({
+        error: "A matching active defense rule already exists",
+        duplicateRuleId: duplicate.id,
+        duplicateRuleName: duplicate.name,
+      });
+      return;
+    }
+  }
 
   await db.update(defenseRulesTable).set(body.data).where(eq(defenseRulesTable.id, id));
   const [rule] = await db.select().from(defenseRulesTable).where(eq(defenseRulesTable.id, id));
