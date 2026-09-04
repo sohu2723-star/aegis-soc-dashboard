@@ -736,7 +736,7 @@ export default function AttackFlowPage() {
             <defs>
               {/* Grid */}
               <pattern id="af-grid" width="40" height="40" patternUnits="userSpaceOnUse">
-                <path d="M40 0L0 0 0 40" fill="none" stroke="rgba(255,255,255,0.025)" strokeWidth="1" />
+                <path d="M40 0L0 0 0 40" fill="none" stroke="var(--threat-map-grid)" strokeWidth="1" />
               </pattern>
               {/* Glows per node colour */}
               {(Object.entries(NODES) as [NodeKey, typeof NODES[NodeKey]][]).map(([k, n]) => (
@@ -757,22 +757,22 @@ export default function AttackFlowPage() {
             </defs>
 
             {/* Background */}
-            <rect width={VW} height={VH} fill="rgba(5,8,20,0.95)" rx="8" />
+            <rect width={VW} height={VH} fill="var(--threat-map-bg)" rx="8" />
             <rect width={VW} height={VH} fill="url(#af-grid)" rx="8" />
 
             {/* Zone labels */}
-            <text x={16} y={20} fontSize="8" fill="rgba(239,68,68,0.35)" fontFamily="monospace" fontWeight="bold" letterSpacing="2">ORIGIN</text>
-            <text x={308} y={20} fontSize="8" fill="rgba(245,158,11,0.35)" fontFamily="monospace" fontWeight="bold" letterSpacing="2">PERIMETER</text>
-            <text x={490} y={20} fontSize="7" fill="rgba(34,197,94,0.30)" fontFamily="monospace" fontWeight="bold" letterSpacing="1">DMZ · PUBLIC</text>
-            <text x={490} y={570} fontSize="7" fill="rgba(34,197,94,0.30)" fontFamily="monospace" fontWeight="bold" letterSpacing="1">INTERNAL</text>
-            <text x={585} y={295} fontSize="7" fill="rgba(6,182,212,0.28)" fontFamily="monospace" fontWeight="bold" letterSpacing="1">MGMT</text>
+            <text x={16} y={20} fontSize="8" fill="var(--threat-map-origin)" fontFamily="monospace" fontWeight="bold" letterSpacing="2">ORIGIN</text>
+            <text x={308} y={20} fontSize="8" fill="var(--threat-map-perimeter)" fontFamily="monospace" fontWeight="bold" letterSpacing="2">PERIMETER</text>
+            <text x={490} y={20} fontSize="7" fill="var(--threat-map-zone)" fontFamily="monospace" fontWeight="bold" letterSpacing="1">DMZ · PUBLIC</text>
+            <text x={490} y={570} fontSize="7" fill="var(--threat-map-zone)" fontFamily="monospace" fontWeight="bold" letterSpacing="1">INTERNAL</text>
+            <text x={585} y={295} fontSize="7" fill="var(--threat-map-management)" fontFamily="monospace" fontWeight="bold" letterSpacing="1">MGMT</text>
 
             {/* Zone divider lines */}
-            <line x1={285} y1={28} x2={285} y2={VH - 10} stroke="rgba(255,255,255,0.04)" strokeWidth="1" strokeDasharray="4 6" />
-            <line x1={458} y1={28} x2={458} y2={VH - 10} stroke="rgba(255,255,255,0.04)" strokeWidth="1" strokeDasharray="4 6" />
+            <line x1={285} y1={28} x2={285} y2={VH - 10} stroke="var(--threat-map-divider)" strokeWidth="1" strokeDasharray="4 6" />
+            <line x1={458} y1={28} x2={458} y2={VH - 10} stroke="var(--threat-map-divider)" strokeWidth="1" strokeDasharray="4 6" />
             {/* Horizontal dividers inside VM zone */}
-            <line x1={460} y1={215} x2={VW - 10} y2={215} stroke="rgba(255,255,255,0.03)" strokeWidth="1" strokeDasharray="3 8" />
-            <line x1={460} y1={355} x2={VW - 10} y2={355} stroke="rgba(255,255,255,0.03)" strokeWidth="1" strokeDasharray="3 8" />
+            <line x1={460} y1={215} x2={VW - 10} y2={215} stroke="var(--threat-map-divider-soft)" strokeWidth="1" strokeDasharray="3 8" />
+            <line x1={460} y1={355} x2={VW - 10} y2={355} stroke="var(--threat-map-divider-soft)" strokeWidth="1" strokeDasharray="3 8" />
 
             {/* ── Attack / network topology edges (white dashed) ───────── */}
             {EDGES.map(([a, b]) => {
@@ -781,7 +781,7 @@ export default function AttackFlowPage() {
                 <line
                   key={`e-${a}-${b}`}
                   x1={na.x} y1={na.y} x2={nb.x} y2={nb.y}
-                  stroke="rgba(255,255,255,0.10)"
+                  stroke="var(--threat-map-edge)"
                   strokeWidth="1.5"
                   strokeDasharray="6 5"
                 />
@@ -796,7 +796,7 @@ export default function AttackFlowPage() {
                 <g key={`me-${a}-${b}`}>
                   <line
                     x1={na.x} y1={na.y} x2={nb.x} y2={nb.y}
-                    stroke="rgba(6,182,212,0.22)"
+                    stroke="var(--threat-map-management-edge)"
                     strokeWidth="1.2"
                     strokeDasharray="2 5"
                   />
@@ -819,7 +819,7 @@ export default function AttackFlowPage() {
                   <text
                     x={(na.x + nb.x) / 2 + 6}
                     y={(na.y + nb.y) / 2 - 6}
-                    fontSize="7" fill="rgba(41,182,246,0.45)"
+                    fontSize="7" fill="var(--threat-map-notify-label)"
                     fontFamily="monospace" textAnchor="middle"
                   >
                     NOTIFY
@@ -927,7 +927,7 @@ export default function AttackFlowPage() {
                   <rect
                     x={n.x - 34} y={n.y - 34} width={68} height={68}
                     rx={12}
-                    fill="rgba(8,12,28,0.92)"
+                    fill="var(--threat-map-node)"
                     stroke={strokeCol}
                     strokeWidth={strokeW}
                   />
@@ -949,14 +949,14 @@ export default function AttackFlowPage() {
                   <text x={n.x} y={n.y + 45} textAnchor="middle" fontSize="11" fill={strokeCol} fontFamily="monospace" fontWeight="bold">
                     {n.label}
                   </text>
-                  <text x={n.x} y={n.y + 58} textAnchor="middle" fontSize="9" fill="rgba(255,255,255,0.72)" fontFamily="monospace">
+                  <text x={n.x} y={n.y + 58} textAnchor="middle" fontSize="9" fill="var(--threat-map-subtext)" fontFamily="monospace">
                     {n.sub}
                   </text>
                   {/* Attacker node: show live Kali IP; others show static IP */}
                   {key === "attacker" ? (
                     <>
                       <text x={n.x} y={n.y + 71} textAnchor="middle" fontSize="8.5"
-                        fill={attackerIp === "* / any" ? "rgba(255,255,255,0.55)" : "#f87171"}
+                        fill={attackerIp === "* / any" ? "var(--threat-map-ip-soft)" : "#f87171"}
                         fontFamily="monospace" fontWeight={attackerIp === "* / any" ? "normal" : "bold"}>
                         {attackerIp}
                       </text>
@@ -971,7 +971,7 @@ export default function AttackFlowPage() {
                       )}
                     </>
                   ) : (
-                    <text x={n.x} y={n.y + 71} textAnchor="middle" fontSize="8.5" fill="rgba(255,255,255,0.62)" fontFamily="monospace" fontWeight="500">
+                    <text x={n.x} y={n.y + 71} textAnchor="middle" fontSize="8.5" fill="var(--threat-map-ip)" fontFamily="monospace" fontWeight="500">
                       {n.ip}
                     </text>
                   )}
@@ -1017,7 +1017,7 @@ export default function AttackFlowPage() {
               ].map((l, i) => (
                 <g key={l.label} transform={`translate(${i * 115}, 0)`}>
                   <circle cx={5} cy={5} r={5} fill={l.col} opacity={0.9} />
-                  <text x={14} y={9} fontSize="8" fill="rgba(255,255,255,0.4)" fontFamily="monospace">{l.label}</text>
+                  <text x={14} y={9} fontSize="8" fill="var(--threat-map-legend)" fontFamily="monospace">{l.label}</text>
                 </g>
               ))}
             </g>
@@ -1028,7 +1028,7 @@ export default function AttackFlowPage() {
               return (
                 <g key={t.id} transform={`translate(${VW - 210}, ${40 + i * 52})`}>
                   <rect width={200} height={44} rx={6}
-                    fill="rgba(0,10,25,0.92)"
+                    fill="var(--threat-map-toast)"
                     stroke="#29b6f6"
                     strokeWidth="1.2"
                   />
@@ -1044,7 +1044,7 @@ export default function AttackFlowPage() {
                   <text x={38} y={28} fontSize="8" fontFamily="monospace" fill={sevCol} fontWeight="bold">
                     {t.sev.toUpperCase()}
                   </text>
-                  <text x={38} y={39} fontSize="7.5" fontFamily="monospace" fill="rgba(255,255,255,0.35)">
+                  <text x={38} y={39} fontSize="7.5" fontFamily="monospace" fill="var(--threat-map-toast-muted)">
                     {t.ts}
                   </text>
                 </g>

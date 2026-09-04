@@ -113,6 +113,27 @@
   --app-font-sans: 'Inter', sans-serif;
   --app-font-mono: 'Menlo', monospace;
   --radius: 0.25rem;
+
+  /* Threat Map canvas palette — follows the global data-theme attribute. */
+  --threat-map-bg: rgba(5, 8, 20, 0.95);
+  --threat-map-grid: rgba(255, 255, 255, 0.025);
+  --threat-map-origin: rgba(239, 68, 68, 0.35);
+  --threat-map-perimeter: rgba(245, 158, 11, 0.35);
+  --threat-map-zone: rgba(34, 197, 94, 0.30);
+  --threat-map-management: rgba(6, 182, 212, 0.28);
+  --threat-map-divider: rgba(255, 255, 255, 0.04);
+  --threat-map-divider-soft: rgba(255, 255, 255, 0.03);
+  --threat-map-edge: rgba(255, 255, 255, 0.10);
+  --threat-map-management-edge: rgba(6, 182, 212, 0.22);
+  --threat-map-notify-label: rgba(41, 182, 246, 0.45);
+  --threat-map-node: rgba(8, 12, 28, 0.92);
+  --threat-map-text: rgba(255, 255, 255, 0.86);
+  --threat-map-subtext: rgba(255, 255, 255, 0.72);
+  --threat-map-ip: rgba(255, 255, 255, 0.62);
+  --threat-map-ip-soft: rgba(255, 255, 255, 0.55);
+  --threat-map-legend: rgba(255, 255, 255, 0.40);
+  --threat-map-toast: rgba(0, 10, 25, 0.92);
+  --threat-map-toast-muted: rgba(255, 255, 255, 0.35);
   
   --shadow-2xs: 0px 2px 0px 0px hsl(180 100% 50% / 0.1);
   --shadow-xs: 0px 2px 0px 0px hsl(180 100% 50% / 0.1);
@@ -167,6 +188,25 @@
   --chart-3: 35 75% 40%;
   --chart-4: 140 45% 34%;
   --chart-5: 270 45% 45%;
+  --threat-map-bg: rgba(248, 250, 252, 0.98);
+  --threat-map-grid: rgba(15, 23, 42, 0.08);
+  --threat-map-origin: rgba(185, 28, 28, 0.72);
+  --threat-map-perimeter: rgba(180, 83, 9, 0.72);
+  --threat-map-zone: rgba(21, 128, 61, 0.70);
+  --threat-map-management: rgba(8, 145, 178, 0.72);
+  --threat-map-divider: rgba(15, 23, 42, 0.14);
+  --threat-map-divider-soft: rgba(15, 23, 42, 0.08);
+  --threat-map-edge: rgba(15, 23, 42, 0.18);
+  --threat-map-management-edge: rgba(8, 145, 178, 0.30);
+  --threat-map-notify-label: rgba(2, 132, 199, 0.70);
+  --threat-map-node: rgba(255, 255, 255, 0.96);
+  --threat-map-text: rgba(15, 23, 42, 0.92);
+  --threat-map-subtext: rgba(15, 23, 42, 0.72);
+  --threat-map-ip: rgba(15, 23, 42, 0.68);
+  --threat-map-ip-soft: rgba(15, 23, 42, 0.58);
+  --threat-map-legend: rgba(15, 23, 42, 0.68);
+  --threat-map-toast: rgba(255, 255, 255, 0.96);
+  --threat-map-toast-muted: rgba(15, 23, 42, 0.58);
   --shadow-2xs: 0px 1px 2px 0px hsl(220 25% 20% / 0.06);
   --shadow-xs: 0px 1px 2px 0px hsl(220 25% 20% / 0.06);
   --shadow-sm: 0px 1px 3px 0px hsl(220 25% 20% / 0.08);
