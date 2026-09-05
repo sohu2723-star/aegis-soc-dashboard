@@ -185,6 +185,7 @@ interface Packet {
   targetHost: string;
   sourceIp: string;   // attacker IP — used to match defense_action block
   isTg?: boolean;     // true = AEGIS→Telegram notification packet
+  arrivedAt?: number; // briefly keep the packet on its destination for feedback
 }
 
 interface LogEntry {
@@ -234,6 +235,7 @@ export default function AttackFlowPage() {
   const audioCtxRef      = useRef<AudioContext | null>(null);
   const prevPktSegsRef   = useRef<Map<string, number>>(new Map());
   const seenSecurityEventsRef = useRef<Set<string>>(new Set());
+  const seenTelegramAlertsRef = useRef<Set<string>>(new Set());
 
   // The database is authoritative. Hydrate recent events so changing browser,
   // clearing localStorage, or opening the map after an SSE disconnect does not
@@ -393,6 +395,12 @@ export default function AttackFlowPage() {
       const next: Packet[] = [];
       const nowMs = Date.now();
       for (const p of prev) {
+        if (p.arrivedAt) {
+          // Keep the dot visible long enough for the arrival sound and node
+          // pulse to be perceived, then remove it from the live canvas.
+          if (nowMs - p.arrivedAt < 700) next.push(p);
+          continue;
+        }
         if (p.blocked) {
           // Remove blocked packets after 1.2 s
           if (nowMs - p.blockedAt < 1200) next.push(p);
@@ -401,8 +409,16 @@ export default function AttackFlowPage() {
         const newT = p.t + p.speed * dt;
         if (newT >= 1) {
           const nextSeg = p.seg + 1;
-          if (nextSeg >= p.path.length - 1) continue; // reached end
-          next.push({ ...p, seg: nextSeg, t: newT - 1 });
+          if (nextSeg >= p.path.length - 1) {
+            next.push({
+              ...p,
+              seg: p.path.length - 1,
+              t: 1,
+              arrivedAt: nowMs,
+            });
+          } else {
+            next.push({ ...p, seg: nextSeg, t: newT - 1 });
+          }
         } else {
           next.push({ ...p, t: newT });
         }
@@ -452,6 +468,7 @@ export default function AttackFlowPage() {
   useEffect(() => {
     let es: EventSource;
     let reconnect: ReturnType<typeof setTimeout>;
+    let telegramAlertHandler: ((event: Event) => void) | null = null;
 
     const handleSecurityEvent = (event: Event) => {
       try {
@@ -590,19 +607,27 @@ export default function AttackFlowPage() {
       });
 
       // ── Telegram alert notification (real SSE "alert" event) ──────────
-      es.addEventListener("alert", (e) => {
+      const handleTelegramAlert = (event: Event) => {
         try {
-          const ev = JSON.parse(e.data);
-           const sev = ev.severity ?? "high";
-           // Animate Telegram only when the server confirmed actual delivery.
-           if ((sev !== "critical" && sev !== "high") || ev.telegramSent !== true) return;
+          const ev = (event as CustomEvent<Record<string, any>>).detail ?? {};
+          const sev = String(ev.severity ?? "high").toLowerCase();
+          // Animate Telegram only when the server confirmed actual delivery.
+          if ((sev !== "critical" && sev !== "high") || ev.telegramSent !== true) return;
+          const alertKey = ev.eventId != null
+            ? `event:${String(ev.eventId)}`
+            : `alert:${sev}:${String(ev.id ?? "")}`;
+          if (seenTelegramAlertsRef.current.has(alertKey)) return;
+          seenTelegramAlertsRef.current.add(alertKey);
+          if (seenTelegramAlertsRef.current.size > 500) {
+            seenTelegramAlertsRef.current.delete(seenTelegramAlertsRef.current.values().next().value as string);
+          }
           const toastId = `tg-${Date.now()}`;
 
           // 1. Mark latest high/critical entry in live feed
-           setLog(prev => {
-             const idx = ev.eventId
-               ? prev.findIndex(l => l.eventId === ev.eventId)
-               : -1;
+          setLog(prev => {
+            const idx = ev.eventId
+              ? prev.findIndex(l => l.eventId === ev.eventId)
+              : -1;
             if (idx !== -1) {
               const next = [...prev];
               next[idx] = { ...next[idx], telegram: true };
@@ -623,7 +648,7 @@ export default function AttackFlowPage() {
             id: toastId,
             path: ["aegis", "telegram"],
             seg: 0, t: 0,
-             speed: 0.00035,
+            speed: 0.00035,
             blocked: false, blockedAt: 0,
             severity: sev,
             evType: "telegram",
@@ -633,15 +658,27 @@ export default function AttackFlowPage() {
           };
           setPackets(prev => [...prev.slice(-40), tgPkt]);
 
-          // 3. Pulse Telegram node for 1.2 s
-          setPulseNodes(prev => new Set([...prev, "telegram"]));
-           setTimeout(() => setPulseNodes(prev => { const n = new Set(prev); n.delete("telegram"); return n; }), 1600);
-
-          // 4. Floating toast (auto-dismiss 4 s)
+          // 3. Floating toast (auto-dismiss 4 s)
           setTgToasts(prev => [{ id: toastId, sev, ts: now() }, ...prev.slice(0, 3)]);
           setTimeout(() => setTgToasts(prev => prev.filter(t => t.id !== toastId)), 4000);
-
         } catch { /* skip */ }
+      };
+
+      // The app-wide SSE hook is the fallback source when this page's own
+      // EventSource is reconnecting. The event-key guard prevents a duplicate
+      // packet when both sources receive the same alert.
+      const handleTelegramAlertEvent = (event: Event) => handleTelegramAlert(event);
+      if (telegramAlertHandler) {
+        window.removeEventListener("aegis:telegram-alert", telegramAlertHandler);
+      }
+      telegramAlertHandler = handleTelegramAlertEvent;
+      window.addEventListener("aegis:telegram-alert", handleTelegramAlertEvent);
+      es.addEventListener("alert", (event) => {
+        try {
+          handleTelegramAlert(new CustomEvent("aegis:telegram-alert", {
+            detail: JSON.parse((event as MessageEvent).data ?? "{}"),
+          }));
+        } catch { /* malformed data — skip */ }
       });
 
       es.onerror = () => {
@@ -654,6 +691,9 @@ export default function AttackFlowPage() {
     connect();
     return () => {
       window.removeEventListener("aegis:security-event", handleSecurityEvent);
+      if (telegramAlertHandler) {
+        window.removeEventListener("aegis:telegram-alert", telegramAlertHandler);
+      }
       es?.close();
       clearTimeout(reconnect);
     };
@@ -661,6 +701,10 @@ export default function AttackFlowPage() {
 
   // ── Packet position ──────────────────────────────────────────────────────
   function pos(p: Packet) {
+    if (p.arrivedAt) {
+      const endpoint = NODES[p.path[p.path.length - 1]];
+      if (endpoint) return { x: endpoint.x, y: endpoint.y };
+    }
     const a = NODES[p.path[p.seg]];
     const b = NODES[p.path[p.seg + 1]];
     if (!a || !b) return { x: -100, y: -100 };

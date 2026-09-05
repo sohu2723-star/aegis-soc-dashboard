@@ -245,7 +245,17 @@ export function useSSE() {
       // Dispatch custom event so sound-alert hook can play a tone
       try {
         const data = JSON.parse(e.data ?? "{}");
-        if (data.eventId) markLiveFeedTelegram(data.eventId, data.telegramSent !== false);
+        // Only mark the feed after the API confirms that Telegram delivery
+        // actually succeeded. Alert rows can exist even when Telegram is
+        // unavailable or disabled.
+        if (data.eventId && data.telegramSent === true) {
+          markLiveFeedTelegram(data.eventId, true);
+          // The Threat Map listens to this event so it still animates when
+          // its page-local EventSource is reconnecting.
+          window.dispatchEvent(new CustomEvent("aegis:telegram-alert", {
+            detail: data,
+          }));
+        }
         const alertSeverity = String(data.severity ?? "").toLowerCase();
         const alertKey = data.eventId ? `${data.eventId}:${alertSeverity}` : "";
         if (alertKey && announcedAlertsRef.current.has(alertKey)) return;
@@ -255,11 +265,9 @@ export function useSSE() {
             announcedAlertsRef.current.delete(announcedAlertsRef.current.values().next().value as string);
           }
         }
-        // Some backend paths may emit the alert row without a preceding
-        // security_event packet. Keep the global Viewing bar in sync too.
-        window.dispatchEvent(new CustomEvent("aegis:security-event", {
-          detail: { ...data, type: data.type ?? "attack", severity: alertSeverity },
-        }));
+        // Do not forward an alert as a security_event. Alert payloads use
+        // eventId and usually do not carry the attack's source/target, so
+        // doing that creates a phantom packet in the Threat Map.
         if (alertSeverity === "critical" || alertSeverity === "high") {
           window.dispatchEvent(new CustomEvent("aegis:alert", {
             detail: { ...data, severity: alertSeverity },
