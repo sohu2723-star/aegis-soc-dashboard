@@ -99,6 +99,20 @@ export function useSSE() {
       telegram: false,
       toolUsed: data.toolUsed ?? undefined,
       signatureText: data.signatureText ?? undefined,
+      destinationIp: data.destinationIp ?? data.destIp ?? undefined,
+      destinationPort: Number.isFinite(Number(data.destinationPort ?? data.destPort))
+        ? Number(data.destinationPort ?? data.destPort)
+        : undefined,
+      protocol: data.protocol ?? data.proto ?? undefined,
+      packets: Number.isFinite(Number(data.packets)) ? Number(data.packets) : undefined,
+      bytes: Number.isFinite(Number(data.bytes)) ? Number(data.bytes) : undefined,
+      sourceCountry: data.sourceCountry ?? data.country ?? undefined,
+      sourceLat: Number.isFinite(Number(data.sourceLat ?? data.latitude))
+        ? Number(data.sourceLat ?? data.latitude)
+        : undefined,
+      sourceLng: Number.isFinite(Number(data.sourceLng ?? data.longitude))
+        ? Number(data.sourceLng ?? data.longitude)
+        : undefined,
     });
 
     // Paint the persisted event immediately instead of waiting for the

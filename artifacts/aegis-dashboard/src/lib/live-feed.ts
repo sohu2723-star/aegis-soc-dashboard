@@ -15,6 +15,14 @@ export interface StoredLiveFeedEntry {
   toolUsed?: string;
   signatureText?: string;
   ruleName?: string;
+  destinationIp?: string;
+  destinationPort?: number;
+  protocol?: string;
+  packets?: number;
+  bytes?: number;
+  sourceCountry?: string;
+  sourceLat?: number;
+  sourceLng?: number;
 }
 
 function isBrowser() {

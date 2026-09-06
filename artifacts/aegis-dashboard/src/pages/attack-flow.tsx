@@ -203,6 +203,76 @@ interface LogEntry {
   toolUsed?: string;     // fail2ban | suricata | ssh_watcher | modsecurity | …
   signatureText?: string;// detection rule / signature snippet
   ruleName?: string;     // defense rule name (defense_action events)
+  destinationIp?: string;
+  destinationPort?: number;
+  protocol?: string;
+  packets?: number;
+  bytes?: number;
+  sourceCountry?: string;
+  sourceLat?: number;
+  sourceLng?: number;
+}
+
+type TrafficKind = "external" | "internal" | "management";
+
+interface TrafficFlow {
+  id: string;
+  sourceIp: string;
+  destination: string;
+  destinationKey?: NodeKey;
+  sourceCountry?: string;
+  sourceLat?: number;
+  sourceLng?: number;
+  destinationPort?: number;
+  protocol?: string;
+  packets?: number;
+  bytes?: number;
+  severity: string;
+  kind: TrafficKind;
+  observedAt: string;
+}
+
+function targetNodeKey(value: string | null | undefined): NodeKey | undefined {
+  const t = String(value ?? "").trim().toLowerCase().replace(/\s*\(.*$/, "");
+  if (t === "10.10.10.10" || t.includes("web") || t.includes("apache") || t.includes("dvwa")) return "companyweb";
+  if (t === "10.10.10.20" || t.includes("dns") || t.includes("bind")) return "dnsserver";
+  if (t === "10.20.20.10" || t.includes("db") || t.includes("customer") || t.includes("mysql") || t.includes("postgres")) return "customerdb";
+  if (t === "10.20.20.20" || t.includes("ldap") || t.includes("slapd") || t.includes("openldap")) return "ldapserver";
+  if (t.includes("forwarder") || t === "10.30.30.10" || t === "aegis-company-admin") return "forwarder";
+  if (t.includes("pfsense") || t === "10.0.23.2" || t === "10.30.30.1") return "pfsense";
+  if (t === "aegis" || t.includes("dashboard")) return "aegis";
+  return undefined;
+}
+
+function isInternalLabAddress(value: string | null | undefined) {
+  const ip = String(value ?? "").trim().toLowerCase();
+  return ip === "aegis" || ip === "aegis-forwarder"
+    || ip.startsWith("10.10.") || ip.startsWith("10.20.") || ip.startsWith("10.30.")
+    || ip === "10.0.23.1" || ip === "10.0.23.2";
+}
+
+function trafficKind(entry: LogEntry): TrafficKind {
+  if (isInternalLabAddress(entry.srcIp)) {
+    return entry.srcIp.toLowerCase().includes("forwarder") || targetNodeKey(entry.srcIp) === "forwarder"
+      ? "management"
+      : "internal";
+  }
+  return "external";
+}
+
+function sourceAnchor(sourceIp: string, index: number, lat?: number, lng?: number) {
+  // Geo coordinates are optional ingest enrichment. Without them, keep the
+  // real source IP on an honest Internet edge lane rather than inventing a
+  // country location.
+  if (typeof lat === "number" && typeof lng === "number") {
+    return {
+      x: 22 + ((Math.max(-180, Math.min(180, lng)) + 180) / 360) * 265,
+      y: 48 + ((90 - Math.max(-90, Math.min(90, lat))) / 180) * 470,
+    };
+  }
+  let hash = index * 47;
+  for (const char of sourceIp) hash = (hash * 31 + char.charCodeAt(0)) % 430;
+  return { x: 25, y: 70 + (hash % 430) };
 }
 
 // ── Module-level cache: survives route changes (unmount → remount) ─────────────
@@ -227,6 +297,8 @@ export default function AttackFlowPage() {
   const [attackerIp, setAttackerIp] = useState<string>(() => _attackerIpCache);
   // Data flow diagram toggle
   const [showDataFlow, setShowDataFlow] = useState(false);
+  // Attack View remains the default; Traffic View is a quieter telemetry lens.
+  const [viewMode, setViewMode] = useState<"attack" | "traffic">("attack");
   // Increments each time a real SSE security_event arrives — drives DataFlowDiagram
   const [lastEventTs, setLastEventTs] = useState(0);
 
@@ -264,6 +336,20 @@ export default function AttackFlowPage() {
           telegram: false,
           toolUsed: row.toolUsed ?? undefined,
           signatureText: row.signatureText ?? undefined,
+            destinationIp: row.destinationIp ?? row.destIp ?? undefined,
+            destinationPort: Number.isFinite(Number(row.destinationPort ?? row.destPort))
+              ? Number(row.destinationPort ?? row.destPort)
+              : undefined,
+            protocol: row.protocol ?? row.proto ?? undefined,
+            packets: Number.isFinite(Number(row.packets)) ? Number(row.packets) : undefined,
+            bytes: Number.isFinite(Number(row.bytes)) ? Number(row.bytes) : undefined,
+            sourceCountry: row.sourceCountry ?? row.country ?? undefined,
+            sourceLat: Number.isFinite(Number(row.sourceLat ?? row.latitude))
+              ? Number(row.sourceLat ?? row.latitude)
+              : undefined,
+            sourceLng: Number.isFinite(Number(row.sourceLng ?? row.longitude))
+              ? Number(row.sourceLng ?? row.longitude)
+              : undefined,
         }));
         setLog(previous => {
           const cutoff = liveFeedCutoffMs();
@@ -519,6 +605,16 @@ export default function AttackFlowPage() {
           telegram: false,
           toolUsed: typeof ev.toolUsed === "string" ? ev.toolUsed : undefined,
           signatureText: typeof ev.signatureText === "string" ? ev.signatureText : undefined,
+           destinationIp: typeof ev.destinationIp === "string" ? ev.destinationIp : typeof ev.destIp === "string" ? ev.destIp : undefined,
+           destinationPort: Number.isFinite(Number(ev.destinationPort ?? ev.destPort))
+             ? Number(ev.destinationPort ?? ev.destPort)
+             : undefined,
+           protocol: typeof ev.protocol === "string" ? ev.protocol : typeof ev.proto === "string" ? ev.proto : undefined,
+           packets: Number.isFinite(Number(ev.packets)) ? Number(ev.packets) : undefined,
+           bytes: Number.isFinite(Number(ev.bytes)) ? Number(ev.bytes) : undefined,
+           sourceCountry: typeof ev.sourceCountry === "string" ? ev.sourceCountry : typeof ev.country === "string" ? ev.country : undefined,
+           sourceLat: Number.isFinite(Number(ev.sourceLat ?? ev.latitude)) ? Number(ev.sourceLat ?? ev.latitude) : undefined,
+           sourceLng: Number.isFinite(Number(ev.sourceLng ?? ev.longitude)) ? Number(ev.sourceLng ?? ev.longitude) : undefined,
         }, ...prev]);
       } catch { /* skip malformed */ }
     };
@@ -743,6 +839,33 @@ export default function AttackFlowPage() {
     }
   }
 
+  // Traffic View uses persisted/live event telemetry only. It deliberately
+  // does not create a background stream of fake packets when no sensor data
+  // exists. A forwarder can add destination/geo metadata later without
+  // changing the visualization contract.
+  const trafficFlows: TrafficFlow[] = log
+    .filter(e => !e.defense && e.srcIp !== "?" && e.target !== "?")
+    .slice(0, 32)
+    .map((entry, index) => ({
+      id: `flow-${entry.id}`,
+      sourceIp: entry.srcIp,
+      destination: entry.destinationIp ?? entry.target,
+      destinationKey: targetNodeKey(entry.destinationIp ?? entry.target),
+      sourceCountry: entry.sourceCountry,
+      sourceLat: entry.sourceLat,
+      sourceLng: entry.sourceLng,
+      destinationPort: entry.destinationPort,
+      protocol: entry.protocol,
+      packets: entry.packets,
+      bytes: entry.bytes,
+      severity: entry.severity,
+      kind: trafficKind(entry),
+      observedAt: entry.ts,
+    }));
+  const internalFlowCount = trafficFlows.filter(flow => flow.kind === "internal").length;
+  const managementFlowCount = trafficFlows.filter(flow => flow.kind === "management").length;
+  const externalFlowCount = trafficFlows.filter(flow => flow.kind === "external").length;
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-background text-foreground overflow-y-auto lg:flex-row lg:overflow-hidden">
 
@@ -764,9 +887,29 @@ export default function AttackFlowPage() {
           <span className="text-xs font-mono text-muted-foreground">
             IN-FLIGHT: <span className="text-yellow-400 font-bold">{liveCount}</span>
           </span>
+           <div className="flex items-center gap-1 rounded-md border border-border/70 bg-background/40 p-0.5 shrink-0">
+             <button
+               type="button"
+               onClick={() => setViewMode("attack")}
+               className={`px-2 py-1 rounded text-[9px] font-mono font-bold transition-colors ${
+                 viewMode === "attack" ? "bg-red-500/15 text-red-300 border border-red-500/30" : "text-muted-foreground hover:text-foreground"
+               }`}
+             >
+               ATTACK VIEW
+             </button>
+             <button
+               type="button"
+               onClick={() => setViewMode("traffic")}
+               className={`px-2 py-1 rounded text-[9px] font-mono font-bold transition-colors ${
+                 viewMode === "traffic" ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30" : "text-muted-foreground hover:text-foreground"
+               }`}
+             >
+               TRAFFIC VIEW
+             </button>
+           </div>
           <div className="flex-1" />
           <span className="text-[10px] font-mono text-muted-foreground/50 uppercase tracking-widest">
-            AEGIS · Live Threat Map
+             AEGIS · {viewMode === "attack" ? "Live Threat Map" : "Network Telemetry"}
           </span>
         </div>
 
@@ -804,6 +947,35 @@ export default function AttackFlowPage() {
             <rect width={VW} height={VH} fill="var(--threat-map-bg)" rx="8" />
             <rect width={VW} height={VH} fill="url(#af-grid)" rx="8" />
 
+             {viewMode === "traffic" && (
+               <>
+                 {/* The left lane is intentionally an Internet edge, not a
+                     fabricated world map. Geo-enriched events are placed
+                     inside it; other events stay anchored to their real IP. */}
+                 <rect x="12" y="38" width="276" height="504" rx="10"
+                   fill="rgba(249,115,22,0.025)" stroke="rgba(249,115,22,0.16)"
+                   strokeDasharray="4 7" />
+                 <text x="28" y="58" fontSize="8" fill="#fb923c" fontFamily="monospace"
+                   fontWeight="bold" letterSpacing="1.5">INTERNET / EXTERNAL</text>
+                 <text x="28" y="71" fontSize="7" fill="var(--threat-map-subtext)"
+                   fontFamily="monospace">REAL EVENT SOURCES</text>
+                 <line x1="278" y1="82" x2="278" y2="518"
+                   stroke="rgba(249,115,22,0.22)" strokeDasharray="2 7" />
+                 <TrafficArcs flows={trafficFlows} />
+                 <g transform="translate(300, 42)">
+                   <rect width="266" height="30" rx="5" fill="var(--threat-map-toast)"
+                     stroke="rgba(34,197,94,0.35)" />
+                   <circle cx="14" cy="15" r="4" fill="#22c55e" />
+                   <text x="25" y="13" fontSize="7.5" fill="#86efac" fontFamily="monospace" fontWeight="bold">
+                     LIVE NETWORK TELEMETRY
+                   </text>
+                   <text x="25" y="23" fontSize="6.5" fill="var(--threat-map-toast-muted)" fontFamily="monospace">
+                     {trafficFlows.length ? "Derived from persisted security events" : "Waiting for a sensor event"}
+                   </text>
+                 </g>
+               </>
+             )}
+
             {/* Zone labels */}
             <text x={16} y={20} fontSize="8" fill="var(--threat-map-origin)" fontFamily="monospace" fontWeight="bold" letterSpacing="2">ORIGIN</text>
             <text x={308} y={20} fontSize="8" fill="var(--threat-map-perimeter)" fontFamily="monospace" fontWeight="bold" letterSpacing="2">PERIMETER</text>
@@ -826,8 +998,9 @@ export default function AttackFlowPage() {
                   key={`e-${a}-${b}`}
                   x1={na.x} y1={na.y} x2={nb.x} y2={nb.y}
                   stroke="var(--threat-map-edge)"
-                  strokeWidth="1.5"
+                   strokeWidth={viewMode === "traffic" ? 1 : 1.5}
                   strokeDasharray="6 5"
+                   opacity={viewMode === "traffic" ? 0.38 : 1}
                 />
               );
             })}
@@ -843,6 +1016,7 @@ export default function AttackFlowPage() {
                     stroke="var(--threat-map-management-edge)"
                     strokeWidth="1.2"
                     strokeDasharray="2 5"
+                     opacity={viewMode === "traffic" ? 0.3 : 1}
                   />
                 </g>
               );
@@ -873,7 +1047,7 @@ export default function AttackFlowPage() {
             })}
 
             {/* ── Packets ───────────────────────────────────────────────── */}
-            {packets.map(p => {
+             {viewMode === "attack" && packets.map(p => {
               const { x, y } = pos(p);
               const col = p.isTg ? "#29b6f6" : p.blocked ? "#ef4444" : (SEV_COLOR[p.severity] ?? "#f59e0b");
               // Size by severity: bigger = more dangerous
@@ -928,7 +1102,7 @@ export default function AttackFlowPage() {
             {(Object.entries(NODES) as [NodeKey, typeof NODES[NodeKey]][]).map(([key, n]) => {
               const isAlert    = alertNodes.has(key);
               const isPulse    = pulseNodes.has(key);
-              const attackCol  = nodeAttackColors.get(key);   // live attack glow color
+               const attackCol  = viewMode === "attack" ? nodeAttackColors.get(key) : undefined;   // live attack glow color
               const strokeCol  = isAlert ? "#ef4444" : attackCol ?? n.color;
               const strokeW    = isAlert ? 2.5 : attackCol ? 2.0 : 1.5;
 
@@ -1052,13 +1226,17 @@ export default function AttackFlowPage() {
 
             {/* Legend */}
             <g transform={`translate(16,${VH - 18})`}>
-              {[
-                { col: "#ef4444", label: "Critical" },
-                { col: "#f97316", label: "High" },
-                { col: "#f59e0b", label: "Medium" },
-                { col: "#22c55e", label: "Low / Defense" },
-                { col: "#06b6d4", label: "Info" },
-              ].map((l, i) => (
+               {(viewMode === "traffic" ? [
+                 { col: "#f97316", label: "External" },
+                 { col: "#22c55e", label: "Internal" },
+                 { col: "#06b6d4", label: "Management" },
+               ] : [
+                 { col: "#ef4444", label: "Critical" },
+                 { col: "#f97316", label: "High" },
+                 { col: "#f59e0b", label: "Medium" },
+                 { col: "#22c55e", label: "Low / Defense" },
+                 { col: "#06b6d4", label: "Info" },
+               ]).map((l, i) => (
                 <g key={l.label} transform={`translate(${i * 115}, 0)`}>
                   <circle cx={5} cy={5} r={5} fill={l.col} opacity={0.9} />
                   <text x={14} y={9} fontSize="8" fill="var(--threat-map-legend)" fontFamily="monospace">{l.label}</text>
@@ -1127,6 +1305,27 @@ export default function AttackFlowPage() {
             <span className="text-[9px] font-mono text-muted-foreground pl-1 shrink-0">{log.length}</span>
           )}
         </div>
+
+        {viewMode === "traffic" && !showDataFlow && (
+          <div className="px-2.5 py-2 border-b border-border/70 bg-emerald-500/[0.03]">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[9px] font-mono font-bold text-emerald-300 uppercase tracking-widest">
+                Observed flows
+              </span>
+              <span className="text-[9px] font-mono text-muted-foreground">
+                {trafficFlows.length} / 32
+              </span>
+            </div>
+            <div className="grid grid-cols-3 gap-1">
+              <TrafficMetric label="External" value={externalFlowCount} color="#f97316" />
+              <TrafficMetric label="Internal" value={internalFlowCount} color="#22c55e" />
+              <TrafficMetric label="Mgmt" value={managementFlowCount} color="#06b6d4" />
+            </div>
+            <p className="mt-2 text-[8.5px] leading-relaxed text-muted-foreground/70">
+              Only real events received by AEGIS are shown. Normal packet capture requires a NetFlow/IPFIX sensor.
+            </p>
+          </div>
+        )}
 
         {showDataFlow ? (
           <DataFlowDiagram lastEventTs={lastEventTs} />
@@ -1225,6 +1424,18 @@ export default function AttackFlowPage() {
   );
 }
 
+function TrafficMetric({ label, value, color }: { label: string; value: number; color: string }) {
+  return (
+    <div className="rounded border border-border/70 bg-background/30 px-1.5 py-1">
+      <div className="flex items-center gap-1">
+        <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />
+        <span className="text-[8px] font-mono text-muted-foreground">{label}</span>
+      </div>
+      <p className="mt-0.5 text-sm font-mono font-bold" style={{ color }}>{value}</p>
+    </div>
+  );
+}
+
 // ── Reverse DNS label — fetches PTR record and shows hostname ─────────────────
 const _rdnsMem = new Map<string, string>();
 
@@ -1247,6 +1458,78 @@ function RdnsLabel({ ip }: { ip: string }) {
     <span className="font-mono text-cyan-400" title={hostname ? `${hostname} (${ip})` : ip}>
       {hostname || ip}
     </span>
+  );
+}
+
+// ── Traffic View overlay ──────────────────────────────────────────────────────
+// A flow is an observed event, not a synthetic heartbeat. External sources
+// stay on the Internet edge unless the ingest payload includes geo coordinates.
+function TrafficArcs({ flows }: { flows: TrafficFlow[] }) {
+  return (
+    <g>
+      {flows.map((flow, index) => {
+        const destination = flow.destinationKey ? NODES[flow.destinationKey] : undefined;
+        if (!destination) return null;
+
+        const sourceKey = targetNodeKey(flow.sourceIp);
+        const source = flow.kind !== "external" && sourceKey ? NODES[sourceKey] : undefined;
+        const start = source
+          ? { x: source.x, y: source.y }
+          : sourceAnchor(flow.sourceIp, index, flow.sourceLat, flow.sourceLng);
+        if (source && sourceKey === flow.destinationKey) return null;
+
+        const bend = source
+          ? Math.max(24, Math.min(110, Math.abs(destination.x - start.x) * 0.22))
+          : 64;
+        const controlX = start.x + (destination.x - start.x) * 0.52;
+        const controlY = (start.y + destination.y) / 2 + (index % 2 === 0 ? -bend : bend);
+        const path = `M ${start.x} ${start.y} Q ${controlX} ${controlY} ${destination.x} ${destination.y}`;
+        const pathId = `traffic-path-${flow.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+        const color = flow.kind === "internal"
+          ? "#22c55e"
+          : flow.kind === "management"
+            ? "#06b6d4"
+            : (SEV_COLOR[flow.severity] ?? "#f97316");
+        const sourceLabel = flow.sourceCountry
+          ? `${flow.sourceCountry} · ${flow.sourceIp}`
+          : flow.sourceIp;
+        const details = [
+          `${sourceLabel} → ${flow.destination}`,
+          flow.protocol && flow.destinationPort ? `${flow.protocol.toUpperCase()} :${flow.destinationPort}` : flow.protocol?.toUpperCase(),
+          flow.packets != null ? `${flow.packets.toLocaleString()} packets` : undefined,
+          flow.bytes != null ? `${formatBytes(flow.bytes)}` : undefined,
+          flow.kind.toUpperCase(),
+        ].filter(Boolean).join(" · ");
+
+        return (
+          <g key={flow.id}>
+            <title>{details}</title>
+            <path
+              id={pathId}
+              d={path}
+              fill="none"
+              stroke={color}
+              strokeWidth={flow.kind === "external" ? 1.8 : 1.5}
+              strokeOpacity={flow.kind === "external" ? 0.62 : 0.7}
+              strokeDasharray={flow.kind === "management" ? "3 5" : "7 5"}
+            />
+            <circle r={flow.kind === "internal" ? 4 : 3.5} fill={color} opacity="0.95">
+              <animateMotion
+                dur={`${Math.max(1.8, 4.4 - Math.min(flow.packets ?? 0, 1000) / 1000)}s`}
+                repeatCount="indefinite"
+                path={path}
+              />
+            </circle>
+            {!source && (
+              <circle cx={start.x} cy={start.y} r="3" fill={color} opacity="0.85">
+                <animate attributeName="r" values="2.5;5;2.5" dur="1.8s" repeatCount="indefinite" />
+                <animate attributeName="opacity" values="0.85;0.25;0.85" dur="1.8s" repeatCount="indefinite" />
+              </circle>
+            )}
+          </g>
+        );
+      })}
+    </g>
   );
 }
 
@@ -1731,6 +2014,14 @@ function now() {
   return new Date().toLocaleTimeString("en-US", { hour12: false });
 }
 
+function formatBytes(value: number) {
+  if (!Number.isFinite(value) || value < 0) return "—";
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(value / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
 function toLogEntry(entry: StoredLiveFeedEntry): LogEntry {
   return {
     id: entry.id,
@@ -1747,5 +2038,13 @@ function toLogEntry(entry: StoredLiveFeedEntry): LogEntry {
     toolUsed: entry.toolUsed,
     signatureText: entry.signatureText,
     ruleName: entry.ruleName,
+    destinationIp: entry.destinationIp,
+    destinationPort: entry.destinationPort,
+    protocol: entry.protocol,
+    packets: entry.packets,
+    bytes: entry.bytes,
+    sourceCountry: entry.sourceCountry,
+    sourceLat: entry.sourceLat,
+    sourceLng: entry.sourceLng,
   };
 }
