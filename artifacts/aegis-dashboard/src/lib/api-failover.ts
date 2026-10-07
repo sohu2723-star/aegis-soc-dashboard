@@ -2,7 +2,7 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 export const RAILWAY_API_URL = (
   import.meta.env.VITE_RAILWAY_API_URL ??
-  "https://aegis-api-server-production.up.railway.app"
+  "https://aegis-soc-dashboard-production.up.railway.app"
 ).replace(/\/$/, "");
 
 const RETRYABLE_STATUSES = new Set([500, 502, 503, 504]);
@@ -20,7 +20,7 @@ function buildBackupUrl(path: string): string {
 }
 
 /**
- * Read-only API requests use Render first and Railway only when the primary
+ * Read-only API requests use the Vercel rewrite first and Railway directly when the primary
  * endpoint is unreachable or returns a gateway/service failure. Mutating
  * requests never fail over automatically because retrying a write can create
  * duplicate registrations or commands.

@@ -285,7 +285,7 @@ sudo cp aegis_forwarder.local.conf.example aegis_forwarder.local.conf
 sudo nano aegis_forwarder.local.conf`} />
 
               <CodeBlock language="ini" code={`# aegis_forwarder.local.conf — AEGIS VM hub settings
-AEGIS_URL=https://aegis-api-server-jp3b.onrender.com/api
+AEGIS_URL=https://aegis-soc-dashboard-production.up.railway.app/api
 AEGIS_KEY=your-ingest-key
 AEGIS_ADMIN_KEY=your-admin-key
 

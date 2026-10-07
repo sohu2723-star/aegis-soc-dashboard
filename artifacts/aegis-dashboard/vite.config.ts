@@ -10,7 +10,7 @@ const port = Number(rawPort);
 const basePath = process.env.BASE_PATH ?? "/";
 
 const localApiUrl = `http://localhost:${process.env.API_PORT ?? 3000}`;
-const renderApiUrl = "https://aegis-api-server-jp3b.onrender.com";
+const renderApiUrl = "https://aegis-soc-dashboard-production.up.railway.app";
 
 async function resolveApiUrl() {
   // An explicit URL is always authoritative for CI, preview, or a custom
@@ -27,7 +27,7 @@ async function resolveApiUrl() {
   }
 
   // Keep the dashboard usable when the local API workflow is unavailable.
-  // Render is the deployed API and exposes the same /api routes, including
+  // Railway is the deployed API and exposes the same /api routes, including
   // the SSE stream used by the live notification path.
   return renderApiUrl;
 }
